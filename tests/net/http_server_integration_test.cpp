@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -62,6 +63,7 @@ class HttpServerFixture : public ::testing::Test {
 
     http::request<http::string_body> request{http::verb::post, "/sessions", 11};
     request.set(http::field::host, "127.0.0.1");
+    request.set(http::field::authorization, "Bearer token_p_1");
     request.set(http::field::content_type, "application/json");
     request.body() = "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}";
     request.prepare_payload();
@@ -75,12 +77,75 @@ class HttpServerFixture : public ::testing::Test {
     return response.body();
   }
 
+  static void StartPairing() {
+    asio::io_context io_context;
+    tcp::resolver resolver(io_context);
+    tcp::socket socket(io_context);
+    const auto results = resolver.resolve("127.0.0.1", "18088");
+    asio::connect(socket, results);
+
+    http::request<http::string_body> request{http::verb::post, "/pairing/request", 11};
+    request.set(http::field::host, "127.0.0.1");
+    request.set(http::field::content_type, "application/json");
+    request.body() = "{\"deviceName\":\"integration-browser\",\"deviceType\":\"browser\"}";
+    request.prepare_payload();
+
+    http::write(socket, request);
+    beast::flat_buffer buffer;
+    http::response<http::string_body> response;
+    http::read(socket, buffer, response);
+    EXPECT_EQ(response.result(), http::status::created);
+  }
+
+  static auto ApprovePairing() -> std::optional<std::string> {
+    asio::io_context io_context;
+    tcp::resolver resolver(io_context);
+    tcp::socket socket(io_context);
+    const auto results = resolver.resolve("127.0.0.1", "18088");
+    asio::connect(socket, results);
+
+    http::request<http::string_body> request{http::verb::post, "/pairing/approve", 11};
+    request.set(http::field::host, "127.0.0.1");
+    request.set(http::field::content_type, "application/json");
+    request.body() = "{\"pairingId\":\"p_1\",\"code\":\"100001\"}";
+    request.prepare_payload();
+
+    http::write(socket, request);
+    beast::flat_buffer buffer;
+    http::response<http::string_body> response;
+    http::read(socket, buffer, response);
+    if (response.result() != http::status::ok) {
+      return std::nullopt;
+    }
+
+    const auto token_pos = response.body().find("\"token\":\"");
+    if (token_pos == std::string::npos) {
+      return std::nullopt;
+    }
+
+    const auto start = token_pos + std::string("\"token\":\"").size();
+    const auto end = response.body().find('"', start);
+    if (end == std::string::npos) {
+      return std::nullopt;
+    }
+
+    return response.body().substr(start, end - start);
+  }
+
+  static auto EnsureApprovedToken() -> std::string {
+    StartPairing();
+    const auto token = ApprovePairing();
+    EXPECT_TRUE(token.has_value());
+    return token.value_or("");
+  }
+
   std::atomic<bool> started_{false};
   HttpServer* server_{nullptr};
   std::thread server_thread_;
 };
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -91,6 +156,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -112,6 +181,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -122,6 +192,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -138,6 +212,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
 
   http::request<http::string_body> stop_request{http::verb::post, "/sessions/s_1/stop", 11};
   stop_request.set(http::field::host, "127.0.0.1");
+  stop_request.set(http::field::authorization, "Bearer " + token);
   stop_request.prepare_payload();
   http::write(stop_socket, stop_request);
   beast::flat_buffer stop_buffer;
@@ -159,6 +234,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -169,6 +245,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -186,6 +266,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -196,6 +277,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -226,6 +311,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -236,6 +322,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -252,6 +342,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
+  const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
@@ -262,6 +353,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
   websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
@@ -281,6 +376,87 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   const std::string release_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(release_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, SessionRoutesRejectMissingBearerToken) {
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  tcp::socket socket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", "18088");
+  asio::connect(socket, results);
+
+  http::request<http::string_body> request{http::verb::get, "/sessions", 11};
+  request.set(http::field::host, "127.0.0.1");
+  http::write(socket, request);
+
+  beast::flat_buffer buffer;
+  http::response<http::string_body> response;
+  http::read(socket, buffer, response);
+  EXPECT_EQ(response.result(), http::status::unauthorized);
+}
+
+TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
+  const std::string token = EnsureApprovedToken();
+  const std::string create_response = CreateSession();
+  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", "18088");
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  boost::system::system_error error(http::error::end_of_stream);
+  try {
+    websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  } catch (const boost::system::system_error& exception) {
+    error = exception;
+  }
+
+  EXPECT_EQ(error.code(), websocket::error::upgrade_declined);
+}
+
+TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {
+  StartPairing();
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  tcp::socket socket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", "18088");
+  asio::connect(socket, results);
+
+  http::request<http::string_body> pending_request{http::verb::get, "/pairing/pending", 11};
+  pending_request.set(http::field::host, "127.0.0.1");
+  http::write(socket, pending_request);
+
+  beast::flat_buffer pending_buffer;
+  http::response<http::string_body> pending_response;
+  http::read(socket, pending_buffer, pending_response);
+  EXPECT_EQ(pending_response.result(), http::status::ok);
+  EXPECT_NE(pending_response.body().find("\"pairingId\":\"p_1\""), std::string::npos);
+
+  boost::system::error_code error_code;
+  socket.shutdown(tcp::socket::shutdown_both, error_code);
+
+  asio::io_context config_io_context;
+  tcp::resolver config_resolver(config_io_context);
+  tcp::socket config_socket(config_io_context);
+  const auto config_results = config_resolver.resolve("127.0.0.1", "18088");
+  asio::connect(config_socket, config_results);
+
+  http::request<http::string_body> config_request{http::verb::post, "/host/config", 11};
+  config_request.set(http::field::host, "127.0.0.1");
+  config_request.set(http::field::content_type, "application/json");
+  config_request.body() = R"({"displayName":"Updated Host"})";
+  config_request.prepare_payload();
+  http::write(config_socket, config_request);
+
+  beast::flat_buffer config_buffer;
+  http::response<http::string_body> config_response;
+  http::read(config_socket, config_buffer, config_response);
+  EXPECT_EQ(config_response.result(), http::status::ok);
+  EXPECT_NE(config_response.body().find("\"displayName\":\"Updated Host\""), std::string::npos);
 }
 
 }  // namespace

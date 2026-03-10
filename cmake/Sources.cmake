@@ -4,6 +4,7 @@ set(VIBE_CORE_SOURCES
   src/cli/daemon_client.cpp
   src/net/json.cpp
   src/net/request_parsing.cpp
+  src/net/local_auth.cpp
   src/net/http_server.cpp
   src/net/http_shared.cpp
   src/net/websocket_shared.cpp
