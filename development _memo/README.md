@@ -11,8 +11,9 @@ This folder contains initiative documents and the implementation-ready design se
 5. [session_runtime_and_pty.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/session_runtime_and_pty.md)
 6. [api_and_event_schema.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/api_and_event_schema.md)
 7. [implementation_milestones.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/implementation_milestones.md)
-8. [build_and_test.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/build_and_test.md)
-9. [tdd_policy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/tdd_policy.md)
+8. [mvp_checklist.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/mvp_checklist.md)
+9. [build_and_test.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/build_and_test.md)
+10. [tdd_policy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/tdd_policy.md)
 
 ## Purpose of Each Document
 
@@ -23,5 +24,6 @@ This folder contains initiative documents and the implementation-ready design se
 - `session_runtime_and_pty.md`: runtime ownership, PTY model, replay, and delivery rules
 - `api_and_event_schema.md`: REST and WebSocket contract draft
 - `implementation_milestones.md`: milestone breakdown and acceptance criteria
+- `mvp_checklist.md`: MVP acceptance flows and non-goals
 - `build_and_test.md`: canonical local build and test workflow
 - `tdd_policy.md`: test-first expectations and exceptions

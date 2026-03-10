@@ -14,6 +14,7 @@ This repository is implementing `vibe-hostd`, a local-network remote session sys
 
 - Product and initiative docs live in [development _memo](/Users/shubow/dev/VibeEverywhere/development%20_memo).
 - Start with [development _memo/implementation_plan.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/implementation_plan.md).
+- MVP acceptance flows are defined in [development _memo/mvp_checklist.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/mvp_checklist.md).
 - Build and test workflow is defined in [development _memo/build_and_test.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/build_and_test.md).
 - TDD expectations are defined in [development _memo/tdd_policy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/tdd_policy.md).
 
