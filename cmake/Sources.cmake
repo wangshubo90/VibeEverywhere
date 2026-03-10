@@ -1,4 +1,6 @@
 set(VIBE_CORE_SOURCES
+  src/auth/default_authorizer.cpp
+  src/auth/default_pairing_service.cpp
   src/cli/daemon_client.cpp
   src/net/json.cpp
   src/net/request_parsing.cpp
@@ -18,6 +20,7 @@ set(VIBE_CORE_SOURCES
 )
 
 set(VIBE_TEST_SOURCES
+  tests/auth/auth_core_test.cpp
   tests/auth_store/interface_contract_test.cpp
   tests/cli/daemon_client_test.cpp
   tests/net/http_json_test.cpp
