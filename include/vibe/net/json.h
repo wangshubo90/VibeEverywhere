@@ -25,6 +25,11 @@ struct SessionExitedEvent {
   vibe::session::SessionStatus status;
 };
 
+struct ErrorEvent {
+  std::string code;
+  std::string message;
+};
+
 [[nodiscard]] auto JsonEscape(std::string_view input) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::service::SessionSummary& summary) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::service::SessionSummary>& summaries) -> std::string;
@@ -33,6 +38,7 @@ struct SessionExitedEvent {
 [[nodiscard]] auto ToJson(const TerminalOutputEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionUpdatedEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionExitedEvent& event) -> std::string;
+[[nodiscard]] auto ToJson(const ErrorEvent& event) -> std::string;
 [[nodiscard]] auto ToJsonHostInfo() -> std::string;
 
 }  // namespace vibe::net

@@ -19,6 +19,7 @@ set(VIBE_CORE_SOURCES
 set(VIBE_TEST_SOURCES
   tests/net/http_json_test.cpp
   tests/net/http_server_integration_test.cpp
+  tests/net/request_parsing_test.cpp
   tests/net/http_shared_test.cpp
   tests/net/websocket_shared_test.cpp
   tests/service/git_inspector_test.cpp

@@ -55,6 +55,62 @@ auto ParseInputRequest(const std::string& body) -> std::optional<std::string> {
   return json::value_to<std::string>(*data);
 }
 
+auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCommand> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto type = object.if_contains("type");
+  if (type == nullptr || !type->is_string()) {
+    return std::nullopt;
+  }
+
+  const std::string command_type = json::value_to<std::string>(*type);
+  if (command_type == "terminal.input") {
+    const auto data = object.if_contains("data");
+    if (data == nullptr || !data->is_string()) {
+      return std::nullopt;
+    }
+
+    return WebSocketInputCommand{
+        .data = json::value_to<std::string>(*data),
+    };
+  }
+
+  if (command_type == "terminal.resize") {
+    const auto cols = object.if_contains("cols");
+    const auto rows = object.if_contains("rows");
+    if (cols == nullptr || rows == nullptr || !cols->is_int64() || !rows->is_int64()) {
+      return std::nullopt;
+    }
+
+    const std::int64_t cols_value = cols->as_int64();
+    const std::int64_t rows_value = rows->as_int64();
+    if (cols_value <= 0 || rows_value <= 0 ||
+        cols_value > std::numeric_limits<std::uint16_t>::max() ||
+        rows_value > std::numeric_limits<std::uint16_t>::max()) {
+      return std::nullopt;
+    }
+
+    return WebSocketResizeCommand{
+        .terminal_size =
+            vibe::session::TerminalSize{
+                .columns = static_cast<std::uint16_t>(cols_value),
+                .rows = static_cast<std::uint16_t>(rows_value),
+            },
+    };
+  }
+
+  if (command_type == "session.stop") {
+    return WebSocketStopCommand{};
+  }
+
+  return std::nullopt;
+}
+
 auto ParseTailBytes(const std::string& target) -> std::size_t {
   constexpr std::size_t default_tail_bytes = 65536;
   const std::string marker = "?bytes=";

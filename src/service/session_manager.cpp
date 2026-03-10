@@ -127,6 +127,15 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
   return false;
 }
 
+auto SessionManager::ResizeSession(const std::string& session_id,
+                                   const vibe::session::TerminalSize terminal_size) -> bool {
+  if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    return entry->runtime->ResizeTerminal(terminal_size);
+  }
+
+  return false;
+}
+
 auto SessionManager::StopSession(const std::string& session_id) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
     const auto status = entry->runtime->record().metadata().status;

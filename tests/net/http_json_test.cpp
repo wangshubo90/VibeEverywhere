@@ -77,5 +77,16 @@ TEST(HttpJsonTest, SerializesSessionExitedEvent) {
   EXPECT_NE(json.find("\"status\":\"Exited\""), std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesErrorEvent) {
+  const std::string json = ToJson(ErrorEvent{
+      .code = "invalid_command",
+      .message = "invalid websocket command",
+  });
+
+  EXPECT_NE(json.find("\"type\":\"error\""), std::string::npos);
+  EXPECT_NE(json.find("\"code\":\"invalid_command\""), std::string::npos);
+  EXPECT_NE(json.find("\"message\":\"invalid websocket command\""), std::string::npos);
+}
+
 }  // namespace
 }  // namespace vibe::net

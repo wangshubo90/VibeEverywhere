@@ -18,6 +18,7 @@
 
 #include "vibe/net/http_shared.h"
 #include "vibe/net/json.h"
+#include "vibe/net/request_parsing.h"
 #include "vibe/net/websocket_shared.h"
 
 namespace vibe::net {
@@ -167,9 +168,46 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
             return;
           }
 
+          const std::string payload = beast::buffers_to_string(self->read_buffer_.data());
           self->read_buffer_.consume(self->read_buffer_.size());
+          self->HandleClientCommand(payload);
           self->DoRead();
         });
+  }
+
+  void HandleClientCommand(const std::string& payload) {
+    const auto command = ParseWebSocketCommand(payload);
+    if (!command.has_value()) {
+      QueueFrame(ToJson(ErrorEvent{
+                     .code = "invalid_command",
+                     .message = "invalid websocket command",
+                 }),
+                 last_sequence_);
+      return;
+    }
+
+    const bool handled = std::visit(
+        [this](const auto& value) -> bool {
+          using T = std::decay_t<decltype(value)>;
+          if constexpr (std::is_same_v<T, WebSocketInputCommand>) {
+            return session_manager_.SendInput(session_id_, value.data);
+          } else if constexpr (std::is_same_v<T, WebSocketResizeCommand>) {
+            return session_manager_.ResizeSession(session_id_, value.terminal_size);
+          } else if constexpr (std::is_same_v<T, WebSocketStopCommand>) {
+            return session_manager_.StopSession(session_id_);
+          }
+
+          return false;
+        },
+        *command);
+
+    if (!handled) {
+      QueueFrame(ToJson(ErrorEvent{
+                     .code = "command_rejected",
+                     .message = "command rejected for current session state",
+                 }),
+                 last_sequence_);
+    }
   }
 
   websocket::stream<tcp::socket> websocket_;

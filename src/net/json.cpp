@@ -85,6 +85,14 @@ auto ToJson(const SessionExitedEvent& event) -> std::string {
   return json::serialize(object);
 }
 
+auto ToJson(const ErrorEvent& event) -> std::string {
+  json::object object;
+  object["type"] = "error";
+  object["code"] = event.code;
+  object["message"] = event.message;
+  return json::serialize(object);
+}
+
 auto ToJsonHostInfo() -> std::string {
   json::object object;
   object["hostId"] = "local-dev-host";
