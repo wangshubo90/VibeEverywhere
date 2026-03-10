@@ -107,7 +107,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   EXPECT_NE(second_payload.find("\"type\":\"terminal.output\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"sessionId\":\"s_1\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"seqStart\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"data\""), std::string::npos);
+  EXPECT_NE(second_payload.find("\"dataEncoding\":\"base64\""), std::string::npos);
+  EXPECT_NE(second_payload.find("\"dataBase64\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {

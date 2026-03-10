@@ -42,7 +42,8 @@ TEST(HttpJsonTest, SerializesOutputSlice) {
 
   EXPECT_NE(json.find("\"seqStart\":3"), std::string::npos);
   EXPECT_NE(json.find("\"seqEnd\":4"), std::string::npos);
-  EXPECT_NE(json.find("\"data\":\"hello\\n\""), std::string::npos);
+  EXPECT_NE(json.find("\"dataEncoding\":\"base64\""), std::string::npos);
+  EXPECT_NE(json.find("\"dataBase64\":\"aGVsbG8K\""), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesTerminalOutputEvent) {
@@ -60,7 +61,8 @@ TEST(HttpJsonTest, SerializesTerminalOutputEvent) {
   EXPECT_NE(json.find("\"sessionId\":\"s_7\""), std::string::npos);
   EXPECT_NE(json.find("\"seqStart\":9"), std::string::npos);
   EXPECT_NE(json.find("\"seqEnd\":10"), std::string::npos);
-  EXPECT_NE(json.find("\"data\":\"tail\""), std::string::npos);
+  EXPECT_NE(json.find("\"dataEncoding\":\"base64\""), std::string::npos);
+  EXPECT_NE(json.find("\"dataBase64\":\"dGFpbA==\""), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {

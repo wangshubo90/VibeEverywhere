@@ -32,6 +32,7 @@ struct ErrorEvent {
 };
 
 [[nodiscard]] auto JsonEscape(std::string_view input) -> std::string;
+[[nodiscard]] auto Base64Encode(std::string_view input) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::service::SessionSummary& summary) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::service::SessionSummary>& summaries) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string;

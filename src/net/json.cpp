@@ -6,8 +6,49 @@ namespace vibe::net {
 
 namespace json = boost::json;
 
+namespace {
+
+constexpr char kBase64Alphabet[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+}  // namespace
+
 auto JsonEscape(const std::string_view input) -> std::string {
   return json::serialize(json::value(input)).substr(1, json::serialize(json::value(input)).size() - 2);
+}
+
+auto Base64Encode(const std::string_view input) -> std::string {
+  std::string encoded;
+  encoded.reserve(((input.size() + 2U) / 3U) * 4U);
+
+  std::size_t index = 0;
+  while (index + 3U <= input.size()) {
+    const auto a = static_cast<unsigned char>(input[index]);
+    const auto b = static_cast<unsigned char>(input[index + 1U]);
+    const auto c = static_cast<unsigned char>(input[index + 2U]);
+    encoded.push_back(kBase64Alphabet[(a >> 2U) & 0x3FU]);
+    encoded.push_back(kBase64Alphabet[((a & 0x03U) << 4U) | ((b >> 4U) & 0x0FU)]);
+    encoded.push_back(kBase64Alphabet[((b & 0x0FU) << 2U) | ((c >> 6U) & 0x03U)]);
+    encoded.push_back(kBase64Alphabet[c & 0x3FU]);
+    index += 3U;
+  }
+
+  const std::size_t remaining = input.size() - index;
+  if (remaining == 1U) {
+    const auto a = static_cast<unsigned char>(input[index]);
+    encoded.push_back(kBase64Alphabet[(a >> 2U) & 0x3FU]);
+    encoded.push_back(kBase64Alphabet[(a & 0x03U) << 4U]);
+    encoded.append("==");
+  } else if (remaining == 2U) {
+    const auto a = static_cast<unsigned char>(input[index]);
+    const auto b = static_cast<unsigned char>(input[index + 1U]);
+    encoded.push_back(kBase64Alphabet[(a >> 2U) & 0x3FU]);
+    encoded.push_back(kBase64Alphabet[((a & 0x03U) << 4U) | ((b >> 4U) & 0x0FU)]);
+    encoded.push_back(kBase64Alphabet[(b & 0x0FU) << 2U]);
+    encoded.push_back('=');
+  }
+
+  return encoded;
 }
 
 auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
@@ -56,7 +97,8 @@ auto ToJson(const vibe::session::OutputSlice& slice) -> std::string {
   json::object object;
   object["seqStart"] = slice.seq_start;
   object["seqEnd"] = slice.seq_end;
-  object["data"] = slice.data;
+  object["dataBase64"] = Base64Encode(slice.data);
+  object["dataEncoding"] = "base64";
   return json::serialize(object);
 }
 
@@ -66,7 +108,8 @@ auto ToJson(const TerminalOutputEvent& event) -> std::string {
   object["sessionId"] = event.session_id;
   object["seqStart"] = event.slice.seq_start;
   object["seqEnd"] = event.slice.seq_end;
-  object["data"] = event.slice.data;
+  object["dataBase64"] = Base64Encode(event.slice.data);
+  object["dataEncoding"] = "base64";
   return json::serialize(object);
 }
 

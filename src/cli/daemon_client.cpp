@@ -4,6 +4,9 @@
 #include <sys/select.h>
 #include <unistd.h>
 
+#include <signal.h>
+#include <termios.h>
+
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -13,6 +16,7 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/json.hpp>
 
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -27,6 +31,10 @@ namespace websocket = beast::websocket;
 using tcp = asio::ip::tcp;
 
 namespace {
+
+volatile sig_atomic_t g_terminal_resize_pending = 0;
+
+void HandleWindowResizeSignal(int /*signal_number*/) { g_terminal_resize_pending = 1; }
 
 auto BuildWebSocketTarget(const std::string& session_id) -> std::string {
   return "/ws/sessions/" + session_id;
@@ -46,6 +54,114 @@ auto DetectTerminalSize() -> vibe::session::TerminalSize {
   return vibe::session::TerminalSize{};
 }
 
+[[nodiscard]] auto DecodeBase64(const std::string_view input) -> std::optional<std::string> {
+  std::array<int, 256> decoding_table{};
+  decoding_table.fill(-1);
+  for (int index = 0; index < 26; ++index) {
+    decoding_table[static_cast<unsigned char>('A' + index)] = index;
+    decoding_table[static_cast<unsigned char>('a' + index)] = 26 + index;
+  }
+  for (int index = 0; index < 10; ++index) {
+    decoding_table[static_cast<unsigned char>('0' + index)] = 52 + index;
+  }
+  decoding_table[static_cast<unsigned char>('+')] = 62;
+  decoding_table[static_cast<unsigned char>('/')] = 63;
+
+  if (input.size() % 4U != 0U) {
+    return std::nullopt;
+  }
+
+  std::string decoded;
+  decoded.reserve((input.size() / 4U) * 3U);
+  for (std::size_t index = 0; index < input.size(); index += 4U) {
+    const char c0 = input[index];
+    const char c1 = input[index + 1U];
+    const char c2 = input[index + 2U];
+    const char c3 = input[index + 3U];
+
+    if (decoding_table[static_cast<unsigned char>(c0)] < 0 ||
+        decoding_table[static_cast<unsigned char>(c1)] < 0 ||
+        (c2 != '=' && decoding_table[static_cast<unsigned char>(c2)] < 0) ||
+        (c3 != '=' && decoding_table[static_cast<unsigned char>(c3)] < 0)) {
+      return std::nullopt;
+    }
+
+    const int v0 = decoding_table[static_cast<unsigned char>(c0)];
+    const int v1 = decoding_table[static_cast<unsigned char>(c1)];
+    const int v2 = c2 == '=' ? 0 : decoding_table[static_cast<unsigned char>(c2)];
+    const int v3 = c3 == '=' ? 0 : decoding_table[static_cast<unsigned char>(c3)];
+
+    decoded.push_back(static_cast<char>((v0 << 2) | (v1 >> 4)));
+    if (c2 != '=') {
+      decoded.push_back(static_cast<char>(((v1 & 0x0F) << 4) | (v2 >> 2)));
+    }
+    if (c3 != '=') {
+      decoded.push_back(static_cast<char>(((v2 & 0x03) << 6) | v3));
+    }
+  }
+
+  return decoded;
+}
+
+class ScopedSignalHandler {
+ public:
+  ScopedSignalHandler(const int signal_number, void (*handler)(int))
+      : signal_number_(signal_number), previous_handler_(std::signal(signal_number, handler)) {}
+
+  ScopedSignalHandler(const ScopedSignalHandler&) = delete;
+  auto operator=(const ScopedSignalHandler&) -> ScopedSignalHandler& = delete;
+
+  ~ScopedSignalHandler() { std::signal(signal_number_, previous_handler_); }
+
+ private:
+  int signal_number_{0};
+  using SignalHandler = void (*)(int);
+  SignalHandler previous_handler_{SIG_DFL};
+};
+
+class ScopedRawTerminalMode {
+ public:
+  ScopedRawTerminalMode() {
+    if (!isatty(STDIN_FILENO)) {
+      return;
+    }
+
+    if (tcgetattr(STDIN_FILENO, &original_attributes_) != 0) {
+      return;
+    }
+
+    termios raw_attributes = original_attributes_;
+    raw_attributes.c_iflag &= static_cast<tcflag_t>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
+    raw_attributes.c_oflag &= static_cast<tcflag_t>(~OPOST);
+    raw_attributes.c_cflag |= CS8;
+    raw_attributes.c_lflag &=
+        static_cast<tcflag_t>(~(ECHO | ICANON | IEXTEN | ISIG));
+    raw_attributes.c_cc[VMIN] = 0;
+    raw_attributes.c_cc[VTIME] = 1;
+
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_attributes) == 0) {
+      active_ = true;
+    }
+  }
+
+  ScopedRawTerminalMode(const ScopedRawTerminalMode&) = delete;
+  auto operator=(const ScopedRawTerminalMode&) -> ScopedRawTerminalMode& = delete;
+
+  ~ScopedRawTerminalMode() {
+    if (!active_) {
+      return;
+    }
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_attributes_);
+  }
+
+  [[nodiscard]] auto active() const -> bool { return active_; }
+
+ private:
+  termios original_attributes_{};
+  bool active_{false};
+};
+
 auto HandleServerMessage(const std::string& payload, int& exit_code) -> bool {
   boost::system::error_code error_code;
   const json::value parsed = json::parse(payload, error_code);
@@ -61,8 +177,13 @@ auto HandleServerMessage(const std::string& payload, int& exit_code) -> bool {
 
   const std::string message_type = json::value_to<std::string>(*type);
   if (message_type == "terminal.output") {
-    if (const auto data = object.if_contains("data"); data != nullptr && data->is_string()) {
-      std::cout << json::value_to<std::string>(*data) << std::flush;
+    if (const auto encoded = object.if_contains("dataBase64");
+        encoded != nullptr && encoded->is_string()) {
+      const auto decoded = DecodeBase64(json::value_to<std::string>(*encoded));
+      if (decoded.has_value()) {
+        std::cout.write(decoded->data(), static_cast<std::streamsize>(decoded->size()));
+        std::cout.flush();
+      }
     }
     return true;
   }
@@ -231,12 +352,28 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
     return 1;
   }
 
+  ScopedRawTerminalMode raw_terminal_mode;
+  ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
+  auto last_terminal_size = DetectTerminalSize();
   beast::flat_buffer buffer;
   int exit_code = 0;
   bool stdin_open = true;
   const int websocket_fd = ws.next_layer().native_handle();
 
   while (true) {
+    if (g_terminal_resize_pending != 0) {
+      g_terminal_resize_pending = 0;
+      const auto current_terminal_size = DetectTerminalSize();
+      if (current_terminal_size != last_terminal_size) {
+        const bool wrote_resize = write_command(BuildResizeCommand(current_terminal_size));
+        if (!wrote_resize) {
+          std::cerr << "failed to send resize update\n";
+          return 1;
+        }
+        last_terminal_size = current_terminal_size;
+      }
+    }
+
     fd_set read_fds;
     FD_ZERO(&read_fds);
     FD_SET(websocket_fd, &read_fds);
