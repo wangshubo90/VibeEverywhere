@@ -12,4 +12,5 @@ target_link_libraries(vibe_tests
 )
 
 include(GoogleTest)
-gtest_discover_tests(vibe_tests)
+gtest_discover_tests(vibe_tests TEST_LIST VIBE_DISCOVERED_TESTS)
+set_tests_properties(${VIBE_DISCOVERED_TESTS} PROPERTIES RUN_SERIAL TRUE)
