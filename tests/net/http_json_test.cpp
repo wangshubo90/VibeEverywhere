@@ -28,9 +28,16 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .status = vibe::session::SessionStatus::Running,
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
+      .is_recovered = false,
+      .is_active = true,
+      .created_at_unix_ms = 100,
+      .last_status_at_unix_ms = 200,
   });
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
+  EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesOutputSlice) {
@@ -79,6 +86,10 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .status = vibe::session::SessionStatus::Running,
               .controller_client_id = "client-1",
               .controller_kind = vibe::session::ControllerKind::Remote,
+              .is_recovered = false,
+              .is_active = true,
+              .created_at_unix_ms = 100,
+              .last_status_at_unix_ms = 200,
           },
   });
 
@@ -87,6 +98,9 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"status\":\"Running\""), std::string::npos);
   EXPECT_NE(json.find("\"controllerClientId\":\"client-1\""), std::string::npos);
   EXPECT_NE(json.find("\"controllerKind\":\"remote\""), std::string::npos);
+  EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
+  EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionExitedEvent) {
@@ -117,16 +131,23 @@ TEST(HttpJsonTest, SerializesAttachedClientInfo) {
   const std::string json = ToJson(AttachedClientInfo{
       .client_id = "ws_s_1_100",
       .session_id = "s_1",
+      .session_title = "demo",
       .client_address = "127.0.0.1",
+      .session_status = vibe::session::SessionStatus::Running,
+      .session_is_recovered = false,
       .claimed_kind = vibe::session::ControllerKind::Remote,
       .is_local = false,
       .has_control = true,
+      .connected_at_unix_ms = 300,
   });
 
   EXPECT_NE(json.find("\"clientId\":\"ws_s_1_100\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionTitle\":\"demo\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionStatus\":\"Running\""), std::string::npos);
   EXPECT_NE(json.find("\"claimedKind\":\"remote\""), std::string::npos);
   EXPECT_NE(json.find("\"hasControl\":true"), std::string::npos);
+  EXPECT_NE(json.find("\"connectedAtUnixMs\":300"), std::string::npos);
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 #define VIBE_SERVICE_SESSION_MANAGER_H
 
 #include <memory>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -31,6 +32,10 @@ struct SessionSummary {
   vibe::session::SessionStatus status;
   std::optional<std::string> controller_client_id;
   vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
+  bool is_recovered{false};
+  bool is_active{false};
+  std::optional<std::int64_t> created_at_unix_ms;
+  std::optional<std::int64_t> last_status_at_unix_ms;
 };
 
 class SessionManager {
@@ -68,6 +73,10 @@ class SessionManager {
     std::optional<vibe::session::SessionSnapshot> recovered_snapshot;
     std::optional<std::string> controller_client_id;
     vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
+    bool is_recovered{false};
+    std::optional<std::int64_t> created_at_unix_ms;
+    std::optional<std::int64_t> last_status_at_unix_ms;
+    vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;

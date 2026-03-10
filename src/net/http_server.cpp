@@ -129,6 +129,12 @@ auto GetRemoteEndpoint(const SslStream& stream) -> tcp::endpoint {
   return stream.next_layer().remote_endpoint();
 }
 
+auto CurrentUnixTimeMs() -> std::int64_t {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
 auto ExtractBearerToken(const HttpRequest& request) -> std::string {
   const auto it = request.base().find(http::field::authorization);
   if (it == request.base().end()) {
@@ -182,6 +188,7 @@ class WebSocketSessionBase {
   [[nodiscard]] virtual auto client_address() const -> const std::string& = 0;
   [[nodiscard]] virtual auto is_local_request() const -> bool = 0;
   [[nodiscard]] virtual auto claimed_kind() const -> vibe::session::ControllerKind = 0;
+  [[nodiscard]] virtual auto connected_at_unix_ms() const -> std::int64_t = 0;
 };
 
 template <typename Stream>
@@ -247,6 +254,7 @@ class WebSocketSession final : public WebSocketSessionBase,
 
           self->client_id_ = "ws_" + self->session_id_ + "_" +
                              std::to_string(reinterpret_cast<std::uintptr_t>(self.get()));
+          self->connected_at_unix_ms_ = CurrentUnixTimeMs();
           self->last_sequence_ = 1;
           (*self->websocket_registry_)[self->session_id_].push_back(self);
           self->QueueInitialEvents();
@@ -279,6 +287,9 @@ class WebSocketSession final : public WebSocketSessionBase,
   [[nodiscard]] auto is_local_request() const -> bool override { return is_local_request_; }
   [[nodiscard]] auto claimed_kind() const -> vibe::session::ControllerKind override {
     return claimed_kind_;
+  }
+  [[nodiscard]] auto connected_at_unix_ms() const -> std::int64_t override {
+    return connected_at_unix_ms_;
   }
 
   void ForceClose() override {
@@ -481,6 +492,7 @@ class WebSocketSession final : public WebSocketSessionBase,
   bool write_in_progress_{false};
   bool is_local_request_{false};
   ListenerRole listener_role_{ListenerRole::RemoteClient};
+  std::int64_t connected_at_unix_ms_{0};
 };
 
 class HostAdminService final : public vibe::net::HostAdmin {
@@ -501,10 +513,15 @@ class HostAdminService final : public vibe::net::HostAdmin {
           clients.push_back(vibe::net::AttachedClientInfo{
               .client_id = session->client_id(),
               .session_id = session->session_id(),
+              .session_title = summary.has_value() ? summary->title : "",
               .client_address = session->client_address(),
+              .session_status = summary.has_value() ? summary->status
+                                                    : vibe::session::SessionStatus::Created,
+              .session_is_recovered = summary.has_value() && summary->is_recovered,
               .claimed_kind = session->claimed_kind(),
               .is_local = session->is_local_request(),
               .has_control = controller_client_id.has_value() && *controller_client_id == session->client_id(),
+              .connected_at_unix_ms = session->connected_at_unix_ms(),
           });
         }
       }
