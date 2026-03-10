@@ -74,6 +74,32 @@ auto SessionRuntime::TerminateAndMarkExited() -> bool {
   return record_.TryTransition(SessionStatus::Exited);
 }
 
+auto SessionRuntime::Shutdown() -> bool {
+  const SessionStatus status = record_.metadata().status;
+  if (status == SessionStatus::Exited || status == SessionStatus::Error) {
+    pid_.reset();
+    return true;
+  }
+
+  if (pid_.has_value()) {
+    const bool terminated = pty_process_.Terminate();
+    if (!terminated) {
+      return false;
+    }
+    pid_.reset();
+  }
+
+  if (status == SessionStatus::Running || status == SessionStatus::AwaitingInput) {
+    return record_.TryTransition(SessionStatus::Exited);
+  }
+
+  if (status == SessionStatus::Starting) {
+    return record_.TryTransition(SessionStatus::Error);
+  }
+
+  return status == SessionStatus::Created;
+}
+
 auto SessionRuntime::MarkAwaitingInput() -> bool {
   return record_.TryTransition(SessionStatus::AwaitingInput);
 }

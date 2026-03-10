@@ -62,6 +62,7 @@ class SessionManager {
                                     vibe::session::ControllerKind controller_kind) -> bool;
   [[nodiscard]] auto ReleaseControl(const std::string& session_id, const std::string& client_id) -> bool;
   [[nodiscard]] auto HasControl(const std::string& session_id, const std::string& client_id) const -> bool;
+  [[nodiscard]] auto Shutdown() -> std::size_t;
   void PollAll(int read_timeout_ms);
 
  private:
@@ -80,6 +81,7 @@ class SessionManager {
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;
+  void ResetControllerState(SessionEntry& entry);
   void PersistEntry(const SessionEntry& entry);
   [[nodiscard]] auto MakeSessionId() const -> std::optional<vibe::session::SessionId>;
   [[nodiscard]] auto FindEntry(const std::string& session_id) -> SessionEntry*;

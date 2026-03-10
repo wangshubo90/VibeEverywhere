@@ -1,8 +1,12 @@
+#include <csignal>
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <pthread.h>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <atomic>
 #include <vector>
 
 #include "vibe/cli/daemon_client.h"
@@ -202,8 +206,40 @@ auto main(const int argc, char** argv) -> int {
       return 1;
     }
 
-    vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port, remote_tls_override);
-    return server.Run() ? 0 : 1;
+    vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port,
+                                 remote_tls_override);
+    sigset_t signal_set;
+    sigemptyset(&signal_set);
+    sigaddset(&signal_set, SIGINT);
+    sigaddset(&signal_set, SIGTERM);
+
+    sigset_t previous_signal_set;
+    if (pthread_sigmask(SIG_BLOCK, &signal_set, &previous_signal_set) != 0) {
+      std::cerr << "failed to install daemon signal mask\n";
+      return 1;
+    }
+
+    std::atomic<bool> stop_requested{false};
+    std::thread signal_thread([&server, &signal_set, &stop_requested]() {
+      int signal_number = 0;
+      if (sigwait(&signal_set, &signal_number) == 0) {
+        stop_requested.store(true);
+        server.Stop();
+      }
+    });
+
+    const int exit_code = server.Run() ? 0 : 1;
+    if (!stop_requested.exchange(true) && signal_thread.joinable()) {
+      const int wake_result = pthread_kill(signal_thread.native_handle(), SIGTERM);
+      static_cast<void>(wake_result);
+    }
+    if (signal_thread.joinable()) {
+      signal_thread.join();
+    }
+
+    const int restore_result = pthread_sigmask(SIG_SETMASK, &previous_signal_set, nullptr);
+    static_cast<void>(restore_result);
+    return exit_code;
   }
 
   if (argc >= 2 && std::string(argv[1]) == "local-pty") {

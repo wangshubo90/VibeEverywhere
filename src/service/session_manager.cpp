@@ -290,6 +290,8 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
     const auto status = BuildSummary(*entry).status;
     if (status == vibe::session::SessionStatus::Exited ||
         status == vibe::session::SessionStatus::Error) {
+      ResetControllerState(*entry);
+      PersistEntry(*entry);
       return true;
     }
 
@@ -297,13 +299,14 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
       return false;
     }
 
-    const bool stopped = entry->runtime->TerminateAndMarkExited();
+    const bool stopped = entry->runtime->Shutdown();
     if (stopped) {
       const auto current_status = entry->runtime->record().metadata().status;
       if (current_status != entry->last_observed_status) {
         entry->last_status_at_unix_ms = CurrentUnixTimeMs();
         entry->last_observed_status = current_status;
       }
+      ResetControllerState(*entry);
       PersistEntry(*entry);
     }
     return stopped;
@@ -371,6 +374,39 @@ auto SessionManager::HasControl(const std::string& session_id, const std::string
   return false;
 }
 
+auto SessionManager::Shutdown() -> std::size_t {
+  std::size_t shutdown_count = 0;
+
+  for (SessionEntry& entry : sessions_) {
+    bool changed = false;
+    if (entry.runtime != nullptr) {
+      const vibe::session::SessionStatus previous_status = entry.runtime->record().metadata().status;
+      const bool shutdown = entry.runtime->Shutdown();
+      if (!shutdown) {
+        continue;
+      }
+      changed = true;
+      if (previous_status != entry.runtime->record().metadata().status ||
+          previous_status == vibe::session::SessionStatus::Running ||
+          previous_status == vibe::session::SessionStatus::AwaitingInput) {
+        shutdown_count += 1;
+      }
+    }
+
+    if (entry.controller_client_id.has_value() ||
+        entry.controller_kind != vibe::session::ControllerKind::Host) {
+      ResetControllerState(entry);
+      changed = true;
+    }
+
+    if (changed) {
+      PersistEntry(entry);
+    }
+  }
+
+  return shutdown_count;
+}
+
 void SessionManager::PollAll(const int read_timeout_ms) {
   poll_count_ += 1;
   const bool should_poll_git = (poll_count_ % 100 == 0);
@@ -427,6 +463,11 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .created_at_unix_ms = entry.created_at_unix_ms,
       .last_status_at_unix_ms = entry.last_status_at_unix_ms,
   };
+}
+
+void SessionManager::ResetControllerState(SessionEntry& entry) {
+  entry.controller_client_id.reset();
+  entry.controller_kind = vibe::session::ControllerKind::Host;
 }
 
 void SessionManager::PersistEntry(const SessionEntry& entry) {
