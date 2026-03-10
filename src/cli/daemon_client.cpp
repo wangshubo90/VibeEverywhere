@@ -216,12 +216,6 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
     return 1;
   }
 
-  ws.next_layer().non_blocking(true, error_code);
-  if (error_code) {
-    std::cerr << "failed to enable non-blocking websocket: " << error_code.message() << '\n';
-    return 1;
-  }
-
   auto write_command = [&ws](const std::string& command) -> bool {
     boost::system::error_code write_error;
     ws.write(asio::buffer(command), write_error);
@@ -240,38 +234,48 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
   beast::flat_buffer buffer;
   int exit_code = 0;
   bool stdin_open = true;
+  const int websocket_fd = ws.next_layer().native_handle();
 
   while (true) {
-    bool had_activity = false;
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(websocket_fd, &read_fds);
 
-    error_code.clear();
-    ws.read(buffer, error_code);
-    if (!error_code) {
-      had_activity = true;
-      const std::string payload = beast::buffers_to_string(buffer.data());
-      buffer.consume(buffer.size());
-      if (!HandleServerMessage(payload, exit_code)) {
-        return exit_code;
+    int max_fd = websocket_fd;
+    if (stdin_open) {
+      FD_SET(STDIN_FILENO, &read_fds);
+      if (STDIN_FILENO > max_fd) {
+        max_fd = STDIN_FILENO;
       }
-    } else if (error_code != asio::error::would_block && error_code != asio::error::try_again &&
-               error_code != websocket::error::closed) {
-      std::cerr << "websocket read failed: " << error_code.message() << '\n';
-      return 1;
-    } else if (error_code == websocket::error::closed) {
-      return exit_code;
     }
 
-    if (stdin_open) {
-      fd_set read_fds;
-      FD_ZERO(&read_fds);
-      FD_SET(STDIN_FILENO, &read_fds);
+    timeval timeout{};
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 20000;
 
-      timeval timeout{};
-      timeout.tv_sec = 0;
-      timeout.tv_usec = 0;
+    const int select_result = select(max_fd + 1, &read_fds, nullptr, nullptr, &timeout);
+    if (select_result < 0) {
+      continue;
+    }
 
-      const int select_result = select(STDIN_FILENO + 1, &read_fds, nullptr, nullptr, &timeout);
-      if (select_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
+    if (FD_ISSET(websocket_fd, &read_fds)) {
+      error_code.clear();
+      ws.read(buffer, error_code);
+      if (!error_code) {
+        const std::string payload = beast::buffers_to_string(buffer.data());
+        buffer.consume(buffer.size());
+        if (!HandleServerMessage(payload, exit_code)) {
+          return exit_code;
+        }
+      } else if (error_code == websocket::error::closed) {
+        return exit_code;
+      } else {
+        std::cerr << "websocket read failed: " << error_code.message() << '\n';
+        return 1;
+      }
+    }
+
+    if (stdin_open && FD_ISSET(STDIN_FILENO, &read_fds)) {
         char input_buffer[1024];
         const ssize_t bytes_read = read(STDIN_FILENO, input_buffer, sizeof(input_buffer));
         if (bytes_read == 0) {
@@ -279,7 +283,6 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
           static_cast<void>(released);
           return 0;
         } else if (bytes_read > 0) {
-          had_activity = true;
           const bool wrote = write_command(
               BuildInputCommand(std::string(input_buffer, static_cast<std::size_t>(bytes_read))));
           if (!wrote) {
@@ -287,11 +290,6 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
             return 1;
           }
         }
-      }
-    }
-
-    if (!had_activity) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
   }
 }
