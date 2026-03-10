@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VibeEverywhere WebSocket Smoke</title>
+  <title>VibeEverywhere Smoke Client</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm/css/xterm.css">
   <style>
     :root {
@@ -17,11 +17,10 @@
       --border: #d8d0c2;
       --terminal: #161513;
       --terminal-ink: #efe7d7;
+      --warn: #a14a2a;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -34,9 +33,9 @@
     }
 
     main {
-      max-width: 1100px;
+      max-width: 1240px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 20px;
     }
 
     h1 {
@@ -46,8 +45,15 @@
     }
 
     p {
-      margin: 0 0 20px;
+      margin: 0;
       color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 360px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
     }
 
     .panel {
@@ -59,20 +65,29 @@
       margin-bottom: 16px;
     }
 
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
     .row {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      margin-bottom: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
     }
 
-    .row.controls {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+    .row.one {
+      grid-template-columns: 1fr;
     }
 
-    .row.discovery {
-      grid-template-columns: 180px minmax(0, 1fr);
-      align-items: start;
+    .row.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
     }
 
     label {
@@ -84,16 +99,17 @@
       margin-bottom: 6px;
     }
 
-    input, button {
+    input, select, button {
       width: 100%;
       border-radius: 10px;
       border: 1px solid var(--border);
       padding: 10px 12px;
       font: inherit;
+      background: white;
+      color: inherit;
     }
 
     button {
-      background: white;
       cursor: pointer;
     }
 
@@ -109,89 +125,136 @@
       border-color: var(--accent-2);
     }
 
+    button.ghost {
+      background: #f4efe6;
+    }
+
     button:disabled {
       opacity: 0.55;
       cursor: default;
     }
 
-    #status {
-      font-size: 13px;
-      color: var(--muted);
-      min-height: 1.2em;
+    .statusbar {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 8px;
     }
 
-    #terminal {
-      min-height: 420px;
-      max-height: 60vh;
-      overflow: auto;
-      border-radius: 14px;
-      background: linear-gradient(180deg, #20201c, var(--terminal));
-      color: var(--terminal-ink);
-      border: 1px solid #34312d;
-      padding: 8px;
-      outline: none;
-    }
-
-    #terminal:focus {
-      box-shadow: inset 0 0 0 2px rgba(217, 108, 63, 0.6);
-    }
-
-    #events {
-      min-height: 140px;
-      max-height: 220px;
-      overflow: auto;
-      background: #201f1b;
-      color: #d7d0c2;
-      border-radius: 14px;
-      border: 1px solid #34312d;
-      padding: 12px;
-      white-space: pre-wrap;
-    }
-
-    #sessions-list {
-      min-height: 48px;
-      max-height: 180px;
-      overflow: auto;
-      background: #f7f3ea;
-      color: var(--ink);
+    .pill {
+      padding: 10px 12px;
       border-radius: 12px;
       border: 1px solid var(--border);
-      padding: 10px;
+      background: #faf7f0;
+      min-height: 56px;
     }
 
-    .session-item {
+    .pill strong {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .mono {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+    }
+
+    .small {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    #terminal-shell {
+      border-radius: 16px;
+      background: linear-gradient(180deg, #20201c, var(--terminal));
+      border: 1px solid #34312d;
+      overflow: hidden;
+    }
+
+    #terminal-topbar {
       display: flex;
       justify-content: space-between;
       gap: 12px;
       align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      color: #d7d0c2;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    #terminal {
+      height: 64vh;
+      min-height: 460px;
+      padding: 10px;
+    }
+
+    #events, #sessions-list, #pairing-output, #host-output {
+      min-height: 100px;
+      max-height: 220px;
+      overflow: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    #events {
+      background: #201f1b;
+      color: #d7d0c2;
+      border-color: #34312d;
+      min-height: 180px;
+    }
+
+    #sessions-list {
+      background: #f7f3ea;
+    }
+
+    .session-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
       padding: 8px 0;
       border-bottom: 1px solid rgba(216, 208, 194, 0.8);
+      align-items: start;
     }
 
     .session-item:last-child {
       border-bottom: none;
     }
 
-    .session-meta {
-      min-width: 0;
-    }
-
-    .session-id-button {
+    .session-item button {
       width: auto;
       padding: 6px 10px;
       font-size: 12px;
-      white-space: nowrap;
     }
 
-    @media (max-width: 800px) {
-      .row,
-      .row.controls,
-      .row.discovery {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--warn);
+    }
+
+    @media (max-width: 1000px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .row, .row.three, .buttons, .statusbar {
+        grid-template-columns: 1fr;
       }
 
       #terminal {
-        min-height: 55vh;
+        min-height: 58vh;
       }
     }
   </style>
@@ -199,150 +262,350 @@
 <body>
   <main>
     <div class="panel">
-      <h1>Remote Smoke Terminal</h1>
-      <p>Browser-only smoke page for `/ws/sessions/{id}`. It decodes base64 terminal output and forwards basic keyboard input.</p>
-
-      <div class="row">
-        <div>
-          <label for="host">Host</label>
-          <input id="host" value="127.0.0.1">
-        </div>
-        <div>
-          <label for="port">Port</label>
-          <input id="port" value="18085">
-        </div>
-        <div>
-          <label for="session">Session Id</label>
-          <input id="session" value="s_1">
-        </div>
-        <div>
-          <label for="cols">Cols</label>
-          <input id="cols" value="120">
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label for="rows">Rows</label>
-          <input id="rows" value="40">
-        </div>
-      </div>
-
-      <div class="row controls">
-        <button id="connect" class="primary">Connect</button>
-        <button id="disconnect">Disconnect</button>
-        <button id="list-sessions">List Sessions</button>
-        <button id="request-control">Request Control</button>
-        <button id="release-control">Release Control</button>
-        <button id="send-resize">Send Resize</button>
-        <button id="stop" class="warning">Stop Session</button>
-      </div>
-
-      <div class="row discovery">
-        <div>
-          <label>Active Sessions</label>
-        </div>
-        <div id="sessions-list">No sessions loaded.</div>
-      </div>
-
-      <div id="status">Disconnected</div>
+      <h1>VibeEverywhere Smoke Client</h1>
+      <p>Minimal but functional browser client for pairing, listing sessions, attaching, requesting control, typing, and resizing.</p>
     </div>
 
-    <div class="panel">
-      <div id="terminal" tabindex="0"></div>
-    </div>
+    <div class="grid">
+      <section>
+        <div class="panel stack">
+          <div class="row">
+            <div>
+              <label for="host">Host</label>
+              <input id="host" value="127.0.0.1">
+            </div>
+            <div>
+              <label for="port">Port</label>
+              <input id="port" value="18085">
+            </div>
+          </div>
 
-    <div class="panel">
-      <div id="events"></div>
+          <div class="row one">
+            <div>
+              <label for="token">Bearer Token</label>
+              <input id="token" placeholder="Paste approved token here">
+            </div>
+          </div>
+
+          <div class="buttons">
+            <button id="save-token" class="ghost">Save Token</button>
+            <button id="clear-token" class="ghost">Clear Token</button>
+          </div>
+
+          <div class="buttons">
+            <button id="refresh-host" class="ghost">Refresh Host</button>
+            <button id="start-pairing" class="ghost">Start Pairing</button>
+          </div>
+
+          <div>
+            <label>Host Info</label>
+            <div id="host-output" class="mono">No host info loaded.</div>
+          </div>
+
+          <div>
+            <label>Pairing Request</label>
+            <div id="pairing-output" class="mono">No pairing request started.</div>
+            <div class="hint">Pairing only starts here. Approval still happens in the host-local UI.</div>
+          </div>
+        </div>
+
+        <div class="panel stack">
+          <div class="row">
+            <div>
+              <label for="provider">Provider</label>
+              <select id="provider">
+                <option value="codex">codex</option>
+                <option value="claude">claude</option>
+              </select>
+            </div>
+            <div>
+              <label for="session">Session Id</label>
+              <input id="session" value="s_1">
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="title">Session Title</label>
+              <input id="title" value="smoke-session">
+            </div>
+            <div>
+              <label for="workspace">Workspace Root</label>
+              <input id="workspace" value=".">
+            </div>
+          </div>
+
+          <div class="row one">
+            <div>
+              <label for="command">Explicit Command (Optional)</label>
+              <input id="command" placeholder='Example: /opt/homebrew/bin/claude --print'>
+            </div>
+          </div>
+
+          <div class="buttons">
+            <button id="list-sessions" class="ghost">List Sessions</button>
+            <button id="create-session" class="ghost">Create Session</button>
+          </div>
+
+          <div>
+            <label>Active Sessions</label>
+            <div id="sessions-list" class="mono">No sessions loaded.</div>
+          </div>
+        </div>
+
+        <div class="panel stack">
+          <div class="buttons">
+            <button id="connect" class="primary">Connect</button>
+            <button id="disconnect">Disconnect</button>
+            <button id="request-control">Request Control</button>
+            <button id="release-control">Release Control</button>
+            <button id="send-resize">Send Resize</button>
+            <button id="stop" class="warning">Stop Session</button>
+          </div>
+
+          <div class="statusbar">
+            <div class="pill"><strong>Connection</strong><div id="connection-state">disconnected</div></div>
+            <div class="pill"><strong>Controller</strong><div id="controller-state">observer</div></div>
+            <div class="pill"><strong>Session</strong><div id="session-state">unknown</div></div>
+          </div>
+
+          <div class="small">Browser terminal input is enabled only while this client believes it holds remote control.</div>
+        </div>
+
+        <div class="panel">
+          <label>Events</label>
+          <div id="events"></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="panel">
+          <div id="terminal-shell">
+            <div id="terminal-topbar">
+              <span id="terminal-caption">No active session</span>
+              <span id="terminal-size">0 x 0</span>
+            </div>
+            <div id="terminal"></div>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 
   <script type="module">
     import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm/+esm';
+    import { FitAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit/+esm';
+
+    const storageKey = 'vibe-smoke-client';
+    const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
 
     const hostInput = document.getElementById('host');
     const portInput = document.getElementById('port');
+    const tokenInput = document.getElementById('token');
+    const providerInput = document.getElementById('provider');
     const sessionInput = document.getElementById('session');
-    const colsInput = document.getElementById('cols');
-    const rowsInput = document.getElementById('rows');
-    const statusEl = document.getElementById('status');
-    const terminalEl = document.getElementById('terminal');
-    const eventsEl = document.getElementById('events');
+    const titleInput = document.getElementById('title');
+    const workspaceInput = document.getElementById('workspace');
+    const commandInput = document.getElementById('command');
 
+    const hostOutput = document.getElementById('host-output');
+    const pairingOutput = document.getElementById('pairing-output');
+    const sessionsListEl = document.getElementById('sessions-list');
+    const eventsEl = document.getElementById('events');
+    const connectionStateEl = document.getElementById('connection-state');
+    const controllerStateEl = document.getElementById('controller-state');
+    const sessionStateEl = document.getElementById('session-state');
+    const terminalCaptionEl = document.getElementById('terminal-caption');
+    const terminalSizeEl = document.getElementById('terminal-size');
+
+    const saveTokenBtn = document.getElementById('save-token');
+    const clearTokenBtn = document.getElementById('clear-token');
+    const refreshHostBtn = document.getElementById('refresh-host');
+    const startPairingBtn = document.getElementById('start-pairing');
+    const listSessionsBtn = document.getElementById('list-sessions');
+    const createSessionBtn = document.getElementById('create-session');
     const connectBtn = document.getElementById('connect');
     const disconnectBtn = document.getElementById('disconnect');
-    const listSessionsBtn = document.getElementById('list-sessions');
     const requestControlBtn = document.getElementById('request-control');
     const releaseControlBtn = document.getElementById('release-control');
     const sendResizeBtn = document.getElementById('send-resize');
     const stopBtn = document.getElementById('stop');
-    const sessionsListEl = document.getElementById('sessions-list');
 
-    let ws = null;
+    hostInput.value = saved.host || '127.0.0.1';
+    portInput.value = saved.port || '18085';
+    tokenInput.value = saved.token || '';
+    sessionInput.value = saved.sessionId || 's_1';
+    titleInput.value = saved.title || 'smoke-session';
+    workspaceInput.value = saved.workspaceRoot || '.';
+    providerInput.value = saved.provider || 'codex';
+    commandInput.value = saved.command || '';
+
     const terminal = new Terminal({
-      cols: Number(colsInput.value),
-      rows: Number(rowsInput.value),
       convertEol: false,
       cursorBlink: true,
       fontFamily: 'Iosevka Comfy, SF Mono, Menlo, monospace',
       fontSize: 14,
+      scrollback: 5000,
       theme: {
         background: '#161513',
         foreground: '#efe7d7',
-        cursor: '#d96c3f'
+        cursor: '#d96c3f',
+        selectionBackground: 'rgba(217, 108, 63, 0.32)'
       }
     });
-    terminal.open(terminalEl);
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(document.getElementById('terminal'));
+    fitAddon.fit();
 
-    function setStatus(text) {
-      statusEl.textContent = text;
+    let ws = null;
+    let resizeTimer = null;
+    let connectionState = 'disconnected';
+    let sessionState = 'unknown';
+    let controllerState = 'observer';
+    let inputEnabled = false;
+
+    function saveSettings() {
+      localStorage.setItem(storageKey, JSON.stringify({
+        host: hostInput.value.trim(),
+        port: portInput.value.trim(),
+        token: tokenInput.value.trim(),
+        sessionId: sessionInput.value.trim(),
+        title: titleInput.value.trim(),
+        workspaceRoot: workspaceInput.value.trim(),
+        provider: providerInput.value,
+        command: commandInput.value
+      }));
     }
 
     function appendEvent(text) {
-      eventsEl.textContent += `${text}\n`;
+      const timestamp = new Date().toLocaleTimeString();
+      eventsEl.textContent += `[${timestamp}] ${text}\n`;
       eventsEl.scrollTop = eventsEl.scrollHeight;
     }
 
-    function appendTerminal(text) {
-      terminal.write(text);
+    function setStates(nextConnection, nextController, nextSession) {
+      if (typeof nextConnection === 'string') {
+        connectionState = nextConnection;
+      }
+      if (typeof nextController === 'string') {
+        controllerState = nextController;
+      }
+      if (typeof nextSession === 'string') {
+        sessionState = nextSession;
+      }
+      connectionStateEl.textContent = connectionState;
+      controllerStateEl.textContent = controllerState;
+      sessionStateEl.textContent = sessionState;
+      terminalCaptionEl.textContent = `${sessionInput.value.trim() || 'no-session'} @ ${hostInput.value.trim()}:${portInput.value.trim()}`;
     }
 
-    function decodeBase64ToText(encoded) {
+    function updateTerminalSizeDisplay() {
+      terminalSizeEl.textContent = `${terminal.cols} x ${terminal.rows}`;
+    }
+
+    function baseUrl() {
+      return `http://${hostInput.value.trim()}:${portInput.value.trim()}`;
+    }
+
+    function websocketUrl() {
+      const token = encodeURIComponent(tokenInput.value.trim());
+      return `ws://${hostInput.value.trim()}:${portInput.value.trim()}/ws/sessions/${sessionInput.value.trim()}?access_token=${token}`;
+    }
+
+    async function fetchJson(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (tokenInput.value.trim()) {
+        headers.set('authorization', `Bearer ${tokenInput.value.trim()}`);
+      }
+      if (options.body && !headers.has('content-type')) {
+        headers.set('content-type', 'application/json');
+      }
+
+      const response = await fetch(`${baseUrl()}${path}`, {
+        ...options,
+        headers
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = text;
+        }
+      }
+
+      if (!response.ok) {
+        throw new Error(typeof parsed === 'string' ? parsed : JSON.stringify(parsed));
+      }
+
+      return parsed;
+    }
+
+    function renderJson(el, value) {
+      el.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    }
+
+    function decodeBase64ToString(encoded) {
       const binary = atob(encoded);
       const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
       return new TextDecoder().decode(bytes);
     }
 
-    function socketUrl() {
-      return `ws://${hostInput.value}:${portInput.value}/ws/sessions/${sessionInput.value}`;
-    }
-
-    function sessionsUrl() {
-      return `http://${hostInput.value}:${portInput.value}/sessions`;
+    function updateButtons() {
+      const readyState = ws ? ws.readyState : WebSocket.CLOSED;
+      const connected = readyState === WebSocket.OPEN;
+      const connecting = readyState === WebSocket.CONNECTING;
+      connectBtn.disabled = connected || connecting;
+      disconnectBtn.disabled = !(connected || connecting);
+      requestControlBtn.disabled = !connected;
+      releaseControlBtn.disabled = !connected;
+      sendResizeBtn.disabled = !connected;
+      stopBtn.disabled = !connected;
+      createSessionBtn.disabled = false;
+      listSessionsBtn.disabled = false;
     }
 
     function sendJson(payload) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        appendEvent('[local] websocket not open');
+        appendEvent('websocket not open');
         return;
       }
       ws.send(JSON.stringify(payload));
     }
 
-    function updateButtonState() {
-      const connected = ws && ws.readyState === WebSocket.OPEN;
-      connectBtn.disabled = connected;
-      disconnectBtn.disabled = !connected;
-      listSessionsBtn.disabled = false;
-      requestControlBtn.disabled = !connected;
-      releaseControlBtn.disabled = !connected;
-      sendResizeBtn.disabled = !connected;
-      stopBtn.disabled = !connected;
+    function sendResize() {
+      updateTerminalSizeDisplay();
+      sendJson({
+        type: 'terminal.resize',
+        cols: terminal.cols,
+        rows: terminal.rows
+      });
+    }
+
+    function scheduleResize() {
+      if (resizeTimer !== null) {
+        clearTimeout(resizeTimer);
+      }
+      resizeTimer = setTimeout(() => {
+        fitAddon.fit();
+        updateTerminalSizeDisplay();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          sendResize();
+        }
+      }, 80);
+    }
+
+    function setInputEnabled(enabled) {
+      inputEnabled = enabled;
+      terminal.options.disableStdin = !enabled;
     }
 
     function renderSessions(sessions) {
       if (!Array.isArray(sessions) || sessions.length === 0) {
-        sessionsListEl.textContent = 'No active sessions returned.';
+        sessionsListEl.textContent = 'No sessions returned.';
         return;
       }
 
@@ -352,47 +615,174 @@
         row.className = 'session-item';
 
         const meta = document.createElement('div');
-        meta.className = 'session-meta';
-        meta.textContent = `${session.sessionId} | ${session.title} | ${session.status} | ${session.controllerKind}`;
+        meta.className = 'mono';
+        meta.textContent =
+          `${session.sessionId} | ${session.title || '(untitled)'} | ${session.provider} | ${session.status} | ${session.controllerKind}`;
 
         const button = document.createElement('button');
-        button.className = 'session-id-button';
         button.textContent = 'Use';
         button.addEventListener('click', () => {
           sessionInput.value = session.sessionId;
-          appendEvent(`[local] selected session ${session.sessionId}`);
+          saveSettings();
+          appendEvent(`selected session ${session.sessionId}`);
         });
 
-        row.appendChild(meta);
-        row.appendChild(button);
+        row.append(meta, button);
         sessionsListEl.appendChild(row);
       }
     }
 
-    async function listSessions() {
-      appendEvent(`[local] fetching ${sessionsUrl()}`);
+    async function refreshHost() {
       try {
-        const response = await fetch(sessionsUrl());
-        const payload = await response.json();
-        renderSessions(payload);
+        const payload = await fetchJson('/host/info');
+        renderJson(hostOutput, payload);
       } catch (error) {
-        sessionsListEl.textContent = 'Failed to load sessions.';
-        appendEvent(`[local] session list failed: ${String(error)}`);
+        renderJson(hostOutput, `host info failed: ${String(error)}`);
       }
     }
 
+    async function startPairing() {
+      try {
+        const payload = await fetchJson('/pairing/request', {
+          method: 'POST',
+          body: JSON.stringify({
+            deviceName: 'smoke-browser',
+            deviceType: 'browser'
+          })
+        });
+        renderJson(pairingOutput, {
+          ...payload,
+          nextStep: 'Approve this pairing in the host-local UI, then paste the returned token here.'
+        });
+        appendEvent(`pairing requested: ${payload.pairingId}`);
+      } catch (error) {
+        renderJson(pairingOutput, `pairing failed: ${String(error)}`);
+      }
+    }
+
+    async function listSessions() {
+      try {
+        const payload = await fetchJson('/sessions');
+        renderSessions(payload);
+        appendEvent(`loaded ${Array.isArray(payload) ? payload.length : 0} sessions`);
+      } catch (error) {
+        sessionsListEl.textContent = `session list failed: ${String(error)}`;
+        appendEvent(`session list failed: ${String(error)}`);
+      }
+    }
+
+    async function createSession() {
+      try {
+        const request = {
+          provider: providerInput.value,
+          workspaceRoot: workspaceInput.value.trim(),
+          title: titleInput.value.trim()
+        };
+        const explicitCommand = parseCommandInput(commandInput.value.trim());
+        if (explicitCommand !== null) {
+          request.command = explicitCommand;
+        }
+        const payload = await fetchJson('/sessions', {
+          method: 'POST',
+          body: JSON.stringify(request)
+        });
+        if (payload && payload.sessionId) {
+          sessionInput.value = payload.sessionId;
+          saveSettings();
+          appendEvent(`created session ${payload.sessionId}`);
+          await listSessions();
+        }
+      } catch (error) {
+        appendEvent(`create session failed: ${String(error)}`);
+      }
+    }
+
+    function parseCommandInput(input) {
+      if (!input) {
+        return null;
+      }
+
+      const parts = [];
+      let current = '';
+      let quote = null;
+
+      for (let index = 0; index < input.length; index += 1) {
+        const char = input[index];
+        if (quote !== null) {
+          if (char === quote) {
+            quote = null;
+          } else if (char === '\\' && index + 1 < input.length) {
+            index += 1;
+            current += input[index];
+          } else {
+            current += char;
+          }
+          continue;
+        }
+
+        if (char === '"' || char === "'") {
+          quote = char;
+          continue;
+        }
+
+        if (/\s/.test(char)) {
+          if (current) {
+            parts.push(current);
+            current = '';
+          }
+          continue;
+        }
+
+        if (char === '\\' && index + 1 < input.length) {
+          index += 1;
+          current += input[index];
+          continue;
+        }
+
+        current += char;
+      }
+
+      if (quote !== null) {
+        throw new Error('unclosed quote in explicit command');
+      }
+      if (current) {
+        parts.push(current);
+      }
+      return parts.length > 0 ? parts : null;
+    }
+
+    function closeSocket() {
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+      setInputEnabled(false);
+      setStates('disconnected', controllerState === 'host' ? 'host' : 'observer', sessionState);
+      updateButtons();
+    }
+
     function connect() {
+      saveSettings();
       if (ws && ws.readyState === WebSocket.OPEN) {
         return;
       }
 
+      if (!tokenInput.value.trim()) {
+        appendEvent('token is required before connecting');
+        return;
+      }
+
       terminal.clear();
-      appendEvent(`[local] connecting to ${socketUrl()}`);
-      ws = new WebSocket(socketUrl());
+      appendEvent(`connecting ${websocketUrl()}`);
+      ws = new WebSocket(websocketUrl());
+      setStates('connecting', 'observer', sessionState);
+      updateButtons();
 
       ws.addEventListener('open', () => {
-        setStatus(`Connected to ${socketUrl()}`);
-        updateButtonState();
+        setStates('connected', 'observer', sessionState);
+        fitAddon.fit();
+        updateTerminalSizeDisplay();
+        updateButtons();
         terminal.focus();
       });
 
@@ -400,59 +790,90 @@
         try {
           const payload = JSON.parse(event.data);
           if (payload.type === 'terminal.output' && payload.dataEncoding === 'base64') {
-            appendTerminal(decodeBase64ToText(payload.dataBase64 || ''));
+            terminal.write(decodeBase64ToString(payload.dataBase64 || ''));
             return;
           }
-          appendEvent(JSON.stringify(payload));
+
+          if (payload.type === 'session.updated') {
+            const nextController =
+              payload.controllerKind === 'remote' ? 'remote' :
+              payload.controllerKind === 'host' ? 'host' : 'observer';
+            setStates(connectionState, nextController, payload.status || sessionState);
+            setInputEnabled(nextController === 'remote');
+          } else if (payload.type === 'session.exited') {
+            setStates(connectionState, controllerState, payload.status || 'Exited');
+            setInputEnabled(false);
+          } else if (payload.type === 'error') {
+            appendEvent(`server error: ${payload.code} | ${payload.message}`);
+          } else {
+            appendEvent(JSON.stringify(payload));
+          }
         } catch (error) {
-          appendEvent(`[parse-error] ${String(error)}`);
+          appendEvent(`parse error: ${String(error)}`);
         }
       });
 
       ws.addEventListener('close', () => {
-        setStatus('Disconnected');
-        appendEvent('[local] websocket closed');
-        updateButtonState();
+        appendEvent('websocket closed');
+        closeSocket();
       });
 
       ws.addEventListener('error', () => {
-        appendEvent('[local] websocket error');
+        appendEvent('websocket error');
+        updateButtons();
       });
-
-      updateButtonState();
     }
 
-    function disconnect() {
-      if (!ws) {
+    terminal.onData((data) => {
+      if (!inputEnabled) {
         return;
       }
-      ws.close();
-      ws = null;
-      updateButtonState();
-    }
+      sendJson({ type: 'terminal.input', data });
+    });
 
-    function sendResize() {
-      terminal.resize(Number(colsInput.value), Number(rowsInput.value));
-      sendJson({
-        type: 'terminal.resize',
-        cols: Number(colsInput.value),
-        rows: Number(rowsInput.value),
-      });
-    }
+    terminal.attachCustomKeyEventHandler(() => true);
 
-    connectBtn.addEventListener('click', connect);
-    disconnectBtn.addEventListener('click', disconnect);
+    const resizeObserver = new ResizeObserver(() => scheduleResize());
+    resizeObserver.observe(document.getElementById('terminal'));
+    window.addEventListener('resize', scheduleResize);
+
+    saveTokenBtn.addEventListener('click', () => {
+      saveSettings();
+      appendEvent('token saved locally');
+    });
+    clearTokenBtn.addEventListener('click', () => {
+      tokenInput.value = '';
+      saveSettings();
+      appendEvent('token cleared');
+    });
+    refreshHostBtn.addEventListener('click', refreshHost);
+    startPairingBtn.addEventListener('click', startPairing);
     listSessionsBtn.addEventListener('click', listSessions);
+    createSessionBtn.addEventListener('click', createSession);
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', closeSocket);
     requestControlBtn.addEventListener('click', () => sendJson({ type: 'session.control.request', kind: 'remote' }));
-    releaseControlBtn.addEventListener('click', () => sendJson({ type: 'session.control.release' }));
-    sendResizeBtn.addEventListener('click', sendResize);
+    releaseControlBtn.addEventListener('click', () => {
+      setInputEnabled(false);
+      sendJson({ type: 'session.control.release' });
+    });
+    sendResizeBtn.addEventListener('click', () => {
+      fitAddon.fit();
+      sendResize();
+    });
     stopBtn.addEventListener('click', () => sendJson({ type: 'session.stop' }));
 
-    terminal.onData((data) => sendJson({ type: 'terminal.input', data }));
-    terminalEl.addEventListener('click', () => terminal.focus());
+    for (const input of [hostInput, portInput, tokenInput, providerInput, sessionInput, titleInput, workspaceInput, commandInput]) {
+      input.addEventListener('change', saveSettings);
+    }
 
-    window.addEventListener('beforeunload', disconnect);
-    updateButtonState();
+    window.addEventListener('beforeunload', closeSocket);
+
+    fitAddon.fit();
+    updateTerminalSizeDisplay();
+    updateButtons();
+    setStates('disconnected', 'observer', 'unknown');
+    refreshHost();
   </script>
 </body>
 </html>
