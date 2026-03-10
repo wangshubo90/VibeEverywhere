@@ -12,8 +12,8 @@ Build `vibe-hostd`, a host daemon that manages AI coding CLI sessions and expose
 2. PTY process execution and terminal I/O capture
 3. Bounded output buffering with replay support
 4. REST and WebSocket surfaces for session interaction
-5. File and git observation
-6. Multi-client control semantics
+5. Multi-client control semantics
+6. File and git observation
 7. Pairing/auth foundations
 
 ## Recommended Initial Stack
@@ -95,14 +95,30 @@ Deliverables:
 - REST routes for session management and snapshots
 - WebSocket subscription model
 - event schema for terminal, file, git, and session updates
+- attach/replay behavior that works for both local and remote session views
 
 Acceptance criteria:
 
 - contract tests validate API schema
 - attach workflow is functional end-to-end
-- controller permissions are enforced
+- observer attach and initial replay behavior are verified
 
-## Phase 5: Workspace Observability
+## Phase 5: Control Semantics
+
+Deliverables:
+
+- explicit controller ownership in session state
+- input and resize rules bound to the active controller
+- host-side terminal modeled as the initial attached controller
+- controller release and return-to-host behavior
+
+Acceptance criteria:
+
+- only one controller may drive PTY input and resize
+- observer clients cannot mutate session state
+- controller handoff behavior is covered by tests
+
+## Phase 6: Workspace Observability
 
 Deliverables:
 
@@ -115,7 +131,7 @@ Acceptance criteria:
 - file and git updates are visible through session APIs
 - high-frequency changes do not flood clients uncontrollably
 
-## Phase 6: Security and Pairing
+## Phase 7: Security and Pairing
 
 Deliverables:
 
@@ -135,6 +151,7 @@ Acceptance criteria:
 - Prefer deterministic, injectable subsystems for testability.
 - Persist only lightweight recovery data.
 - Keep platform-specific behavior behind interfaces from the start.
+- Treat the host terminal and remote clients as the same class of daemon-attached session participants.
 
 ## Immediate Next Docs to Consult
 

@@ -16,6 +16,10 @@ A session is defined by:
 
 The host is the owner of session execution and observation. Clients are subscribers and optional controllers.
 
+There is one PTY per session. The PTY belongs to the session runtime, not to any specific UI surface.
+
+The host-side terminal should eventually attach through the same daemon-managed session protocol as any remote client, usually as the initial controller.
+
 ## Primary Runtime Components
 
 ### API Layer
@@ -35,6 +39,7 @@ Responsibilities:
 - own session registry
 - arbitrate controller assignment
 - coordinate SessionRuntime, SnapshotStore, FileWatcher, and GitInspector
+- manage return-of-control behavior when the active controller yields or disconnects
 
 ### SessionRuntime
 
@@ -45,6 +50,7 @@ Responsibilities:
 - append to SessionOutputBuffer
 - accept terminal input and resize requests
 - report lifecycle changes
+- maintain the currently active PTY size
 
 ### SessionOutputBuffer
 
@@ -63,6 +69,7 @@ Responsibilities:
 - batch output frames
 - enforce slow-client degradation rules
 - isolate client backpressure from PTY reading
+- broadcast controller changes to observers
 
 ### SnapshotStore
 
@@ -126,6 +133,19 @@ Recommended first implementation:
 - dispatcher work scheduled independently from PTY reads
 
 This gives a clean separation between high-priority PTY ingestion and comparatively lower-priority client delivery.
+
+## Control Model
+
+Recommended product rule:
+
+- many observers may attach to a session
+- one controller may mutate a session at a time
+- controller owns terminal input and PTY resize
+- if no controller is active, the session uses a configured default PTY size
+- if a remote client takes control, host views follow the resulting byte stream
+- host may explicitly reclaim control
+
+This rule keeps PTY semantics correct because the provider process only ever sees one terminal size at a time.
 
 ## Platform Abstractions
 

@@ -33,6 +33,7 @@ The system must allow a remote client to:
 
 - view terminal output
 - send input to the CLI
+- resize the session terminal
 - observe file changes
 - observe git state
 - observe session status
@@ -48,6 +49,8 @@ The system revolves around sessions, not machines.
 Client connects to a session, not directly to the machine.
 
 A host machine may run multiple sessions simultaneously.
+
+Each session owns exactly one PTY. Local host terminals and remote devices attach to that session as views and optional controllers.
 
 ---
 
@@ -124,6 +127,7 @@ Responsibilities
 - track workspace changes
 - track git state
 - maintain session metadata
+- arbitrate which attached client currently controls a session
 
 ---
 
@@ -145,6 +149,8 @@ Responsibilities
 - attach to session
 - display terminal
 - send input
+- request control
+- release control
 - view changed files
 - view git state
 - display session state
@@ -169,6 +175,7 @@ Session runtime stores
 - git state
 - pending approvals (future)
 - current status
+- current controller identity if any
 
 ---
 
@@ -216,6 +223,10 @@ The host daemon does
 All CLI interaction happens via the PTY.
 
 The system does NOT depend on official CLI APIs.
+
+The active controller owns PTY resize. Other attached views render the resulting byte stream but do not independently control terminal dimensions.
+
+This means a desktop host view and a mobile client cannot have independent PTY sizes for the same live session. If mobile takes control, the PTY may resize to mobile dimensions and the host view must follow.
 
 ---
 

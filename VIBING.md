@@ -51,6 +51,8 @@ ctest --test-dir build --output-on-failure
 - Favor explicit ownership and bounded-memory structures for PTY and output buffering work.
 - Treat terminal output as raw bytes; preserve ANSI data and defer rendering semantics to clients.
 - Avoid designs where slow network clients can interfere with PTY ingestion.
+- Treat the host terminal as another daemon-attached session client, not as a special out-of-band runtime.
+- Preserve the invariant: one session PTY, many views, one controller.
 
 ## Expected Early Project Layout
 
@@ -66,5 +68,5 @@ The repository is still being bootstrapped. As code is added, prefer this shape 
 
 ## Before Changing Architecture
 
-- Check whether the change affects session identity, PTY handling, buffering, client control semantics, or recovery guarantees.
+- Check whether the change affects session identity, PTY handling, buffering, client control semantics, host-attach behavior, or recovery guarantees.
 - Update the relevant detailed design markdown in [development _memo](/Users/shubow/dev/VibeEverywhere/development%20_memo) when the implementation direction changes materially.
