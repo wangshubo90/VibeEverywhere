@@ -58,6 +58,24 @@ auto MakeRecoveredOutputSlice(const vibe::session::SessionSnapshot& snapshot,
   };
 }
 
+auto ParseSessionSequenceNumber(const std::string& session_id) -> std::optional<std::size_t> {
+  constexpr std::string_view prefix = "s_";
+  if (!session_id.starts_with(prefix) || session_id.size() == prefix.size()) {
+    return std::nullopt;
+  }
+
+  std::size_t parsed_value = 0;
+  for (const char ch : session_id.substr(prefix.size())) {
+    if (ch < '0' || ch > '9') {
+      return std::nullopt;
+    }
+
+    parsed_value = (parsed_value * 10U) + static_cast<std::size_t>(ch - '0');
+  }
+
+  return parsed_value;
+}
+
 }  // namespace
 
 SessionManager::SessionManager(vibe::store::SessionStore* session_store)
@@ -385,7 +403,17 @@ void SessionManager::PersistEntry(const SessionEntry& entry) {
 }
 
 auto SessionManager::MakeSessionId() const -> std::optional<vibe::session::SessionId> {
-  const std::string next_value = "s_" + std::to_string(sessions_.size() + 1);
+  std::size_t max_sequence_number = 0;
+  for (const SessionEntry& entry : sessions_) {
+    const auto parsed_value = ParseSessionSequenceNumber(entry.id.value());
+    if (!parsed_value.has_value()) {
+      continue;
+    }
+
+    max_sequence_number = std::max(max_sequence_number, *parsed_value);
+  }
+
+  const std::string next_value = "s_" + std::to_string(max_sequence_number + 1U);
   return vibe::session::SessionId::TryCreate(next_value);
 }
 

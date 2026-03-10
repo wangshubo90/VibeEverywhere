@@ -93,5 +93,53 @@ TEST(SessionManagerTest, SkipsInvalidPersistedSessionIds) {
   EXPECT_TRUE(manager.ListSessions().empty());
 }
 
+TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessionId) {
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_2",
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = "/tmp/recovered-two",
+      .title = "recovered-two",
+      .status = vibe::session::SessionStatus::Exited,
+      .current_sequence = 2,
+      .recent_terminal_tail = "tail-2",
+  });
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_9",
+      .provider = vibe::session::ProviderType::Claude,
+      .workspace_root = "/tmp/recovered-nine",
+      .title = "recovered-nine",
+      .status = vibe::session::SessionStatus::Running,
+      .current_sequence = 9,
+      .recent_terminal_tail = "tail-9",
+  });
+
+  SessionManager manager(&session_store);
+  EXPECT_EQ(manager.LoadPersistedSessions(), 2U);
+
+  const auto first_created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "live-one",
+  });
+  ASSERT_TRUE(first_created.has_value());
+  EXPECT_EQ(first_created->id.value(), "s_10");
+
+  const auto second_created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "live-two",
+  });
+  ASSERT_TRUE(second_created.has_value());
+  EXPECT_EQ(second_created->id.value(), "s_11");
+
+  const auto sessions = manager.ListSessions();
+  ASSERT_EQ(sessions.size(), 4U);
+  EXPECT_EQ(sessions[0].id.value(), "s_2");
+  EXPECT_EQ(sessions[1].id.value(), "s_9");
+  EXPECT_EQ(sessions[2].id.value(), "s_10");
+  EXPECT_EQ(sessions[3].id.value(), "s_11");
+}
+
 }  // namespace
 }  // namespace vibe::service
