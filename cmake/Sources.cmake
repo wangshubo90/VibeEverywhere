@@ -4,6 +4,7 @@ set(VIBE_CORE_SOURCES
   src/net/http_server.cpp
   src/net/http_shared.cpp
   src/net/websocket_shared.cpp
+  src/service/git_inspector.cpp
   src/service/session_manager.cpp
   src/session/launch_spec.cpp
   src/session/posix_pty_process.cpp
@@ -20,6 +21,7 @@ set(VIBE_TEST_SOURCES
   tests/net/http_server_integration_test.cpp
   tests/net/http_shared_test.cpp
   tests/net/websocket_shared_test.cpp
+  tests/service/git_inspector_test.cpp
   tests/session/launch_spec_test.cpp
   tests/session/posix_pty_process_test.cpp
   tests/session/provider_config_test.cpp

@@ -29,6 +29,7 @@ class SessionRuntime {
   [[nodiscard]] auto MarkAwaitingInput() -> bool;
   [[nodiscard]] auto MarkRunning() -> bool;
   [[nodiscard]] auto HandleExit(bool clean_exit) -> bool;
+  void UpdateGitSummary(GitSummary git_summary);
   void PollOnce(int read_timeout_ms);
 
  private:

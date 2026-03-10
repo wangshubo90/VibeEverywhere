@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "vibe/service/git_inspector.h"
 #include "vibe/session/provider_config.h"
 #include "vibe/session/session_record.h"
 
@@ -30,11 +31,13 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   auto process = std::make_unique<vibe::session::PosixPtyProcess>();
   auto runtime = std::make_unique<vibe::session::SessionRuntime>(
       vibe::session::SessionRecord(metadata), launch_spec, *process);
+  auto git_inspector = std::make_unique<vibe::service::GitInspector>(request.workspace_root);
 
   sessions_.push_back(SessionEntry{
       .id = *session_id,
       .process = std::move(process),
       .runtime = std::move(runtime),
+      .git_inspector = std::move(git_inspector),
   });
 
   SessionEntry& entry = sessions_.back();
@@ -139,8 +142,15 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
 }
 
 void SessionManager::PollAll(const int read_timeout_ms) {
+  poll_count_ += 1;
+  const bool should_poll_git = (poll_count_ % 100 == 0);
+
   for (SessionEntry& entry : sessions_) {
     entry.runtime->PollOnce(read_timeout_ms);
+
+    if (should_poll_git && entry.git_inspector) {
+      entry.runtime->UpdateGitSummary(entry.git_inspector->Inspect());
+    }
   }
 }
 

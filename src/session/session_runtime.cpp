@@ -92,6 +92,10 @@ auto SessionRuntime::HandleExit(const bool clean_exit) -> bool {
   return true;
 }
 
+void SessionRuntime::UpdateGitSummary(GitSummary git_summary) {
+  record_.SetGitSummary(std::move(git_summary));
+}
+
 void SessionRuntime::PollOnce(const int read_timeout_ms) {
   if (!pid_.has_value()) {
     return;

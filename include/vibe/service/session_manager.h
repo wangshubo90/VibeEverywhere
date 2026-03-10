@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "vibe/service/git_inspector.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/posix_pty_process.h"
 #include "vibe/session/session_runtime.h"
@@ -51,6 +52,7 @@ class SessionManager {
     vibe::session::SessionId id;
     std::unique_ptr<vibe::session::PosixPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
+    std::unique_ptr<vibe::service::GitInspector> git_inspector;
   };
 
   [[nodiscard]] auto MakeSessionId() const -> std::optional<vibe::session::SessionId>;
@@ -58,6 +60,7 @@ class SessionManager {
   [[nodiscard]] auto FindEntry(const std::string& session_id) const -> const SessionEntry*;
 
   std::vector<SessionEntry> sessions_;
+  int poll_count_{0};
 };
 
 }  // namespace vibe::service
