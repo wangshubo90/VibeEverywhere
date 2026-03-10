@@ -8,9 +8,11 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 #include <boost/beast/websocket.hpp>
+#include <boost/json.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <thread>
@@ -22,15 +24,17 @@ namespace {
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
+namespace json = boost::json;
 namespace websocket = beast::websocket;
 using tcp = asio::ip::tcp;
 namespace http = beast::http;
 
 class HttpServerFixture : public ::testing::Test {
  protected:
-  void SetUp() override {
+  void StartServer() {
+    started_.store(false);
     server_thread_ = std::thread([this]() {
-      HttpServer server("127.0.0.1", 18088);
+      HttpServer server("127.0.0.1", 18088, storage_root_);
       server_ = &server;
       started_.store(true);
       const bool ran = server.Run();
@@ -45,7 +49,7 @@ class HttpServerFixture : public ::testing::Test {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  void TearDown() override {
+  void StopServer() {
     if (server_ != nullptr) {
       server_->Stop();
     }
@@ -54,19 +58,47 @@ class HttpServerFixture : public ::testing::Test {
     }
   }
 
-  static auto CreateSession() -> std::string {
+  void SetUp() override {
+    storage_root_ = std::filesystem::temp_directory_path() /
+                    ("vibe-net-test-" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(storage_root_);
+    std::filesystem::create_directories(storage_root_);
+    StartServer();
+  }
+
+  void TearDown() override {
+    StopServer();
+    std::filesystem::remove_all(storage_root_);
+  }
+
+  static auto ReadJsonResponseBody(http::response<http::string_body>& response) -> json::object {
+    boost::system::error_code error_code;
+    auto parsed = json::parse(response.body(), error_code);
+    EXPECT_FALSE(error_code);
+    EXPECT_TRUE(parsed.is_object());
+    return parsed.as_object();
+  }
+
+  static auto SendRequest(const http::verb method, const std::string& target, const std::string& body = "",
+                          const std::optional<std::string>& bearer_token = std::nullopt)
+      -> http::response<http::string_body> {
     asio::io_context io_context;
     tcp::resolver resolver(io_context);
     tcp::socket socket(io_context);
     const auto results = resolver.resolve("127.0.0.1", "18088");
     asio::connect(socket, results);
 
-    http::request<http::string_body> request{http::verb::post, "/sessions", 11};
+    http::request<http::string_body> request{method, target, 11};
     request.set(http::field::host, "127.0.0.1");
-    request.set(http::field::authorization, "Bearer token_p_1");
-    request.set(http::field::content_type, "application/json");
-    request.body() = "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}";
-    request.prepare_payload();
+    if (bearer_token.has_value()) {
+      request.set(http::field::authorization, "Bearer " + *bearer_token);
+    }
+    if (!body.empty()) {
+      request.set(http::field::content_type, "application/json");
+      request.body() = body;
+      request.prepare_payload();
+    }
 
     http::write(socket, request);
     beast::flat_buffer buffer;
@@ -74,79 +106,76 @@ class HttpServerFixture : public ::testing::Test {
     http::read(socket, buffer, response);
     boost::system::error_code error_code;
     socket.shutdown(tcp::socket::shutdown_both, error_code);
+    return response;
+  }
+
+  static auto CreateSession(const std::string& token) -> std::string {
+    auto response = SendRequest(http::verb::post, "/sessions",
+                                "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}",
+                                token);
+    EXPECT_EQ(response.result(), http::status::created);
     return response.body();
   }
 
-  static void StartPairing() {
-    asio::io_context io_context;
-    tcp::resolver resolver(io_context);
-    tcp::socket socket(io_context);
-    const auto results = resolver.resolve("127.0.0.1", "18088");
-    asio::connect(socket, results);
+  static auto StartPairing() -> std::optional<json::object> {
+    auto response = SendRequest(http::verb::post, "/pairing/request",
+                                "{\"deviceName\":\"integration-browser\",\"deviceType\":\"browser\"}");
+    if (response.result() != http::status::created) {
+      return std::nullopt;
+    }
 
-    http::request<http::string_body> request{http::verb::post, "/pairing/request", 11};
-    request.set(http::field::host, "127.0.0.1");
-    request.set(http::field::content_type, "application/json");
-    request.body() = "{\"deviceName\":\"integration-browser\",\"deviceType\":\"browser\"}";
-    request.prepare_payload();
-
-    http::write(socket, request);
-    beast::flat_buffer buffer;
-    http::response<http::string_body> response;
-    http::read(socket, buffer, response);
-    EXPECT_EQ(response.result(), http::status::created);
+    return ReadJsonResponseBody(response);
   }
 
-  static auto ApprovePairing() -> std::optional<std::string> {
-    asio::io_context io_context;
-    tcp::resolver resolver(io_context);
-    tcp::socket socket(io_context);
-    const auto results = resolver.resolve("127.0.0.1", "18088");
-    asio::connect(socket, results);
-
-    http::request<http::string_body> request{http::verb::post, "/pairing/approve", 11};
-    request.set(http::field::host, "127.0.0.1");
-    request.set(http::field::content_type, "application/json");
-    request.body() = "{\"pairingId\":\"p_1\",\"code\":\"100001\"}";
-    request.prepare_payload();
-
-    http::write(socket, request);
-    beast::flat_buffer buffer;
-    http::response<http::string_body> response;
-    http::read(socket, buffer, response);
+  static auto ApprovePairing(const std::string& pairing_id, const std::string& code)
+      -> std::optional<std::string> {
+    auto response = SendRequest(http::verb::post, "/pairing/approve",
+                                "{\"pairingId\":\"" + pairing_id + "\",\"code\":\"" + code + "\"}");
     if (response.result() != http::status::ok) {
       return std::nullopt;
     }
 
-    const auto token_pos = response.body().find("\"token\":\"");
-    if (token_pos == std::string::npos) {
+    const auto body = ReadJsonResponseBody(response);
+    const auto token = body.if_contains("token");
+    if (token == nullptr || !token->is_string()) {
       return std::nullopt;
     }
 
-    const auto start = token_pos + std::string("\"token\":\"").size();
-    const auto end = response.body().find('"', start);
-    if (end == std::string::npos) {
-      return std::nullopt;
-    }
-
-    return response.body().substr(start, end - start);
+    return json::value_to<std::string>(*token);
   }
 
   static auto EnsureApprovedToken() -> std::string {
-    StartPairing();
-    const auto token = ApprovePairing();
-    EXPECT_TRUE(token.has_value());
-    return token.value_or("");
+    const auto pairing = StartPairing();
+    if (!pairing.has_value()) {
+      ADD_FAILURE() << "pairing request failed";
+      return "";
+    }
+
+    const auto pairing_id = pairing->if_contains("pairingId");
+    const auto code = pairing->if_contains("code");
+    if (pairing_id == nullptr || code == nullptr || !pairing_id->is_string() || !code->is_string()) {
+      ADD_FAILURE() << "pairing response missing id/code";
+      return "";
+    }
+
+    const auto token =
+        ApprovePairing(json::value_to<std::string>(*pairing_id), json::value_to<std::string>(*code));
+    if (!token.has_value()) {
+      ADD_FAILURE() << "pairing approval failed";
+      return "";
+    }
+    return *token;
   }
 
   std::atomic<bool> started_{false};
   HttpServer* server_{nullptr};
   std::thread server_thread_;
+  std::filesystem::path storage_root_;
 };
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -182,7 +211,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -204,20 +233,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   websocket.read(buffer);
   buffer.consume(buffer.size());
 
-  asio::io_context stop_io_context;
-  tcp::resolver stop_resolver(stop_io_context);
-  tcp::socket stop_socket(stop_io_context);
-  const auto stop_results = stop_resolver.resolve("127.0.0.1", "18088");
-  asio::connect(stop_socket, stop_results);
-
-  http::request<http::string_body> stop_request{http::verb::post, "/sessions/s_1/stop", 11};
-  stop_request.set(http::field::host, "127.0.0.1");
-  stop_request.set(http::field::authorization, "Bearer " + token);
-  stop_request.prepare_payload();
-  http::write(stop_socket, stop_request);
-  beast::flat_buffer stop_buffer;
-  http::response<http::string_body> stop_response;
-  http::read(stop_socket, stop_buffer, stop_response);
+  auto stop_response = SendRequest(http::verb::post, "/sessions/s_1/stop", "", token);
   EXPECT_EQ(stop_response.result(), http::status::ok);
 
   websocket.read(buffer);
@@ -235,7 +251,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -267,7 +283,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -312,7 +328,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -343,7 +359,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -397,7 +413,7 @@ TEST_F(HttpServerFixture, SessionRoutesRejectMissingBearerToken) {
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession();
+  const std::string create_response = CreateSession(token);
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
 
   asio::io_context io_context;
@@ -418,45 +434,50 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
 }
 
 TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {
-  StartPairing();
+  const auto pairing = StartPairing();
+  ASSERT_TRUE(pairing.has_value());
 
-  asio::io_context io_context;
-  tcp::resolver resolver(io_context);
-  tcp::socket socket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
-  asio::connect(socket, results);
-
-  http::request<http::string_body> pending_request{http::verb::get, "/pairing/pending", 11};
-  pending_request.set(http::field::host, "127.0.0.1");
-  http::write(socket, pending_request);
-
-  beast::flat_buffer pending_buffer;
-  http::response<http::string_body> pending_response;
-  http::read(socket, pending_buffer, pending_response);
+  auto pending_response = SendRequest(http::verb::get, "/pairing/pending");
   EXPECT_EQ(pending_response.result(), http::status::ok);
-  EXPECT_NE(pending_response.body().find("\"pairingId\":\"p_1\""), std::string::npos);
+  EXPECT_NE(pending_response.body().find("\"pairingId\":\""), std::string::npos);
 
-  boost::system::error_code error_code;
-  socket.shutdown(tcp::socket::shutdown_both, error_code);
-
-  asio::io_context config_io_context;
-  tcp::resolver config_resolver(config_io_context);
-  tcp::socket config_socket(config_io_context);
-  const auto config_results = config_resolver.resolve("127.0.0.1", "18088");
-  asio::connect(config_socket, config_results);
-
-  http::request<http::string_body> config_request{http::verb::post, "/host/config", 11};
-  config_request.set(http::field::host, "127.0.0.1");
-  config_request.set(http::field::content_type, "application/json");
-  config_request.body() = R"({"displayName":"Updated Host"})";
-  config_request.prepare_payload();
-  http::write(config_socket, config_request);
-
-  beast::flat_buffer config_buffer;
-  http::response<http::string_body> config_response;
-  http::read(config_socket, config_buffer, config_response);
+  auto config_response =
+      SendRequest(http::verb::post, "/host/config", R"({"displayName":"Updated Host"})");
   EXPECT_EQ(config_response.result(), http::status::ok);
   EXPECT_NE(config_response.body().find("\"displayName\":\"Updated Host\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, PairingAndHostConfigPersistAcrossServerRestart) {
+  const auto pairing = StartPairing();
+  ASSERT_TRUE(pairing.has_value());
+  const auto pairing_id = pairing->if_contains("pairingId");
+  const auto code = pairing->if_contains("code");
+  ASSERT_NE(pairing_id, nullptr);
+  ASSERT_NE(code, nullptr);
+  ASSERT_TRUE(pairing_id->is_string());
+  ASSERT_TRUE(code->is_string());
+
+  auto config_response =
+      SendRequest(http::verb::post, "/host/config", R"({"displayName":"Persistent Host"})");
+  ASSERT_EQ(config_response.result(), http::status::ok);
+
+  StopServer();
+  StartServer();
+
+  auto pending_response = SendRequest(http::verb::get, "/pairing/pending");
+  ASSERT_EQ(pending_response.result(), http::status::ok);
+  EXPECT_NE(pending_response.body().find(json::value_to<std::string>(*pairing_id)), std::string::npos);
+
+  auto host_info_response = SendRequest(http::verb::get, "/host/info");
+  ASSERT_EQ(host_info_response.result(), http::status::ok);
+  EXPECT_NE(host_info_response.body().find("\"displayName\":\"Persistent Host\""), std::string::npos);
+
+  const auto token =
+      ApprovePairing(json::value_to<std::string>(*pairing_id), json::value_to<std::string>(*code));
+  ASSERT_TRUE(token.has_value());
+
+  auto sessions_response = SendRequest(http::verb::get, "/sessions", "", *token);
+  EXPECT_EQ(sessions_response.result(), http::status::ok);
 }
 
 }  // namespace

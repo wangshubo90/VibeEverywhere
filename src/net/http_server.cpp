@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -495,11 +496,17 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
 }  // namespace
 
 HttpServer::HttpServer(std::string bind_address, const std::uint16_t port)
+    : HttpServer(std::move(bind_address), port, DefaultStorageRoot()) {}
+
+HttpServer::HttpServer(std::string bind_address, const std::uint16_t port,
+                       std::filesystem::path storage_root)
     : bind_address_(std::move(bind_address)),
-      port_(port) {
-  auto auth_services = CreateLocalAuthServices();
+      port_(port),
+      storage_root_(std::move(storage_root)) {
+  auto auth_services = CreateLocalAuthServices(storage_root_);
   authorizer_ = std::move(auth_services.authorizer);
   pairing_service_ = std::move(auth_services.pairing_service);
+  pairing_store_ = std::move(auth_services.pairing_store);
   host_config_store_ = std::move(auth_services.host_config_store);
 }
 
