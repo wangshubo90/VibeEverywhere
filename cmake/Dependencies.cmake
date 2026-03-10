@@ -1,4 +1,5 @@
 find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS json)
+find_package(OpenSSL REQUIRED)
 
 include(FetchContent)
 

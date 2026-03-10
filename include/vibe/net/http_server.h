@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <boost/asio/io_context.hpp>
@@ -16,13 +17,20 @@
 
 namespace vibe::net {
 
+struct RemoteTlsFiles {
+  std::string certificate_pem_path;
+  std::string private_key_pem_path;
+};
+
 class HttpServer {
  public:
   HttpServer(std::string admin_bind_address, std::uint16_t admin_port,
-             std::string remote_bind_address, std::uint16_t remote_port);
+             std::string remote_bind_address, std::uint16_t remote_port,
+             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt);
   HttpServer(std::string admin_bind_address, std::uint16_t admin_port,
              std::string remote_bind_address, std::uint16_t remote_port,
-             std::filesystem::path storage_root);
+             std::filesystem::path storage_root,
+             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt);
   ~HttpServer();
 
   [[nodiscard]] auto Run() -> bool;
@@ -34,6 +42,7 @@ class HttpServer {
   std::string remote_bind_address_;
   std::uint16_t remote_port_;
   std::filesystem::path storage_root_;
+  std::optional<RemoteTlsFiles> remote_tls_override_;
   vibe::service::SessionManager session_manager_;
   std::shared_ptr<vibe::auth::Authorizer> authorizer_;
   std::shared_ptr<vibe::auth::PairingService> pairing_service_;

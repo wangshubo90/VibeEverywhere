@@ -27,6 +27,8 @@ target_link_libraries(vibe_core
   PUBLIC
     Boost::headers
     Boost::json
+    OpenSSL::SSL
+    OpenSSL::Crypto
     vibe_warnings
 )
 
