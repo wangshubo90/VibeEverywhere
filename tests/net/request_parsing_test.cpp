@@ -26,6 +26,16 @@ TEST(RequestParsingTest, ParsesWebSocketStopCommand) {
   EXPECT_TRUE(std::holds_alternative<WebSocketStopCommand>(*command));
 }
 
+TEST(RequestParsingTest, ParsesControlCommands) {
+  const auto request_control = ParseWebSocketCommand(R"({"type":"session.control.request"})");
+  ASSERT_TRUE(request_control.has_value());
+  EXPECT_TRUE(std::holds_alternative<WebSocketRequestControlCommand>(*request_control));
+
+  const auto release_control = ParseWebSocketCommand(R"({"type":"session.control.release"})");
+  ASSERT_TRUE(release_control.has_value());
+  EXPECT_TRUE(std::holds_alternative<WebSocketReleaseControlCommand>(*release_control));
+}
+
 TEST(RequestParsingTest, RejectsMalformedOrUnknownWebSocketCommands) {
   EXPECT_FALSE(ParseWebSocketCommand(R"({"type":"unknown"})").has_value());
   EXPECT_FALSE(ParseWebSocketCommand(R"({"type":"terminal.input"})").has_value());

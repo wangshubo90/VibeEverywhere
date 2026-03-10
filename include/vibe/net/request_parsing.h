@@ -21,8 +21,13 @@ struct WebSocketResizeCommand {
 
 struct WebSocketStopCommand {};
 
+struct WebSocketRequestControlCommand {};
+
+struct WebSocketReleaseControlCommand {};
+
 using WebSocketCommand =
-    std::variant<WebSocketInputCommand, WebSocketResizeCommand, WebSocketStopCommand>;
+    std::variant<WebSocketInputCommand, WebSocketResizeCommand, WebSocketStopCommand,
+                 WebSocketRequestControlCommand, WebSocketReleaseControlCommand>;
 
 [[nodiscard]] auto ParseCreateSessionRequest(const std::string& body)
     -> std::optional<vibe::service::CreateSessionRequest>;

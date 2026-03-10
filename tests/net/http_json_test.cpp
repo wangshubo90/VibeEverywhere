@@ -58,12 +58,16 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .workspace_root = "/tmp/project",
               .title = "demo",
               .status = vibe::session::SessionStatus::Running,
+              .controller_client_id = "client-1",
+              .controller_kind = vibe::session::ControllerKind::Remote,
           },
   });
 
   EXPECT_NE(json.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"status\":\"Running\""), std::string::npos);
+  EXPECT_NE(json.find("\"controllerClientId\":\"client-1\""), std::string::npos);
+  EXPECT_NE(json.find("\"controllerKind\":\"remote\""), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionExitedEvent) {
@@ -79,11 +83,13 @@ TEST(HttpJsonTest, SerializesSessionExitedEvent) {
 
 TEST(HttpJsonTest, SerializesErrorEvent) {
   const std::string json = ToJson(ErrorEvent{
+      .session_id = "s_9",
       .code = "invalid_command",
       .message = "invalid websocket command",
   });
 
   EXPECT_NE(json.find("\"type\":\"error\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"code\":\"invalid_command\""), std::string::npos);
   EXPECT_NE(json.find("\"message\":\"invalid websocket command\""), std::string::npos);
 }

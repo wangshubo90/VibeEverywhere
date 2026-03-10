@@ -21,6 +21,12 @@ enum class SessionStatus {
   Error,
 };
 
+enum class ControllerKind {
+  None,
+  Host,
+  Remote,
+};
+
 class SessionId {
  public:
   static auto TryCreate(std::string value) -> std::optional<SessionId>;
@@ -44,6 +50,7 @@ struct SessionMetadata {
 
 [[nodiscard]] auto ToString(ProviderType provider) -> std::string_view;
 [[nodiscard]] auto ToString(SessionStatus status) -> std::string_view;
+[[nodiscard]] auto ToString(ControllerKind controller_kind) -> std::string_view;
 
 }  // namespace vibe::session
 

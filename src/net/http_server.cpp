@@ -13,6 +13,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +52,8 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
             return;
           }
 
+          self->client_id_ = "ws_" + self->session_id_ + "_" +
+                             std::to_string(reinterpret_cast<std::uintptr_t>(self.get()));
           self->last_sequence_ = 1;
           self->websocket_registry_[self->session_id_].push_back(self);
           self->QueueInitialEvents();
@@ -109,8 +112,12 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
       return;
     }
 
-    if (!last_status_.has_value() || *last_status_ != summary->status) {
+    if (!last_status_.has_value() || *last_status_ != summary->status ||
+        last_controller_client_id_ != summary->controller_client_id ||
+        last_controller_kind_ != summary->controller_kind) {
       last_status_ = summary->status;
+      last_controller_client_id_ = summary->controller_client_id;
+      last_controller_kind_ = summary->controller_kind;
       QueueFrame(ToJson(SessionUpdatedEvent{.summary = *summary}), last_sequence_);
     }
 
@@ -179,6 +186,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
     const auto command = ParseWebSocketCommand(payload);
     if (!command.has_value()) {
       QueueFrame(ToJson(ErrorEvent{
+                     .session_id = session_id_,
                      .code = "invalid_command",
                      .message = "invalid websocket command",
                  }),
@@ -190,19 +198,38 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
         [this](const auto& value) -> bool {
           using T = std::decay_t<decltype(value)>;
           if constexpr (std::is_same_v<T, WebSocketInputCommand>) {
+            if (!session_manager_.HasControl(session_id_, client_id_)) {
+              return false;
+            }
             return session_manager_.SendInput(session_id_, value.data);
           } else if constexpr (std::is_same_v<T, WebSocketResizeCommand>) {
+            if (!session_manager_.HasControl(session_id_, client_id_)) {
+              return false;
+            }
             return session_manager_.ResizeSession(session_id_, value.terminal_size);
           } else if constexpr (std::is_same_v<T, WebSocketStopCommand>) {
+            if (!session_manager_.HasControl(session_id_, client_id_)) {
+              return false;
+            }
             return session_manager_.StopSession(session_id_);
+          } else if constexpr (std::is_same_v<T, WebSocketRequestControlCommand>) {
+            return session_manager_.RequestControl(session_id_, client_id_,
+                                                   vibe::session::ControllerKind::Remote);
+          } else if constexpr (std::is_same_v<T, WebSocketReleaseControlCommand>) {
+            return session_manager_.ReleaseControl(session_id_, client_id_);
           }
 
           return false;
         },
         *command);
 
+    if (handled) {
+      QueueStatusEvents();
+    }
+
     if (!handled) {
       QueueFrame(ToJson(ErrorEvent{
+                     .session_id = session_id_,
                      .code = "command_rejected",
                      .message = "command rejected for current session state",
                  }),
@@ -217,8 +244,11 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   std::deque<PendingFrame> pending_frames_;
   std::string target_;
   std::string session_id_;
+  std::string client_id_;
   std::uint64_t last_sequence_{1};
   std::optional<vibe::session::SessionStatus> last_status_;
+  std::optional<std::string> last_controller_client_id_;
+  vibe::session::ControllerKind last_controller_kind_{vibe::session::ControllerKind::None};
   bool initial_events_sent_{false};
   bool exit_event_sent_{false};
   bool write_in_progress_{false};

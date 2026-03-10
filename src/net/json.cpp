@@ -74,6 +74,10 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["workspaceRoot"] = event.summary.workspace_root;
   object["title"] = event.summary.title;
   object["status"] = std::string(vibe::session::ToString(event.summary.status));
+  if (event.summary.controller_client_id.has_value()) {
+    object["controllerClientId"] = *event.summary.controller_client_id;
+  }
+  object["controllerKind"] = std::string(vibe::session::ToString(event.summary.controller_kind));
   return json::serialize(object);
 }
 
@@ -88,6 +92,9 @@ auto ToJson(const SessionExitedEvent& event) -> std::string {
 auto ToJson(const ErrorEvent& event) -> std::string {
   json::object object;
   object["type"] = "error";
+  if (!event.session_id.empty()) {
+    object["sessionId"] = event.session_id;
+  }
   object["code"] = event.code;
   object["message"] = event.message;
   return json::serialize(object);

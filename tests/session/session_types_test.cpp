@@ -24,6 +24,12 @@ TEST(SessionTypesTest, ExposesStableProviderNames) {
   EXPECT_EQ(ToString(ProviderType::Claude), "claude");
 }
 
+TEST(SessionTypesTest, ExposesStableControllerNames) {
+  EXPECT_EQ(ToString(ControllerKind::None), "none");
+  EXPECT_EQ(ToString(ControllerKind::Host), "host");
+  EXPECT_EQ(ToString(ControllerKind::Remote), "remote");
+}
+
 TEST(SessionMetadataTest, DefaultsToCreatedStatus) {
   const auto session_id = SessionId::TryCreate("session_123");
   ASSERT_TRUE(session_id.has_value());

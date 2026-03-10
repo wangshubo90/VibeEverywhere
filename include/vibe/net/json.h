@@ -26,6 +26,7 @@ struct SessionExitedEvent {
 };
 
 struct ErrorEvent {
+  std::string session_id;
   std::string code;
   std::string message;
 };

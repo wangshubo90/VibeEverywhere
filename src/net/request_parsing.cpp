@@ -108,6 +108,14 @@ auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCo
     return WebSocketStopCommand{};
   }
 
+  if (command_type == "session.control.request") {
+    return WebSocketRequestControlCommand{};
+  }
+
+  if (command_type == "session.control.release") {
+    return WebSocketReleaseControlCommand{};
+  }
+
   return std::nullopt;
 }
 

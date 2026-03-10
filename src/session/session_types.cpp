@@ -60,4 +60,17 @@ auto ToString(SessionStatus status) -> std::string_view {
   return "Unknown";
 }
 
+auto ToString(ControllerKind controller_kind) -> std::string_view {
+  switch (controller_kind) {
+    case ControllerKind::None:
+      return "none";
+    case ControllerKind::Host:
+      return "host";
+    case ControllerKind::Remote:
+      return "remote";
+  }
+
+  return "unknown";
+}
+
 }  // namespace vibe::session

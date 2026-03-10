@@ -27,6 +27,8 @@ struct SessionSummary {
   std::string workspace_root;
   std::string title;
   vibe::session::SessionStatus status;
+  std::optional<std::string> controller_client_id;
+  vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
 };
 
 class SessionManager {
@@ -47,6 +49,11 @@ class SessionManager {
   [[nodiscard]] auto ResizeSession(const std::string& session_id,
                                    vibe::session::TerminalSize terminal_size) -> bool;
   [[nodiscard]] auto StopSession(const std::string& session_id) -> bool;
+  [[nodiscard]] auto RequestControl(const std::string& session_id,
+                                    const std::string& client_id,
+                                    vibe::session::ControllerKind controller_kind) -> bool;
+  [[nodiscard]] auto ReleaseControl(const std::string& session_id, const std::string& client_id) -> bool;
+  [[nodiscard]] auto HasControl(const std::string& session_id, const std::string& client_id) const -> bool;
   void PollAll(int read_timeout_ms);
 
  private:
@@ -55,6 +62,8 @@ class SessionManager {
     std::unique_ptr<vibe::session::PosixPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
     std::unique_ptr<vibe::service::GitInspector> git_inspector;
+    std::optional<std::string> controller_client_id;
+    vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
   };
 
   [[nodiscard]] auto MakeSessionId() const -> std::optional<vibe::session::SessionId>;
