@@ -11,6 +11,20 @@ namespace {
 constexpr char kBase64Alphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+auto ToString(const vibe::auth::DeviceType device_type) -> const char* {
+  switch (device_type) {
+    case vibe::auth::DeviceType::Mobile:
+      return "mobile";
+    case vibe::auth::DeviceType::Desktop:
+      return "desktop";
+    case vibe::auth::DeviceType::Browser:
+      return "browser";
+    case vibe::auth::DeviceType::Unknown:
+    default:
+      return "unknown";
+  }
+}
+
 }  // namespace
 
 auto JsonEscape(const std::string_view input) -> std::string {
@@ -102,6 +116,36 @@ auto ToJson(const vibe::session::OutputSlice& slice) -> std::string {
   return json::serialize(object);
 }
 
+auto ToJson(const vibe::auth::PairingRequest& request) -> std::string {
+  json::object object;
+  object["pairingId"] = request.pairing_id;
+  object["deviceName"] = request.device_name;
+  object["deviceType"] = ToString(request.device_type);
+  object["code"] = request.code;
+  object["requestedAtUnixMs"] = request.requested_at_unix_ms;
+  object["status"] = "pending";
+  return json::serialize(object);
+}
+
+auto ToJson(const std::vector<vibe::auth::PairingRequest>& requests) -> std::string {
+  json::array array;
+  for (const auto& request : requests) {
+    array.emplace_back(json::parse(ToJson(request)));
+  }
+  return json::serialize(array);
+}
+
+auto ToJson(const vibe::auth::PairingRecord& record) -> std::string {
+  json::object object;
+  object["deviceId"] = record.device_id.value;
+  object["deviceName"] = record.device_name;
+  object["deviceType"] = ToString(record.device_type);
+  object["token"] = record.bearer_token;
+  object["status"] = "approved";
+  object["approvedAtUnixMs"] = record.approved_at_unix_ms;
+  return json::serialize(object);
+}
+
 auto ToJson(const TerminalOutputEvent& event) -> std::string {
   json::object object;
   object["type"] = "terminal.output";
@@ -148,11 +192,22 @@ auto ToJson(const ErrorEvent& event) -> std::string {
 }
 
 auto ToJsonHostInfo() -> std::string {
+  return ToJsonHostInfo(std::nullopt, false);
+}
+
+auto ToJsonHostInfo(const std::optional<vibe::store::HostIdentity>& host_identity,
+                    const bool tls_enabled) -> std::string {
   json::object object;
-  object["hostId"] = "local-dev-host";
-  object["displayName"] = "VibeEverywhere Dev Host";
+  object["hostId"] = host_identity.has_value() ? host_identity->host_id : "local-dev-host";
+  object["displayName"] =
+      host_identity.has_value() ? host_identity->display_name : "VibeEverywhere Dev Host";
   object["version"] = "0.1.0";
   object["capabilities"] = {"sessions", "rest", "websocket"};
+  object["pairingMode"] = "approval";
+  json::object tls;
+  tls["enabled"] = tls_enabled;
+  tls["mode"] = tls_enabled ? "self-signed-planned" : "disabled";
+  object["tls"] = std::move(tls);
   return json::serialize(object);
 }
 

@@ -55,6 +55,75 @@ auto ParseInputRequest(const std::string& body) -> std::optional<std::string> {
   return json::value_to<std::string>(*data);
 }
 
+auto ParsePairingRequest(const std::string& body) -> std::optional<PairingRequestPayload> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto device_name = object.if_contains("deviceName");
+  const auto device_type = object.if_contains("deviceType");
+  if (device_name == nullptr || device_type == nullptr || !device_name->is_string() ||
+      !device_type->is_string()) {
+    return std::nullopt;
+  }
+
+  const std::string device_type_name = json::value_to<std::string>(*device_type);
+  vibe::auth::DeviceType parsed_device_type = vibe::auth::DeviceType::Unknown;
+  if (device_type_name == "mobile") {
+    parsed_device_type = vibe::auth::DeviceType::Mobile;
+  } else if (device_type_name == "desktop") {
+    parsed_device_type = vibe::auth::DeviceType::Desktop;
+  } else if (device_type_name == "browser") {
+    parsed_device_type = vibe::auth::DeviceType::Browser;
+  }
+
+  return PairingRequestPayload{
+      .device_name = json::value_to<std::string>(*device_name),
+      .device_type = parsed_device_type,
+  };
+}
+
+auto ParsePairingApprovalRequest(const std::string& body) -> std::optional<PairingApprovalPayload> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto pairing_id = object.if_contains("pairingId");
+  const auto code = object.if_contains("code");
+  if (pairing_id == nullptr || code == nullptr || !pairing_id->is_string() || !code->is_string()) {
+    return std::nullopt;
+  }
+
+  return PairingApprovalPayload{
+      .pairing_id = json::value_to<std::string>(*pairing_id),
+      .code = json::value_to<std::string>(*code),
+  };
+}
+
+auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfigPayload> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto display_name = object.if_contains("displayName");
+  if (display_name == nullptr || !display_name->is_string()) {
+    return std::nullopt;
+  }
+
+  return HostConfigPayload{
+      .display_name = json::value_to<std::string>(*display_name),
+  };
+}
+
 auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCommand> {
   boost::system::error_code error_code;
   const json::value parsed = json::parse(body, error_code);
