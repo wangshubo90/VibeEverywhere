@@ -39,13 +39,13 @@ using WebSocketRegistry = std::unordered_map<std::string, std::vector<std::weak_
 auto ExtractBearerToken(const HttpRequest& request) -> std::string {
   const auto it = request.base().find(http::field::authorization);
   if (it == request.base().end()) {
-    return "";
+    return ExtractAccessTokenFromWebSocketTarget(std::string(request.target()));
   }
 
   const std::string header = std::string(it->value());
   constexpr std::string_view prefix = "Bearer ";
   if (!header.starts_with(prefix)) {
-    return "";
+    return ExtractAccessTokenFromWebSocketTarget(std::string(request.target()));
   }
 
   return header.substr(prefix.size());
@@ -59,6 +59,21 @@ auto MakeWebSocketAuthResponse(const HttpRequest& request, const http::status st
   response.body() = "{\"error\":\"" + JsonEscape(message) + "\"}";
   response.prepare_payload();
   return response;
+}
+
+void PruneRegistry(WebSocketRegistry& websocket_registry) {
+  for (auto registry_it = websocket_registry.begin(); registry_it != websocket_registry.end();) {
+    auto& sessions = registry_it->second;
+    sessions.erase(
+        std::remove_if(sessions.begin(), sessions.end(),
+                       [](const std::weak_ptr<WebSocketSession>& entry) { return entry.expired(); }),
+        sessions.end());
+    if (sessions.empty()) {
+      registry_it = websocket_registry.erase(registry_it);
+    } else {
+      ++registry_it;
+    }
+  }
 }
 
 class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
@@ -136,6 +151,16 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   }
 
   [[nodiscard]] auto session_id() const -> const std::string& { return session_id_; }
+  [[nodiscard]] auto client_id() const -> const std::string& { return client_id_; }
+  [[nodiscard]] auto client_address() const -> const std::string& { return client_address_; }
+  [[nodiscard]] auto is_local_request() const -> bool { return is_local_request_; }
+  [[nodiscard]] auto claimed_kind() const -> vibe::session::ControllerKind { return claimed_kind_; }
+
+  void ForceClose() {
+    boost::system::error_code error_code;
+    websocket_.close(websocket::close_reason("disconnected by host"), error_code);
+    ReleaseControlIfHeld();
+  }
 
  private:
   struct PendingFrame {
@@ -270,9 +295,18 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
             }
             return session_manager_.StopSession(session_id_);
           } else if constexpr (std::is_same_v<T, WebSocketRequestControlCommand>) {
-            return session_manager_.RequestControl(session_id_, client_id_, value.controller_kind);
+            const bool granted =
+                session_manager_.RequestControl(session_id_, client_id_, value.controller_kind);
+            if (granted) {
+              claimed_kind_ = value.controller_kind;
+            }
+            return granted;
           } else if constexpr (std::is_same_v<T, WebSocketReleaseControlCommand>) {
-            return session_manager_.ReleaseControl(session_id_, client_id_);
+            const bool released = session_manager_.ReleaseControl(session_id_, client_id_);
+            if (released) {
+              claimed_kind_ = vibe::session::ControllerKind::None;
+            }
+            return released;
           }
 
           return false;
@@ -316,10 +350,69 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   std::optional<vibe::session::SessionStatus> last_status_;
   std::optional<std::string> last_controller_client_id_;
   vibe::session::ControllerKind last_controller_kind_{vibe::session::ControllerKind::None};
+  vibe::session::ControllerKind claimed_kind_{vibe::session::ControllerKind::None};
   bool initial_events_sent_{false};
   bool exit_event_sent_{false};
   bool write_in_progress_{false};
   bool is_local_request_{false};
+};
+
+class HostAdminService final : public vibe::net::HostAdmin {
+ public:
+  HostAdminService(vibe::service::SessionManager& session_manager, WebSocketRegistry& websocket_registry)
+      : session_manager_(session_manager), websocket_registry_(&websocket_registry) {}
+
+  [[nodiscard]] auto ListAttachedClients() const -> std::vector<vibe::net::AttachedClientInfo> override {
+    std::vector<vibe::net::AttachedClientInfo> clients;
+
+    PruneRegistry(*websocket_registry_);
+    for (const auto& [session_id, sessions] : *websocket_registry_) {
+      const auto summary = session_manager_.GetSession(session_id);
+      const auto controller_client_id = summary.has_value() ? summary->controller_client_id : std::nullopt;
+
+      for (const auto& entry : sessions) {
+        if (const auto session = entry.lock()) {
+          clients.push_back(vibe::net::AttachedClientInfo{
+              .client_id = session->client_id(),
+              .session_id = session->session_id(),
+              .client_address = session->client_address(),
+              .claimed_kind = session->claimed_kind(),
+              .is_local = session->is_local_request(),
+              .has_control = controller_client_id.has_value() && *controller_client_id == session->client_id(),
+          });
+        }
+      }
+    }
+
+    std::sort(clients.begin(), clients.end(),
+              [](const vibe::net::AttachedClientInfo& left, const vibe::net::AttachedClientInfo& right) {
+                if (left.session_id != right.session_id) {
+                  return left.session_id < right.session_id;
+                }
+                return left.client_id < right.client_id;
+              });
+    return clients;
+  }
+
+  [[nodiscard]] auto DisconnectClient(const std::string& client_id) -> bool override {
+    PruneRegistry(*websocket_registry_);
+    for (auto& [session_id, sessions] : *websocket_registry_) {
+      static_cast<void>(session_id);
+      for (const auto& entry : sessions) {
+        if (const auto session = entry.lock()) {
+          if (session->client_id() == client_id) {
+            session->ForceClose();
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+ private:
+  vibe::service::SessionManager& session_manager_;
+  WebSocketRegistry* websocket_registry_;
 };
 
 class HttpSession : public std::enable_shared_from_this<HttpSession> {
@@ -327,12 +420,17 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
   HttpSession(tcp::socket socket, vibe::service::SessionManager& session_manager,
               const vibe::auth::Authorizer& authorizer,
               vibe::auth::PairingService& pairing_service,
-              vibe::store::HostConfigStore& host_config_store, WebSocketRegistry& websocket_registry)
+              vibe::store::PairingStore& pairing_store,
+              vibe::store::HostConfigStore& host_config_store,
+              vibe::net::HostAdmin& host_admin,
+              WebSocketRegistry& websocket_registry)
       : socket_(std::move(socket)),
         session_manager_(session_manager),
         authorizer_(authorizer),
         pairing_service_(pairing_service),
+        pairing_store_(pairing_store),
         host_config_store_(host_config_store),
+        host_admin_(host_admin),
         websocket_registry_(websocket_registry) {}
 
   void Start() { DoRead(); }
@@ -365,7 +463,9 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
               HttpRouteContext{
                   .authorizer = &self->authorizer_,
                   .pairing_service = &self->pairing_service_,
+                  .pairing_store = &self->pairing_store_,
                   .host_config_store = &self->host_config_store_,
+                  .host_admin = &self->host_admin_,
                   .client_address = endpoint.address().to_string(),
                   .is_local_request = endpoint.address().is_loopback(),
               });
@@ -393,7 +493,9 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
   vibe::service::SessionManager& session_manager_;
   const vibe::auth::Authorizer& authorizer_;
   vibe::auth::PairingService& pairing_service_;
+  vibe::store::PairingStore& pairing_store_;
   vibe::store::HostConfigStore& host_config_store_;
+  vibe::net::HostAdmin& host_admin_;
   WebSocketRegistry& websocket_registry_;
 };
 
@@ -403,6 +505,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
                const std::uint16_t port, vibe::service::SessionManager& session_manager,
                const vibe::auth::Authorizer& authorizer,
                vibe::auth::PairingService& pairing_service,
+               vibe::store::PairingStore& pairing_store,
                vibe::store::HostConfigStore& host_config_store)
       : acceptor_(io_context),
         socket_(io_context),
@@ -410,7 +513,9 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
         session_manager_(session_manager),
         authorizer_(authorizer),
         pairing_service_(pairing_service),
-        host_config_store_(host_config_store) {
+        pairing_store_(pairing_store),
+        host_config_store_(host_config_store),
+        host_admin_(session_manager_, websocket_registry_) {
     boost::system::error_code error_code;
     const tcp::endpoint endpoint(address, port);
 
@@ -447,7 +552,9 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
             if (!error_code) {
             std::make_shared<HttpSession>(std::move(self->socket_), self->session_manager_,
                                           self->authorizer_, self->pairing_service_,
-                                          self->host_config_store_, self->websocket_registry_)
+                                          self->pairing_store_,
+                                          self->host_config_store_, self->host_admin_,
+                                          self->websocket_registry_)
                 ->Start();
           }
 
@@ -489,8 +596,10 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
   vibe::service::SessionManager& session_manager_;
   const vibe::auth::Authorizer& authorizer_;
   vibe::auth::PairingService& pairing_service_;
+  vibe::store::PairingStore& pairing_store_;
   vibe::store::HostConfigStore& host_config_store_;
   WebSocketRegistry websocket_registry_;
+  HostAdminService host_admin_;
 };
 
 }  // namespace
@@ -523,7 +632,7 @@ auto HttpServer::Run() -> bool {
 
   try {
     std::make_shared<HttpListener>(*io_context_, address, port_, session_manager_, *authorizer_,
-                                   *pairing_service_, *host_config_store_)
+                                   *pairing_service_, *pairing_store_, *host_config_store_)
         ->Start();
   } catch (const boost::system::system_error& exception) {
     std::cerr << "failed to bind " << bind_address_ << ":" << port_ << ": "

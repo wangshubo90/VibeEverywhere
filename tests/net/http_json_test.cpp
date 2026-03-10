@@ -113,5 +113,21 @@ TEST(HttpJsonTest, SerializesErrorEvent) {
   EXPECT_NE(json.find("\"message\":\"invalid websocket command\""), std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesAttachedClientInfo) {
+  const std::string json = ToJson(AttachedClientInfo{
+      .client_id = "ws_s_1_100",
+      .session_id = "s_1",
+      .client_address = "127.0.0.1",
+      .claimed_kind = vibe::session::ControllerKind::Remote,
+      .is_local = false,
+      .has_control = true,
+  });
+
+  EXPECT_NE(json.find("\"clientId\":\"ws_s_1_100\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(json.find("\"claimedKind\":\"remote\""), std::string::npos);
+  EXPECT_NE(json.find("\"hasControl\":true"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace vibe::net

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "vibe/auth/pairing.h"
+#include "vibe/net/host_admin.h"
 #include "vibe/service/session_manager.h"
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
@@ -43,6 +44,8 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJson(const vibe::auth::PairingRequest& request) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::auth::PairingRequest>& requests) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::auth::PairingRecord& record) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::net::AttachedClientInfo& info) -> std::string;
+[[nodiscard]] auto ToJson(const std::vector<vibe::net::AttachedClientInfo>& infos) -> std::string;
 [[nodiscard]] auto ToJson(const TerminalOutputEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionUpdatedEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionExitedEvent& event) -> std::string;

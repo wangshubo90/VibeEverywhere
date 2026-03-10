@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VibeEverywhere Host Admin</title>
+  <link rel="stylesheet" href="/ui/app.css">
+</head>
+<body>
+  <main>
+    <header class="hero panel">
+      <div>
+        <h1>Host Admin</h1>
+        <p>Local-only approval, config, and live session management for the daemon.</p>
+      </div>
+      <div class="actions">
+        <button id="refresh-all" class="primary">Refresh All</button>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="column">
+        <section class="panel">
+          <div class="section-head">
+            <h2>Host Config</h2>
+          </div>
+          <pre id="host-info" class="output">loading...</pre>
+          <form id="config-form" class="stack">
+            <label>
+              <span>Display Name</span>
+              <input id="display-name" name="displayName" placeholder="Display name">
+            </label>
+            <button type="submit">Save Host Config</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <h2>Pending Pairings</h2>
+            <button id="refresh-pairings" class="ghost">Refresh</button>
+          </div>
+          <pre id="pending-list" class="output">loading...</pre>
+          <form id="approve-form" class="stack">
+            <label>
+              <span>Pairing ID</span>
+              <input id="pairing-id" name="pairingId" placeholder="Pairing ID">
+            </label>
+            <label>
+              <span>Code</span>
+              <input id="pairing-code" name="code" placeholder="Code">
+            </label>
+            <button type="submit">Approve Pairing</button>
+          </form>
+          <pre id="approve-result" class="output small">No approvals yet.</pre>
+        </section>
+      </div>
+
+      <div class="column wide">
+        <section class="panel">
+          <div class="section-head">
+            <h2>Live Sessions</h2>
+            <button id="refresh-sessions" class="ghost">Refresh</button>
+          </div>
+          <div id="sessions-list" class="list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <h2>Attached Clients</h2>
+            <button id="refresh-clients" class="ghost">Refresh</button>
+          </div>
+          <div id="clients-list" class="list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <h2>Events</h2>
+          </div>
+          <pre id="events" class="output event-log"></pre>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>

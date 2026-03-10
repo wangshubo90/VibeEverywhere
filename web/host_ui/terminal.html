@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VibeEverywhere Host Terminal</title>
+  <link rel="stylesheet" href="/ui/app.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm/css/xterm.css">
+</head>
+<body>
+  <main>
+    <section class="panel hero">
+      <div>
+        <h1>Host Terminal</h1>
+        <p id="session-label">Preparing terminal...</p>
+      </div>
+      <div class="actions inline-actions">
+        <button id="request-control" class="primary">Request Control</button>
+        <button id="release-control">Release Control</button>
+        <button id="stop-session">Stop Session</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Session</h2>
+        <div id="status" class="meta">disconnected</div>
+      </div>
+      <div id="terminal-shell">
+        <div id="terminal-topbar">
+          <span id="terminal-caption">No session</span>
+          <span id="terminal-size">0 x 0</span>
+        </div>
+        <div id="terminal"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Events</h2>
+      </div>
+      <pre id="events" class="output event-log"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="/ui/terminal.js"></script>
+</body>
+</html>

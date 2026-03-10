@@ -5,6 +5,7 @@
 
 #include "vibe/auth/authorizer.h"
 #include "vibe/auth/pairing.h"
+#include "vibe/net/host_admin.h"
 #include "vibe/net/http_shared.h"
 #include "vibe/store/host_config_store.h"
 
@@ -95,6 +96,46 @@ class FakePairingService final : public vibe::auth::PairingService {
   mutable std::vector<vibe::auth::PairingRequest> pending_pairings;
 };
 
+class FakePairingStore final : public vibe::store::PairingStore {
+ public:
+  [[nodiscard]] auto LoadPendingPairings() const -> std::vector<vibe::auth::PairingRequest> override {
+    return pending_pairings;
+  }
+
+  [[nodiscard]] auto LoadApprovedPairings() const -> std::vector<vibe::auth::PairingRecord> override {
+    return approved_pairings;
+  }
+
+  [[nodiscard]] auto UpsertPendingPairing(const vibe::auth::PairingRequest& request) -> bool override {
+    pending_pairings.push_back(request);
+    return true;
+  }
+
+  [[nodiscard]] auto UpsertApprovedPairing(const vibe::auth::PairingRecord& record) -> bool override {
+    approved_pairings.push_back(record);
+    return true;
+  }
+
+  [[nodiscard]] auto RemovePendingPairing(const std::string& pairing_id) -> bool override {
+    pending_pairings.erase(
+        std::remove_if(pending_pairings.begin(), pending_pairings.end(),
+                       [&](const vibe::auth::PairingRequest& pending) { return pending.pairing_id == pairing_id; }),
+        pending_pairings.end());
+    return true;
+  }
+
+  [[nodiscard]] auto RemoveApprovedPairing(const std::string& device_id) -> bool override {
+    approved_pairings.erase(
+        std::remove_if(approved_pairings.begin(), approved_pairings.end(),
+                       [&](const vibe::auth::PairingRecord& record) { return record.device_id.value == device_id; }),
+        approved_pairings.end());
+    return true;
+  }
+
+  mutable std::vector<vibe::auth::PairingRequest> pending_pairings;
+  mutable std::vector<vibe::auth::PairingRecord> approved_pairings;
+};
+
 class FakeHostConfigStore final : public vibe::store::HostConfigStore {
  public:
   [[nodiscard]] auto LoadHostIdentity() const -> std::optional<vibe::store::HostIdentity> override {
@@ -116,13 +157,41 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
   };
 };
 
+class FakeHostAdmin final : public vibe::net::HostAdmin {
+ public:
+  [[nodiscard]] auto ListAttachedClients() const -> std::vector<vibe::net::AttachedClientInfo> override {
+    return clients;
+  }
+
+  [[nodiscard]] auto DisconnectClient(const std::string& client_id) -> bool override {
+    last_disconnected_client_id = client_id;
+    return client_id == "ws_s_1_1";
+  }
+
+  mutable std::vector<vibe::net::AttachedClientInfo> clients{
+      vibe::net::AttachedClientInfo{
+          .client_id = "ws_s_1_1",
+          .session_id = "s_1",
+          .client_address = "127.0.0.1",
+          .claimed_kind = vibe::session::ControllerKind::Remote,
+          .is_local = false,
+          .has_control = true,
+      },
+  };
+  mutable std::string last_disconnected_client_id;
+};
+
 auto MakeAuthContext(FakeAuthorizer& authorizer,
                      FakePairingService& pairing_service,
-                     FakeHostConfigStore& host_config_store) -> HttpRouteContext {
+                     FakeHostConfigStore& host_config_store,
+                     FakeHostAdmin* host_admin = nullptr,
+                     FakePairingStore* pairing_store = nullptr) -> HttpRouteContext {
   return HttpRouteContext{
       .authorizer = &authorizer,
       .pairing_service = &pairing_service,
+      .pairing_store = pairing_store,
       .host_config_store = &host_config_store,
+      .host_admin = host_admin,
       .client_address = "127.0.0.1",
       .is_local_request = true,
   };
@@ -380,7 +449,9 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;
   FakePairingService pairing_service;
+  FakePairingStore pairing_store;
   FakeHostConfigStore host_config_store;
+  FakeHostAdmin host_admin;
 
   HttpRequest ui_request;
   ui_request.method(http::verb::get);
@@ -389,10 +460,54 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
 
   const HttpResponse ui_response =
       HandleRequest(ui_request, session_manager,
-                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(ui_response.result(), http::status::ok);
   EXPECT_EQ(ui_response[http::field::content_type], "text/html; charset=utf-8");
-  EXPECT_NE(ui_response.body().find("Host Approval"), std::string::npos);
+  EXPECT_NE(ui_response.body().find("Host Admin"), std::string::npos);
+
+  HttpRequest root_ui_request;
+  root_ui_request.method(http::verb::get);
+  root_ui_request.target("/");
+  root_ui_request.version(11);
+
+  const HttpResponse root_ui_response =
+      HandleRequest(root_ui_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(root_ui_response.result(), http::status::ok);
+  EXPECT_EQ(root_ui_response[http::field::content_type], "text/html; charset=utf-8");
+  EXPECT_NE(root_ui_response.body().find("Host Admin"), std::string::npos);
+
+  HttpRequest terminal_ui_request;
+  terminal_ui_request.method(http::verb::get);
+  terminal_ui_request.target("/ui/terminal?sessionId=s_1");
+  terminal_ui_request.version(11);
+  const HttpResponse terminal_ui_response =
+      HandleRequest(terminal_ui_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(terminal_ui_response.result(), http::status::ok);
+  EXPECT_NE(terminal_ui_response.body().find("Host Terminal"), std::string::npos);
+
+  HttpRequest terminal_script_request;
+  terminal_script_request.method(http::verb::get);
+  terminal_script_request.target("/ui/terminal.js");
+  terminal_script_request.version(11);
+  const HttpResponse terminal_script_response =
+      HandleRequest(terminal_script_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(terminal_script_response.result(), http::status::ok);
+  EXPECT_EQ(terminal_script_response[http::field::content_type], "application/javascript; charset=utf-8");
+  EXPECT_NE(terminal_script_response.body().find("host/local-token"), std::string::npos);
+
+  HttpRequest local_token_request;
+  local_token_request.method(http::verb::get);
+  local_token_request.target("/host/local-token");
+  local_token_request.version(11);
+  const HttpResponse local_token_response =
+      HandleRequest(local_token_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(local_token_response.result(), http::status::ok);
+  EXPECT_NE(local_token_response.body().find("\"deviceId\":\"local_browser_host_ui\""), std::string::npos);
+  EXPECT_NE(local_token_response.body().find("\"token\":\""), std::string::npos);
 
   HttpRequest start_pairing_request;
   start_pairing_request.method(http::verb::post);
@@ -403,7 +518,7 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
 
   const HttpResponse start_pairing_response =
       HandleRequest(start_pairing_request, session_manager,
-                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(start_pairing_response.result(), http::status::created);
   EXPECT_NE(start_pairing_response.body().find("\"pairingId\":\"p_1\""), std::string::npos);
 
@@ -414,7 +529,7 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
 
   const HttpResponse pending_response =
       HandleRequest(pending_request, session_manager,
-                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(pending_response.result(), http::status::ok);
   EXPECT_NE(pending_response.body().find("\"pairingId\":\"p_1\""), std::string::npos);
 
@@ -427,9 +542,69 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
 
   const HttpResponse approve_response =
       HandleRequest(approve_request, session_manager,
-                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(approve_response.result(), http::status::ok);
   EXPECT_NE(approve_response.body().find("\"token\":\"good-token\""), std::string::npos);
+}
+
+TEST(HttpSharedTest, ServesHostManagementRoutes) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  FakeHostAdmin host_admin;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() = R"({"provider":"codex","workspaceRoot":".","title":"managed"})";
+  create_request.prepare_payload();
+  EXPECT_EQ(HandleRequest(create_request, session_manager,
+                          MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin))
+                .result(),
+            http::status::created);
+
+  HttpRequest sessions_request;
+  sessions_request.method(http::verb::get);
+  sessions_request.target("/host/sessions");
+  sessions_request.version(11);
+  const HttpResponse sessions_response =
+      HandleRequest(sessions_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(sessions_response.result(), http::status::ok);
+  EXPECT_NE(sessions_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+
+  HttpRequest clients_request;
+  clients_request.method(http::verb::get);
+  clients_request.target("/host/clients");
+  clients_request.version(11);
+  const HttpResponse clients_response =
+      HandleRequest(clients_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(clients_response.result(), http::status::ok);
+  EXPECT_NE(clients_response.body().find("\"clientId\":\"ws_s_1_1\""), std::string::npos);
+
+  HttpRequest disconnect_request;
+  disconnect_request.method(http::verb::post);
+  disconnect_request.target("/host/clients/ws_s_1_1/disconnect");
+  disconnect_request.version(11);
+  const HttpResponse disconnect_response =
+      HandleRequest(disconnect_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(disconnect_response.result(), http::status::ok);
+  EXPECT_EQ(host_admin.last_disconnected_client_id, "ws_s_1_1");
+
+  HttpRequest stop_request;
+  stop_request.method(http::verb::post);
+  stop_request.target("/host/sessions/s_1/stop");
+  stop_request.version(11);
+  const HttpResponse stop_response =
+      HandleRequest(stop_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(stop_response.result(), http::status::ok);
+  EXPECT_NE(stop_response.body().find("\"status\":\"Exited\""), std::string::npos);
 }
 
 TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {

@@ -449,6 +449,27 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
   EXPECT_EQ(error.code(), websocket::error::upgrade_declined);
 }
 
+TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsAccessTokenQueryParameter) {
+  const std::string token = EnsureApprovedToken();
+  const std::string create_response = CreateSession(token);
+  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", "18088");
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1?access_token=" + token);
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  const std::string payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(payload.find("\"type\":\"session.updated\""), std::string::npos);
+  EXPECT_NE(payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+}
+
 TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {
   const auto pairing = StartPairing();
   ASSERT_TRUE(pairing.has_value());

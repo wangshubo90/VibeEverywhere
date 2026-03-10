@@ -146,6 +146,25 @@ auto ToJson(const vibe::auth::PairingRecord& record) -> std::string {
   return json::serialize(object);
 }
 
+auto ToJson(const vibe::net::AttachedClientInfo& info) -> std::string {
+  json::object object;
+  object["clientId"] = info.client_id;
+  object["sessionId"] = info.session_id;
+  object["clientAddress"] = info.client_address;
+  object["claimedKind"] = std::string(vibe::session::ToString(info.claimed_kind));
+  object["isLocal"] = info.is_local;
+  object["hasControl"] = info.has_control;
+  return json::serialize(object);
+}
+
+auto ToJson(const std::vector<vibe::net::AttachedClientInfo>& infos) -> std::string {
+  json::array array;
+  for (const auto& info : infos) {
+    array.emplace_back(json::parse(ToJson(info)));
+  }
+  return json::serialize(array);
+}
+
 auto ToJson(const TerminalOutputEvent& event) -> std::string {
   json::object object;
   object["type"] = "terminal.output";
