@@ -32,6 +32,7 @@ struct HttpRouteContext {
   vibe::net::HostAdmin* host_admin{nullptr};
   std::string client_address;
   bool is_local_request{false};
+  bool remote_tls_enabled{false};
   ListenerRole listener_role{ListenerRole::RemoteClient};
 };
 

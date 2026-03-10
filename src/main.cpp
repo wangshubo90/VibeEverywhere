@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -113,7 +114,8 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
 void PrintUsage() {
   std::cout << "Usage:\n"
             << "  vibe-hostd serve [--admin-host HOST] [--admin-port PORT]"
-               " [--remote-host HOST] [--remote-port PORT]\n"
+               " [--remote-host HOST] [--remote-port PORT]"
+               " [--remote-cert PATH] [--remote-key PATH]\n"
             << "  vibe-hostd local-pty [command [args...]]\n"
             << "  vibe-hostd session-start [--host HOST] [--port PORT] [title]\n"
             << "  vibe-hostd session-attach [--host HOST] [--port PORT] <session-id>\n";
@@ -149,6 +151,7 @@ auto main(const int argc, char** argv) -> int {
     std::uint16_t admin_port = 18085;
     std::string remote_host = "0.0.0.0";
     std::uint16_t remote_port = 18086;
+    std::optional<vibe::net::RemoteTlsFiles> remote_tls_override = std::nullopt;
 
     int index = 2;
     while (index < argc) {
@@ -173,6 +176,22 @@ auto main(const int argc, char** argv) -> int {
         index += 2;
         continue;
       }
+      if (argument == "--remote-cert" && index + 1 < argc) {
+        if (!remote_tls_override.has_value()) {
+          remote_tls_override = vibe::net::RemoteTlsFiles{};
+        }
+        remote_tls_override->certificate_pem_path = argv[index + 1];
+        index += 2;
+        continue;
+      }
+      if (argument == "--remote-key" && index + 1 < argc) {
+        if (!remote_tls_override.has_value()) {
+          remote_tls_override = vibe::net::RemoteTlsFiles{};
+        }
+        remote_tls_override->private_key_pem_path = argv[index + 1];
+        index += 2;
+        continue;
+      }
       if (argc - index == 2) {
         remote_host = argv[index];
         remote_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
@@ -183,7 +202,7 @@ auto main(const int argc, char** argv) -> int {
       return 1;
     }
 
-    vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port);
+    vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port, remote_tls_override);
     return server.Run() ? 0 : 1;
   }
 

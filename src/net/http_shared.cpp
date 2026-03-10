@@ -256,7 +256,8 @@ auto HandleHostConfig(const HttpRequest& request, const HttpRouteContext& contex
   }
 
   return MakeJsonResponse(request, http::status::ok,
-                          ToJsonHostInfo(context.host_config_store->LoadHostIdentity(), false));
+                          ToJsonHostInfo(context.host_config_store->LoadHostIdentity(),
+                                         context.remote_tls_enabled));
 }
 
 auto RequireLocalHostAdmin(const HttpRequest& request, const HttpRouteContext& context)
@@ -445,7 +446,8 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   if (request.method() == http::verb::get && request.target() == "/host/info") {
     const auto host_identity =
         context.host_config_store != nullptr ? context.host_config_store->LoadHostIdentity() : std::nullopt;
-    return MakeJsonResponse(request, http::status::ok, ToJsonHostInfo(host_identity, false));
+    return MakeJsonResponse(request, http::status::ok,
+                            ToJsonHostInfo(host_identity, context.remote_tls_enabled));
   }
 
   if (request.method() == http::verb::get && request.target() == "/host/local-token") {

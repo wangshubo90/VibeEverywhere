@@ -243,6 +243,23 @@ TEST(HttpSharedTest, ReturnsHostInfo) {
   EXPECT_EQ(response[http::field::access_control_allow_origin], "*");
 }
 
+TEST(HttpSharedTest, ReturnsHostInfoWithRemoteTlsEnabled) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/host/info");
+  request.version(11);
+
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.remote_tls_enabled = true;
+  const HttpResponse response = HandleRequest(request, session_manager, context);
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"tls\":{\"enabled\":true"), std::string::npos);
+}
+
 TEST(HttpSharedTest, ReturnsCorsPreflightResponse) {
   auto session_manager = MakeManager();
   HttpRequest request;
