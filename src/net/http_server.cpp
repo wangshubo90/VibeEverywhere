@@ -170,8 +170,15 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   [[nodiscard]] auto claimed_kind() const -> vibe::session::ControllerKind { return claimed_kind_; }
 
   void ForceClose() {
+    if (closed_) {
+      return;
+    }
+
+    closed_ = true;
     boost::system::error_code error_code;
-    websocket_.close(websocket::close_reason("disconnected by host"), error_code);
+    websocket_.next_layer().shutdown(tcp::socket::shutdown_both, error_code);
+    error_code.clear();
+    websocket_.next_layer().close(error_code);
     ReleaseControlIfHeld();
   }
 
@@ -367,9 +374,22 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   bool initial_events_sent_{false};
   bool exit_event_sent_{false};
   bool write_in_progress_{false};
+  bool closed_{false};
   bool is_local_request_{false};
   ListenerRole listener_role_{ListenerRole::RemoteClient};
 };
+
+void CloseAllWebSockets(WebSocketRegistry& websocket_registry) {
+  PruneRegistry(websocket_registry);
+  for (auto& [session_id, sessions] : websocket_registry) {
+    static_cast<void>(session_id);
+    for (const auto& entry : sessions) {
+      if (const auto session = entry.lock()) {
+        session->ForceClose();
+      }
+    }
+  }
+}
 
 class HostAdminService final : public vibe::net::HostAdmin {
  public:
@@ -438,9 +458,18 @@ class SessionPump : public std::enable_shared_from_this<SessionPump> {
         websocket_registry_(std::move(websocket_registry)) {}
 
   void Start() { DoPoll(); }
+  void Stop() {
+    stopped_ = true;
+    const std::size_t canceled = poll_timer_.cancel();
+    static_cast<void>(canceled);
+  }
 
  private:
   void DoPoll() {
+    if (stopped_) {
+      return;
+    }
+
     poll_timer_.expires_after(std::chrono::milliseconds(50));
     poll_timer_.async_wait([self = shared_from_this()](const boost::system::error_code& error_code) {
       if (error_code == asio::error::operation_aborted) {
@@ -471,6 +500,7 @@ class SessionPump : public std::enable_shared_from_this<SessionPump> {
   asio::steady_timer poll_timer_;
   vibe::service::SessionManager& session_manager_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
+  bool stopped_{false};
 };
 
 class HttpSession : public std::enable_shared_from_this<HttpSession> {
@@ -610,12 +640,30 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
   void Start() {
     DoAccept();
   }
+  void Stop() {
+    stopped_ = true;
+
+    boost::system::error_code error_code;
+    acceptor_.cancel(error_code);
+    error_code.clear();
+    acceptor_.close(error_code);
+    error_code.clear();
+    socket_.close(error_code);
+  }
 
  private:
   void DoAccept() {
+    if (stopped_) {
+      return;
+    }
+
     acceptor_.async_accept(
         socket_, [self = shared_from_this()](const boost::system::error_code& error_code) {
-            if (!error_code) {
+          if (error_code == asio::error::operation_aborted || self->stopped_) {
+            return;
+          }
+
+          if (!error_code) {
             std::make_shared<HttpSession>(std::move(self->socket_), self->session_manager_,
                                           self->authorizer_, self->pairing_service_,
                                           self->pairing_store_,
@@ -638,6 +686,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
   std::shared_ptr<vibe::net::HostAdmin> host_admin_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
   ListenerRole listener_role_{ListenerRole::RemoteClient};
+  bool stopped_{false};
 };
 
 }  // namespace
@@ -654,7 +703,9 @@ HttpServer::HttpServer(std::string admin_bind_address, const std::uint16_t admin
       admin_port_(admin_port),
       remote_bind_address_(std::move(remote_bind_address)),
       remote_port_(remote_port),
-      storage_root_(std::move(storage_root)) {
+      storage_root_(std::move(storage_root)),
+      session_store_(storage_root_),
+      session_manager_(&session_store_) {
   auto auth_services = CreateLocalAuthServices(storage_root_);
   authorizer_ = std::move(auth_services.authorizer);
   pairing_service_ = std::move(auth_services.pairing_service);
@@ -666,6 +717,13 @@ HttpServer::~HttpServer() { Stop(); }
 
 auto HttpServer::Run() -> bool {
   io_context_ = std::make_unique<asio::io_context>(1);
+  {
+    std::lock_guard lock(state_mutex_);
+    stopping_ = false;
+    stop_callback_ = nullptr;
+  }
+  const std::size_t recovered_sessions = session_manager_.LoadPersistedSessions();
+  static_cast<void>(recovered_sessions);
   boost::system::error_code error_code;
   const auto admin_address = asio::ip::make_address(admin_bind_address_, error_code);
   if (error_code) {
@@ -685,20 +743,47 @@ auto HttpServer::Run() -> bool {
     auto websocket_registry = std::make_shared<WebSocketRegistry>();
     auto host_admin = std::shared_ptr<vibe::net::HostAdmin>(
         std::make_shared<HostAdminService>(session_manager_, *websocket_registry));
-    std::make_shared<SessionPump>(*io_context_, session_manager_, websocket_registry)->Start();
-    std::make_shared<HttpListener>(*io_context_, admin_address, admin_port_, session_manager_,
-                                   *authorizer_, *pairing_service_, *pairing_store_,
-                                   *host_config_store_, host_admin, websocket_registry,
-                                   ListenerRole::AdminLocal)
-        ->Start();
-    std::make_shared<HttpListener>(*io_context_, remote_address, remote_port_, session_manager_,
-                                   *authorizer_, *pairing_service_, *pairing_store_,
-                                   *host_config_store_, host_admin, websocket_registry,
-                                   ListenerRole::RemoteClient)
-        ->Start();
+    auto session_pump = std::make_shared<SessionPump>(*io_context_, session_manager_, websocket_registry);
+    auto admin_listener =
+        std::make_shared<HttpListener>(*io_context_, admin_address, admin_port_, session_manager_,
+                                       *authorizer_, *pairing_service_, *pairing_store_,
+                                       *host_config_store_, host_admin, websocket_registry,
+                                       ListenerRole::AdminLocal);
+    auto remote_listener =
+        std::make_shared<HttpListener>(*io_context_, remote_address, remote_port_, session_manager_,
+                                       *authorizer_, *pairing_service_, *pairing_store_,
+                                       *host_config_store_, host_admin, websocket_registry,
+                                       ListenerRole::RemoteClient);
+    session_pump->Start();
+    admin_listener->Start();
+    remote_listener->Start();
+
+    asio::io_context* io_context = io_context_.get();
+    {
+      std::lock_guard lock(state_mutex_);
+      stop_callback_ =
+          [this, io_context, session_pump, admin_listener, remote_listener, websocket_registry]() {
+            asio::post(*io_context, [this, io_context, session_pump, admin_listener, remote_listener,
+                                     websocket_registry]() {
+              session_pump->Stop();
+              admin_listener->Stop();
+              remote_listener->Stop();
+              CloseAllWebSockets(*websocket_registry);
+              const std::size_t shutdown_count = session_manager_.Shutdown();
+              static_cast<void>(shutdown_count);
+              PruneRegistry(*websocket_registry);
+              io_context->stop();
+            });
+          };
+    }
   } catch (const boost::system::system_error& exception) {
     std::cerr << "failed to bind listeners: "
               << exception.code().message() << '\n';
+    {
+      std::lock_guard lock(state_mutex_);
+      stop_callback_ = nullptr;
+      stopping_ = false;
+    }
     io_context_.reset();
     return false;
   }
@@ -707,13 +792,37 @@ auto HttpServer::Run() -> bool {
   std::cout << "remote listener listening on " << remote_bind_address_ << ":" << remote_port_
             << '\n';
   io_context_->run();
+  {
+    std::lock_guard lock(state_mutex_);
+    stop_callback_ = nullptr;
+    stopping_ = false;
+  }
   io_context_.reset();
   return true;
 }
 
 void HttpServer::Stop() {
-  if (io_context_ != nullptr) {
-    io_context_->stop();
+  std::function<void()> stop_callback;
+  boost::asio::io_context* io_context = nullptr;
+
+  {
+    std::lock_guard lock(state_mutex_);
+    if (stopping_) {
+      return;
+    }
+
+    stopping_ = true;
+    stop_callback = stop_callback_;
+    io_context = io_context_.get();
+  }
+
+  if (stop_callback) {
+    stop_callback();
+    return;
+  }
+
+  if (io_context != nullptr) {
+    io_context->stop();
   }
 }
 

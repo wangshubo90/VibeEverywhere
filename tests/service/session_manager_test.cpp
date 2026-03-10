@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "vibe/service/session_manager.h"
@@ -25,6 +27,16 @@ class FakeSessionStore final : public vibe::store::SessionStore {
   std::vector<vibe::store::PersistedSessionRecord> sessions;
   mutable std::vector<vibe::store::PersistedSessionRecord> upserted;
 };
+
+auto FindLastPersistedRecord(const FakeSessionStore& session_store, const std::string& session_id)
+    -> std::optional<vibe::store::PersistedSessionRecord> {
+  for (auto it = session_store.upserted.rbegin(); it != session_store.upserted.rend(); ++it) {
+    if (it->session_id == session_id) {
+      return *it;
+    }
+  }
+  return std::nullopt;
+}
 
 TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   FakeSessionStore session_store;
@@ -141,6 +153,33 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
   EXPECT_EQ(sessions[1].id.value(), "s_9");
   EXPECT_EQ(sessions[2].id.value(), "s_10");
   EXPECT_EQ(sessions[3].id.value(), "s_11");
+}
+
+TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsExitedState) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "shutdown-target",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+  ASSERT_TRUE(manager.RequestControl(created->id.value(), "remote-1",
+                                     vibe::session::ControllerKind::Remote));
+
+  EXPECT_EQ(manager.Shutdown(), 1U);
+
+  const auto summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+  EXPECT_EQ(summary->controller_kind, vibe::session::ControllerKind::Host);
+  EXPECT_FALSE(summary->controller_client_id.has_value());
+
+  const auto persisted = FindLastPersistedRecord(session_store, created->id.value());
+  ASSERT_TRUE(persisted.has_value());
+  EXPECT_EQ(persisted->status, vibe::session::SessionStatus::Exited);
 }
 
 }  // namespace

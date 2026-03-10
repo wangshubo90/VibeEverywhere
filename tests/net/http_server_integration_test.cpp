@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <thread>
@@ -651,6 +652,43 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   const std::string reacquired_payload = beast::buffers_to_string(second_buffer.data());
   EXPECT_NE(reacquired_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(reacquired_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, StopPersistsLiveSessionsAsExited) {
+  const std::string token = EnsureApprovedToken();
+  const std::string create_response = CreateSession(token);
+  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+
+  websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+
+  StopServer();
+
+  std::ifstream input(storage_root_ / "sessions.json");
+  ASSERT_TRUE(input.is_open());
+  const std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+  EXPECT_NE(body.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(body.find("\"status\":\"Exited\""), std::string::npos);
 }
 
 }  // namespace

@@ -132,6 +132,17 @@ TEST(SessionRuntimeTest, TerminateDelegatesWhenProcessExists) {
   EXPECT_EQ(pty_process.terminate_count, 1);
 }
 
+TEST(SessionRuntimeTest, ShutdownTerminatesAndMarksExitedForInteractiveSession) {
+  FakePtyProcess pty_process;
+  SessionRuntime runtime = MakeRuntime(pty_process);
+
+  ASSERT_TRUE(runtime.Start());
+  EXPECT_TRUE(runtime.Shutdown());
+  EXPECT_EQ(runtime.record().metadata().status, SessionStatus::Exited);
+  EXPECT_FALSE(runtime.pid().has_value());
+  EXPECT_EQ(pty_process.terminate_count, 1);
+}
+
 TEST(SessionRuntimeTest, PollOnceAppendsOutputAndUpdatesSnapshotTail) {
   FakePtyProcess pty_process;
   pty_process.next_read_result = ReadResult{.data = "chunk-one", .closed = false};
