@@ -15,6 +15,7 @@ Build `vibe-hostd`, a host daemon that manages AI coding CLI sessions and expose
 5. Multi-client control semantics
 6. File and git observation
 7. Pairing/auth foundations
+8. Lightweight recovery and persisted metadata
 
 ## Recommended Initial Stack
 
@@ -135,14 +136,33 @@ Acceptance criteria:
 
 Deliverables:
 
+- host web app for local approval and configuration
 - paired device model
+- short-code pairing request flow
 - token validation hooks
 - session-level authorization checks
+- host-generated self-signed TLS identity for HTTPS/WSS
 
 Acceptance criteria:
 
 - unauthenticated requests are rejected
 - read-only and controller permissions are distinguished
+- a remote client can pair only after local host approval
+- paired clients can reconnect without repeating approval
+
+## Phase 8: Recovery and Host Identity Persistence
+
+Deliverables:
+
+- persisted session metadata store
+- persisted bounded terminal tail store
+- persisted host identity and pairing store
+
+Acceptance criteria:
+
+- daemon restart restores session records and paired devices
+- daemon restart does not pretend live PTYs survived
+- recent terminal tail remains available after restart
 
 ## Cross-Cutting Rules
 
@@ -152,6 +172,7 @@ Acceptance criteria:
 - Persist only lightweight recovery data.
 - Keep platform-specific behavior behind interfaces from the start.
 - Treat the host terminal and remote clients as the same class of daemon-attached session participants.
+- Freeze module interfaces before parallel work starts when a phase spans auth, persistence, and network changes.
 
 ## Immediate Next Docs to Consult
 

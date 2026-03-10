@@ -4,6 +4,8 @@ This document translates the initiative API into a more implementation-ready con
 
 ## REST Endpoints
 
+All non-health endpoints should be designed to support bearer-token authorization in the MVP.
+
 ### `GET /host/info`
 
 Returns host metadata and capability flags.
@@ -14,6 +16,60 @@ Suggested fields:
 - `displayName`
 - `version`
 - `capabilities`
+- `pairingMode`
+- `tls`
+
+### `GET /ui/*`
+
+Serves the daemon-local host web app used for approval and configuration.
+
+### `POST /pairing/request`
+
+Suggested request:
+
+```json
+{
+  "deviceName": "Shubo iPhone",
+  "deviceType": "mobile"
+}
+```
+
+Suggested response:
+
+```json
+{
+  "pairingId": "p_123",
+  "code": "481923",
+  "status": "pending"
+}
+```
+
+### `POST /pairing/approve`
+
+Host-local UI only.
+
+Suggested request:
+
+```json
+{
+  "pairingId": "p_123",
+  "code": "481923"
+}
+```
+
+Suggested response:
+
+```json
+{
+  "deviceId": "d_123",
+  "token": "opaque-token",
+  "status": "approved"
+}
+```
+
+### `GET /pairing/pending`
+
+Host-local UI only. Returns pending pairing requests awaiting approval.
 
 ### `GET /sessions`
 
@@ -216,7 +272,9 @@ Suggested payload:
 
 ## Authorization Rules
 
-- only authenticated paired devices may connect
+- health and pairing bootstrap routes may be unauthenticated
+- host-local configuration and approval routes should be restricted to the local machine or an explicitly trusted path
+- only authenticated paired devices may connect to session routes
 - multiple observers may subscribe
 - only one active controller may send terminal input
 - unauthorized input attempts should return a clear error
@@ -225,7 +283,7 @@ Suggested payload:
 
 ## Schema Design Rules
 
-- preserve raw terminal stream in `data`
+- preserve raw terminal stream semantically, but encode it safely on the wire
 - keep incremental events small and replayable
 - prefer additive schema evolution
 - include enough sequence metadata for reconnect logic

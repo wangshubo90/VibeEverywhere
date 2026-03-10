@@ -68,6 +68,8 @@ Acceptance:
 Acceptance:
 
 - a minimal pairing/auth mechanism exists for remote access
+- a local host web UI can approve pairing requests
+- a paired client can reconnect with its issued token
 - unpaired or unauthorized clients cannot control sessions
 - controller actions remain single-owner at a time
 
@@ -82,6 +84,6 @@ Acceptance:
 ## Recommended Next Build Order
 
 1. finish and stabilize host/remote control handoff
-2. turn the browser smoke client into a minimally acceptable remote client or replace it with one
+2. add minimum viable pairing/auth with local host approval UI
 3. add lightweight persisted session metadata and terminal tail recovery
-4. add minimum viable pairing/auth for LAN access
+4. decide whether discovery remains manual in MVP or gets a lightweight follow-up

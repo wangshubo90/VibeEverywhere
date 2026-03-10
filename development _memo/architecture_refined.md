@@ -28,6 +28,7 @@ Responsibilities:
 
 - expose REST routes
 - authenticate requests
+- expose a local host web app for approval and configuration
 - manage WebSocket session subscriptions
 - translate between wire schema and internal service calls
 
@@ -101,6 +102,16 @@ Responsibilities:
 - device pairing
 - token validation
 - authorization policy checks
+- host-local approval of pairing requests
+- host identity and certificate management
+
+### HostConfigStore
+
+Responsibilities:
+
+- persist host identity
+- persist TLS certificate/key references or generated material
+- persist daemon-local configuration needed by the host web UI
 
 ## Recommended Internal Flow
 
@@ -121,6 +132,12 @@ Workspace
   -> FileWatcher / GitInspector
   -> SessionManager
   -> API Layer / WebSocket subscribers
+
+Pairing Client
+  -> API Layer
+  -> AuthManager
+  -> HostConfigStore / PairingStore
+  -> local host approval UI
 ```
 
 ## Threading Model
@@ -169,6 +186,8 @@ Persist:
 - recent file changes
 - git summary
 - bounded recent terminal tail
+- paired device records
+- host identity and TLS material references
 
 Do not persist:
 
@@ -182,3 +201,58 @@ Do not persist:
 - a file watcher fault must not terminate active sessions
 - a provider process crash should transition only its own session to `Exited` or `Error`
 - persistence failures should degrade recovery guarantees, not break live session execution
+
+## MVP Security Model
+
+Recommended MVP flow:
+
+- daemon serves a local host web app for configuration and pairing approval
+- remote clients know or enter a host address manually
+- remote client requests pairing
+- daemon shows a short pairing code in the local host UI
+- local user approves the request after confirming the code
+- daemon issues a long-lived paired-device token
+- subsequent REST and WebSocket requests require that token
+- transport should move to HTTPS/WSS with a host-generated self-signed certificate
+
+This deliberately avoids depending on mDNS or a complex custom pairing protocol in the MVP.
+
+## Frozen Parallelization Seams
+
+To reduce merge conflicts, freeze these boundaries before parallel implementation:
+
+### `vibe::auth`
+
+Suggested stable responsibilities:
+
+- pairing request lifecycle
+- paired-device record lifecycle
+- bearer-token validation
+- authorization decisions
+
+Suggested stable types:
+
+- `DeviceId`
+- `PairingRequest`
+- `PairingRecord`
+- `AuthResult`
+- `PairingService`
+- `Authorizer`
+
+### `vibe::store`
+
+Suggested stable responsibilities:
+
+- host identity persistence
+- pairing persistence
+- persisted session metadata and recent tail persistence
+
+Suggested stable types:
+
+- `HostConfigStore`
+- `PairingStore`
+- `SessionStore`
+
+### `vibe::service`
+
+Freeze `SessionManager` as the owner of live session runtime state, but keep auth and persistence concerns outside it except through narrow interfaces.
