@@ -5,7 +5,7 @@
 namespace vibe::net {
 namespace {
 
-auto MakeManager() -> vibe::service::SessionManager { return {}; }
+auto MakeManager() -> vibe::service::SessionManager { return vibe::service::SessionManager(); }
 
 TEST(HttpSharedTest, ReturnsHealthResponse) {
   auto session_manager = MakeManager();

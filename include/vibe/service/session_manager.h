@@ -12,6 +12,7 @@
 #include "vibe/session/session_runtime.h"
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
+#include "vibe/store/session_store.h"
 
 namespace vibe::service {
 
@@ -33,10 +34,11 @@ struct SessionSummary {
 
 class SessionManager {
  public:
-  SessionManager() = default;
+  explicit SessionManager(vibe::store::SessionStore* session_store = nullptr);
 
   [[nodiscard]] auto CreateSession(const CreateSessionRequest& request)
       -> std::optional<SessionSummary>;
+  [[nodiscard]] auto LoadPersistedSessions() -> std::size_t;
   [[nodiscard]] auto ListSessions() const -> std::vector<SessionSummary>;
   [[nodiscard]] auto GetSession(const std::string& session_id) const -> std::optional<SessionSummary>;
   [[nodiscard]] auto GetSnapshot(const std::string& session_id) const
@@ -62,14 +64,18 @@ class SessionManager {
     std::unique_ptr<vibe::session::PosixPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
     std::unique_ptr<vibe::service::GitInspector> git_inspector;
+    std::optional<vibe::session::SessionSnapshot> recovered_snapshot;
     std::optional<std::string> controller_client_id;
     vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
   };
 
+  [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;
+  void PersistEntry(const SessionEntry& entry);
   [[nodiscard]] auto MakeSessionId() const -> std::optional<vibe::session::SessionId>;
   [[nodiscard]] auto FindEntry(const std::string& session_id) -> SessionEntry*;
   [[nodiscard]] auto FindEntry(const std::string& session_id) const -> const SessionEntry*;
 
+  vibe::store::SessionStore* session_store_{nullptr};
   std::vector<SessionEntry> sessions_;
   int poll_count_{0};
 };

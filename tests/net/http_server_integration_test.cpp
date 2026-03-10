@@ -80,6 +80,22 @@ class HttpServerFixture : public ::testing::Test {
   std::thread server_thread_;
 };
 
+auto ExtractSessionId(const std::string& create_response) -> std::string {
+  const std::string marker = "\"sessionId\":\"";
+  const auto start = create_response.find(marker);
+  if (start == std::string::npos) {
+    return {};
+  }
+
+  const auto value_start = start + marker.size();
+  const auto value_end = create_response.find('"', value_start);
+  if (value_end == std::string::npos) {
+    return {};
+  }
+
+  return create_response.substr(value_start, value_end - value_start);
+}
+
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   const std::string create_response = CreateSession();
   ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
@@ -281,6 +297,120 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   const std::string release_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(release_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
+  const std::string create_response = CreateSession();
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
+
+  asio::io_context first_io_context;
+  tcp::resolver first_resolver(first_io_context);
+  websocket::stream<tcp::socket> first_websocket(first_io_context);
+  const auto first_results = first_resolver.resolve("127.0.0.1", "18088");
+  auto first_endpoint = asio::connect(first_websocket.next_layer(), first_results);
+  static_cast<void>(first_endpoint);
+
+  first_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+
+  beast::flat_buffer first_buffer;
+  first_websocket.read(first_buffer);
+  first_buffer.consume(first_buffer.size());
+  first_websocket.read(first_buffer);
+  first_buffer.consume(first_buffer.size());
+
+  first_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request","kind":"host"})")));
+  first_websocket.read(first_buffer);
+  const std::string claimed_payload = beast::buffers_to_string(first_buffer.data());
+  EXPECT_NE(claimed_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_NE(claimed_payload.find("\"controllerClientId\":"), std::string::npos);
+
+  boost::system::error_code close_error;
+  first_websocket.close(websocket::close_code::normal, close_error);
+  EXPECT_FALSE(close_error);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+  asio::io_context second_io_context;
+  tcp::resolver second_resolver(second_io_context);
+  websocket::stream<tcp::socket> second_websocket(second_io_context);
+  const auto second_results = second_resolver.resolve("127.0.0.1", "18088");
+  auto second_endpoint = asio::connect(second_websocket.next_layer(), second_results);
+  static_cast<void>(second_endpoint);
+
+  second_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+
+  beast::flat_buffer second_buffer;
+  second_websocket.read(second_buffer);
+  const std::string updated_payload = beast::buffers_to_string(second_buffer.data());
+  EXPECT_NE(updated_payload.find("\"type\":\"session.updated\""), std::string::npos);
+  EXPECT_NE(updated_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_EQ(updated_payload.find("\"controllerClientId\":"), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) {
+  const std::string create_response = CreateSession();
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
+
+  asio::io_context first_io_context;
+  tcp::resolver first_resolver(first_io_context);
+  websocket::stream<tcp::socket> first_websocket(first_io_context);
+  const auto first_results = first_resolver.resolve("127.0.0.1", "18088");
+  auto first_endpoint = asio::connect(first_websocket.next_layer(), first_results);
+  static_cast<void>(first_endpoint);
+
+  first_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+
+  beast::flat_buffer first_buffer;
+  first_websocket.read(first_buffer);
+  first_buffer.consume(first_buffer.size());
+  first_websocket.read(first_buffer);
+  first_buffer.consume(first_buffer.size());
+
+  first_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
+  first_websocket.read(first_buffer);
+  const std::string remote_control_payload = beast::buffers_to_string(first_buffer.data());
+  EXPECT_NE(remote_control_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
+
+  asio::io_context second_io_context;
+  tcp::resolver second_resolver(second_io_context);
+  websocket::stream<tcp::socket> second_websocket(second_io_context);
+  const auto second_results = second_resolver.resolve("127.0.0.1", "18088");
+  auto second_endpoint = asio::connect(second_websocket.next_layer(), second_results);
+  static_cast<void>(second_endpoint);
+
+  second_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+
+  beast::flat_buffer second_buffer;
+  second_websocket.read(second_buffer);
+  second_buffer.consume(second_buffer.size());
+  second_websocket.read(second_buffer);
+  second_buffer.consume(second_buffer.size());
+
+  second_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
+  second_websocket.read(second_buffer);
+  const std::string rejected_payload = beast::buffers_to_string(second_buffer.data());
+  EXPECT_NE(rejected_payload.find("\"type\":\"error\""), std::string::npos);
+  EXPECT_NE(rejected_payload.find("\"code\":\"command_rejected\""), std::string::npos);
+
+  boost::system::error_code close_error;
+  first_websocket.close(websocket::close_code::normal, close_error);
+  EXPECT_FALSE(close_error);
+
+  second_buffer.consume(second_buffer.size());
+  second_websocket.read(second_buffer);
+  const std::string host_release_payload = beast::buffers_to_string(second_buffer.data());
+  EXPECT_NE(host_release_payload.find("\"type\":\"session.updated\""), std::string::npos);
+  EXPECT_NE(host_release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_EQ(host_release_payload.find("\"controllerClientId\":"), std::string::npos);
+
+  second_buffer.consume(second_buffer.size());
+  second_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
+  second_websocket.read(second_buffer);
+  const std::string reacquired_payload = beast::buffers_to_string(second_buffer.data());
+  EXPECT_NE(reacquired_payload.find("\"type\":\"session.updated\""), std::string::npos);
+  EXPECT_NE(reacquired_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
 }
 
 }  // namespace

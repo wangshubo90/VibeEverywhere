@@ -1,5 +1,6 @@
 #include "vibe/service/session_manager.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
@@ -7,6 +8,60 @@
 #include "vibe/session/session_record.h"
 
 namespace vibe::service {
+
+namespace {
+
+auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
+  return status == vibe::session::SessionStatus::Running ||
+         status == vibe::session::SessionStatus::AwaitingInput;
+}
+
+auto NormalizeRecoveredStatus(const vibe::session::SessionStatus status) -> vibe::session::SessionStatus {
+  if (status == vibe::session::SessionStatus::Exited ||
+      status == vibe::session::SessionStatus::Error) {
+    return status;
+  }
+
+  return vibe::session::SessionStatus::Exited;
+}
+
+auto MakeRecoveredTailSlice(const vibe::session::SessionSnapshot& snapshot,
+                            const std::size_t max_bytes) -> vibe::session::OutputSlice {
+  if (max_bytes == 0 || snapshot.recent_terminal_tail.empty()) {
+    return {};
+  }
+
+  const std::string tail =
+      snapshot.recent_terminal_tail.size() > max_bytes
+          ? snapshot.recent_terminal_tail.substr(snapshot.recent_terminal_tail.size() - max_bytes)
+          : snapshot.recent_terminal_tail;
+  const std::uint64_t seq =
+      snapshot.current_sequence == 0 ? 1 : snapshot.current_sequence;
+  return vibe::session::OutputSlice{
+      .seq_start = seq,
+      .seq_end = seq,
+      .data = tail,
+  };
+}
+
+auto MakeRecoveredOutputSlice(const vibe::session::SessionSnapshot& snapshot,
+                              const std::uint64_t seq) -> vibe::session::OutputSlice {
+  if (snapshot.recent_terminal_tail.empty() || snapshot.current_sequence == 0 ||
+      seq > snapshot.current_sequence) {
+    return {};
+  }
+
+  return vibe::session::OutputSlice{
+      .seq_start = snapshot.current_sequence,
+      .seq_end = snapshot.current_sequence,
+      .data = snapshot.recent_terminal_tail,
+  };
+}
+
+}  // namespace
+
+SessionManager::SessionManager(vibe::store::SessionStore* session_store)
+    : session_store_(session_store) {}
 
 auto SessionManager::CreateSession(const CreateSessionRequest& request)
     -> std::optional<SessionSummary> {
@@ -38,6 +93,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .process = std::move(process),
       .runtime = std::move(runtime),
       .git_inspector = std::move(git_inspector),
+      .recovered_snapshot = std::nullopt,
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
   });
@@ -46,16 +102,54 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   const bool started = entry.runtime->Start();
   static_cast<void>(started);
 
-  const auto& started_metadata = entry.runtime->record().metadata();
-  return SessionSummary{
-      .id = started_metadata.id,
-      .provider = started_metadata.provider,
-      .workspace_root = started_metadata.workspace_root,
-      .title = started_metadata.title,
-      .status = started_metadata.status,
-      .controller_client_id = entry.controller_client_id,
-      .controller_kind = entry.controller_kind,
-  };
+  PersistEntry(entry);
+  return BuildSummary(entry);
+}
+
+auto SessionManager::LoadPersistedSessions() -> std::size_t {
+  if (session_store_ == nullptr) {
+    return 0;
+  }
+
+  std::size_t loaded_count = 0;
+  for (const auto& persisted : session_store_->LoadSessions()) {
+    if (FindEntry(persisted.session_id) != nullptr) {
+      continue;
+    }
+
+    const auto session_id = vibe::session::SessionId::TryCreate(persisted.session_id);
+    if (!session_id.has_value()) {
+      continue;
+    }
+
+    vibe::session::SessionSnapshot snapshot{
+        .metadata =
+            vibe::session::SessionMetadata{
+                .id = *session_id,
+                .provider = persisted.provider,
+                .workspace_root = persisted.workspace_root,
+                .title = persisted.title,
+                .status = NormalizeRecoveredStatus(persisted.status),
+            },
+        .current_sequence = persisted.current_sequence,
+        .recent_terminal_tail = persisted.recent_terminal_tail,
+        .recent_file_changes = {},
+        .git_summary = {},
+    };
+
+    sessions_.push_back(SessionEntry{
+        .id = *session_id,
+        .process = nullptr,
+        .runtime = nullptr,
+        .git_inspector = nullptr,
+        .recovered_snapshot = std::move(snapshot),
+        .controller_client_id = std::nullopt,
+        .controller_kind = vibe::session::ControllerKind::Host,
+    });
+    loaded_count += 1;
+  }
+
+  return loaded_count;
 }
 
 auto SessionManager::ListSessions() const -> std::vector<SessionSummary> {
@@ -63,16 +157,7 @@ auto SessionManager::ListSessions() const -> std::vector<SessionSummary> {
   summaries.reserve(sessions_.size());
 
   for (const SessionEntry& entry : sessions_) {
-    const auto& metadata = entry.runtime->record().metadata();
-    summaries.push_back(SessionSummary{
-        .id = metadata.id,
-        .provider = metadata.provider,
-        .workspace_root = metadata.workspace_root,
-        .title = metadata.title,
-        .status = metadata.status,
-        .controller_client_id = entry.controller_client_id,
-        .controller_kind = entry.controller_kind,
-    });
+    summaries.push_back(BuildSummary(entry));
   }
 
   return summaries;
@@ -85,16 +170,7 @@ auto SessionManager::GetSession(const std::string& session_id) const
       continue;
     }
 
-    const auto& metadata = entry.runtime->record().metadata();
-    return SessionSummary{
-        .id = metadata.id,
-        .provider = metadata.provider,
-        .workspace_root = metadata.workspace_root,
-        .title = metadata.title,
-        .status = metadata.status,
-        .controller_client_id = entry.controller_client_id,
-        .controller_kind = entry.controller_kind,
-    };
+    return BuildSummary(entry);
   }
 
   return std::nullopt;
@@ -103,7 +179,10 @@ auto SessionManager::GetSession(const std::string& session_id) const
 auto SessionManager::GetSnapshot(const std::string& session_id) const
     -> std::optional<vibe::session::SessionSnapshot> {
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    return entry->runtime->record().snapshot();
+    if (entry->runtime) {
+      return entry->runtime->record().snapshot();
+    }
+    return entry->recovered_snapshot;
   }
 
   return std::nullopt;
@@ -112,7 +191,12 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
 auto SessionManager::GetTail(const std::string& session_id, const std::size_t bytes) const
     -> std::optional<vibe::session::OutputSlice> {
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    return entry->runtime->output_buffer().Tail(bytes);
+    if (entry->runtime) {
+      return entry->runtime->output_buffer().Tail(bytes);
+    }
+    if (entry->recovered_snapshot.has_value()) {
+      return MakeRecoveredTailSlice(*entry->recovered_snapshot, bytes);
+    }
   }
 
   return std::nullopt;
@@ -121,7 +205,12 @@ auto SessionManager::GetTail(const std::string& session_id, const std::size_t by
 auto SessionManager::GetOutputSince(const std::string& session_id, const std::uint64_t seq) const
     -> std::optional<vibe::session::OutputSlice> {
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    return entry->runtime->output_buffer().SliceFromSequence(seq);
+    if (entry->runtime) {
+      return entry->runtime->output_buffer().SliceFromSequence(seq);
+    }
+    if (entry->recovered_snapshot.has_value()) {
+      return MakeRecoveredOutputSlice(*entry->recovered_snapshot, seq);
+    }
   }
 
   return std::nullopt;
@@ -129,6 +218,9 @@ auto SessionManager::GetOutputSince(const std::string& session_id, const std::ui
 
 auto SessionManager::SendInput(const std::string& session_id, const std::string& input) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    if (entry->runtime == nullptr) {
+      return false;
+    }
     return entry->runtime->WriteInput(input);
   }
 
@@ -138,6 +230,9 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
 auto SessionManager::ResizeSession(const std::string& session_id,
                                    const vibe::session::TerminalSize terminal_size) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    if (entry->runtime == nullptr) {
+      return false;
+    }
     return entry->runtime->ResizeTerminal(terminal_size);
   }
 
@@ -146,13 +241,21 @@ auto SessionManager::ResizeSession(const std::string& session_id,
 
 auto SessionManager::StopSession(const std::string& session_id) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    const auto status = entry->runtime->record().metadata().status;
+    const auto status = BuildSummary(*entry).status;
     if (status == vibe::session::SessionStatus::Exited ||
         status == vibe::session::SessionStatus::Error) {
       return true;
     }
 
-    return entry->runtime->TerminateAndMarkExited();
+    if (entry->runtime == nullptr) {
+      return false;
+    }
+
+    const bool stopped = entry->runtime->TerminateAndMarkExited();
+    if (stopped) {
+      PersistEntry(*entry);
+    }
+    return stopped;
   }
 
   return false;
@@ -161,6 +264,11 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
 auto SessionManager::RequestControl(const std::string& session_id, const std::string& client_id,
                                     const vibe::session::ControllerKind controller_kind) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    const SessionSummary summary = BuildSummary(*entry);
+    if (!IsInteractiveStatus(summary.status) || controller_kind == vibe::session::ControllerKind::None) {
+      return false;
+    }
+
     if (entry->controller_kind == vibe::session::ControllerKind::Host ||
         entry->controller_kind == vibe::session::ControllerKind::None) {
       entry->controller_client_id = client_id;
@@ -183,9 +291,12 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
 
 auto SessionManager::ReleaseControl(const std::string& session_id, const std::string& client_id) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    if (entry->controller_kind == vibe::session::ControllerKind::Host ||
-        entry->controller_kind == vibe::session::ControllerKind::None) {
+    if (entry->controller_kind == vibe::session::ControllerKind::None) {
       return true;
+    }
+
+    if (!entry->controller_client_id.has_value()) {
+      return entry->controller_kind == vibe::session::ControllerKind::Host;
     }
 
     if (*entry->controller_client_id != client_id) {
@@ -202,7 +313,8 @@ auto SessionManager::ReleaseControl(const std::string& session_id, const std::st
 
 auto SessionManager::HasControl(const std::string& session_id, const std::string& client_id) const -> bool {
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    return entry->controller_client_id.has_value() && *entry->controller_client_id == client_id;
+    return entry->controller_client_id.has_value() && *entry->controller_client_id == client_id &&
+           entry->controller_kind != vibe::session::ControllerKind::None;
   }
 
   return false;
@@ -213,12 +325,63 @@ void SessionManager::PollAll(const int read_timeout_ms) {
   const bool should_poll_git = (poll_count_ % 100 == 0);
 
   for (SessionEntry& entry : sessions_) {
+    if (entry.runtime == nullptr) {
+      continue;
+    }
+
     entry.runtime->PollOnce(read_timeout_ms);
+    PersistEntry(entry);
 
     if (should_poll_git && entry.git_inspector) {
       entry.runtime->UpdateGitSummary(entry.git_inspector->Inspect());
+      PersistEntry(entry);
     }
   }
+}
+
+auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSummary {
+  if (entry.runtime) {
+    const auto& metadata = entry.runtime->record().metadata();
+    return SessionSummary{
+        .id = metadata.id,
+        .provider = metadata.provider,
+        .workspace_root = metadata.workspace_root,
+        .title = metadata.title,
+        .status = metadata.status,
+        .controller_client_id = entry.controller_client_id,
+        .controller_kind = entry.controller_kind,
+    };
+  }
+
+  const auto& metadata = entry.recovered_snapshot->metadata;
+  return SessionSummary{
+      .id = metadata.id,
+      .provider = metadata.provider,
+      .workspace_root = metadata.workspace_root,
+      .title = metadata.title,
+      .status = metadata.status,
+      .controller_client_id = entry.controller_client_id,
+      .controller_kind = entry.controller_kind,
+  };
+}
+
+void SessionManager::PersistEntry(const SessionEntry& entry) {
+  if (session_store_ == nullptr) {
+    return;
+  }
+
+  const auto snapshot = entry.runtime ? entry.runtime->record().snapshot() : *entry.recovered_snapshot;
+  const vibe::store::PersistedSessionRecord record{
+      .session_id = snapshot.metadata.id.value(),
+      .provider = snapshot.metadata.provider,
+      .workspace_root = snapshot.metadata.workspace_root,
+      .title = snapshot.metadata.title,
+      .status = snapshot.metadata.status,
+      .current_sequence = snapshot.current_sequence,
+      .recent_terminal_tail = snapshot.recent_terminal_tail,
+  };
+  const bool persisted = session_store_->UpsertSessionRecord(record);
+  static_cast<void>(persisted);
 }
 
 auto SessionManager::MakeSessionId() const -> std::optional<vibe::session::SessionId> {
