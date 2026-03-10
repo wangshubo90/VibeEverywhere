@@ -3,6 +3,12 @@
   const pendingList = document.getElementById("pending-list");
   const approveResult = document.getElementById("approve-result");
   const displayName = document.getElementById("display-name");
+  const adminHost = document.getElementById("admin-host");
+  const adminPort = document.getElementById("admin-port");
+  const remoteHost = document.getElementById("remote-host");
+  const remotePort = document.getElementById("remote-port");
+  const codexCommand = document.getElementById("codex-command");
+  const claudeCommand = document.getElementById("claude-command");
   const sessionsList = document.getElementById("sessions-list");
   const clientsList = document.getElementById("clients-list");
   const events = document.getElementById("events");
@@ -29,6 +35,18 @@
 
   function renderJson(element, payload) {
     element.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function parseCommand(text) {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return [];
+    }
+    return trimmed.split(/\s+/).filter(Boolean);
+  }
+
+  function formatCommand(command) {
+    return Array.isArray(command) ? command.join(" ") : "";
   }
 
   function formatTimestamp(unixMs) {
@@ -359,6 +377,12 @@
     const payload = await fetchJson("/host/info");
     renderJson(hostInfo, payload);
     displayName.value = payload.displayName || "";
+    adminHost.value = payload.adminHost || "";
+    adminPort.value = payload.adminPort || "";
+    remoteHost.value = payload.remoteHost || "";
+    remotePort.value = payload.remotePort || "";
+    codexCommand.value = formatCommand(payload.providerCommands?.codex);
+    claudeCommand.value = formatCommand(payload.providerCommands?.claude);
   }
 
   async function refreshPairings() {
@@ -395,10 +419,27 @@
   document.getElementById("config-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
+      const providerCommands = {};
+      const parsedCodexCommand = parseCommand(codexCommand.value);
+      const parsedClaudeCommand = parseCommand(claudeCommand.value);
+      if (parsedCodexCommand.length > 0) {
+        providerCommands.codex = parsedCodexCommand;
+      }
+      if (parsedClaudeCommand.length > 0) {
+        providerCommands.claude = parsedClaudeCommand;
+      }
+
       const payload = await fetchJson("/host/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ displayName: displayName.value })
+        body: JSON.stringify({
+          displayName: displayName.value,
+          adminHost: adminHost.value,
+          adminPort: Number(adminPort.value),
+          remoteHost: remoteHost.value,
+          remotePort: Number(remotePort.value),
+          providerCommands
+        })
       });
       renderJson(hostInfo, payload);
       log("saved host config");

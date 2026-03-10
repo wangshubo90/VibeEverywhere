@@ -27,6 +27,35 @@ TEST(RequestParsingTest, RejectsInvalidExplicitCommandInCreateSessionRequest) {
                    .has_value());
 }
 
+TEST(RequestParsingTest, ParsesHostConfigRequestWithListenerAndProviderOverrides) {
+  const auto payload = ParseHostConfigRequest(
+      R"({"displayName":"Host Box","adminHost":"127.0.0.1","adminPort":19085,"remoteHost":"192.168.1.10","remotePort":19086,"providerCommands":{"codex":["/opt/bin/codex","--fast"],"claude":["/opt/bin/claude","--print"]}})");
+  ASSERT_TRUE(payload.has_value());
+  EXPECT_EQ(payload->display_name, "Host Box");
+  EXPECT_EQ(payload->admin_host, "127.0.0.1");
+  EXPECT_EQ(payload->admin_port, 19085);
+  EXPECT_EQ(payload->remote_host, "192.168.1.10");
+  EXPECT_EQ(payload->remote_port, 19086);
+  ASSERT_TRUE(payload->codex_command.has_value());
+  EXPECT_EQ(*payload->codex_command,
+            (std::vector<std::string>{"/opt/bin/codex", "--fast"}));
+  ASSERT_TRUE(payload->claude_command.has_value());
+  EXPECT_EQ(*payload->claude_command,
+            (std::vector<std::string>{"/opt/bin/claude", "--print"}));
+}
+
+TEST(RequestParsingTest, RejectsInvalidHostConfigRequest) {
+  EXPECT_FALSE(ParseHostConfigRequest(
+                   R"({"displayName":"Host Box","adminHost":"","adminPort":19085,"remoteHost":"0.0.0.0","remotePort":19086})")
+                   .has_value());
+  EXPECT_FALSE(ParseHostConfigRequest(
+                   R"({"displayName":"Host Box","adminHost":"127.0.0.1","adminPort":0,"remoteHost":"0.0.0.0","remotePort":19086})")
+                   .has_value());
+  EXPECT_FALSE(ParseHostConfigRequest(
+                   R"({"displayName":"Host Box","adminHost":"127.0.0.1","adminPort":19085,"remoteHost":"0.0.0.0","remotePort":19086,"providerCommands":{"codex":[]}})")
+                   .has_value());
+}
+
 TEST(RequestParsingTest, ParsesWebSocketInputCommand) {
   const auto command = ParseWebSocketCommand(R"({"type":"terminal.input","data":"hello\n"})");
   ASSERT_TRUE(command.has_value());

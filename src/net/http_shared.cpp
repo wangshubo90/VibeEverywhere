@@ -19,6 +19,38 @@ namespace {
 
 namespace json = boost::json;
 
+auto ApplyConfiguredProviderOverride(vibe::service::CreateSessionRequest request,
+                                     const vibe::store::HostConfigStore* host_config_store)
+    -> vibe::service::CreateSessionRequest {
+  if (request.command_argv.has_value() || host_config_store == nullptr) {
+    return request;
+  }
+
+  const auto host_identity = host_config_store->LoadHostIdentity();
+  if (!host_identity.has_value()) {
+    return request;
+  }
+
+  const vibe::store::ProviderCommandOverride* command_override = nullptr;
+  switch (request.provider) {
+    case vibe::session::ProviderType::Codex:
+      command_override = &host_identity->codex_command;
+      break;
+    case vibe::session::ProviderType::Claude:
+      command_override = &host_identity->claude_command;
+      break;
+  }
+
+  if (command_override == nullptr || command_override->executable.empty()) {
+    return request;
+  }
+
+  request.command_argv = std::vector<std::string>{command_override->executable};
+  request.command_argv->insert(request.command_argv->end(), command_override->args.begin(),
+                               command_override->args.end());
+  return request;
+}
+
 auto ReadFile(const std::filesystem::path& path) -> std::optional<std::string> {
   std::ifstream input(path, std::ios::binary);
   if (!input.is_open()) {
@@ -241,15 +273,32 @@ auto HandleHostConfig(const HttpRequest& request, const HttpRouteContext& contex
                             "{\"error\":\"invalid host config request\"}");
   }
 
-  const auto existing_identity = context.host_config_store->LoadHostIdentity().value_or(
-      vibe::store::HostIdentity{
-          .host_id = "local-dev-host",
-          .display_name = "",
-          .certificate_pem_path = "",
-          .private_key_pem_path = "",
-      });
+  const auto existing_identity =
+      context.host_config_store->LoadHostIdentity().value_or(vibe::store::MakeDefaultHostIdentity());
   auto updated_identity = existing_identity;
   updated_identity.display_name = parsed_request->display_name;
+  updated_identity.admin_host = parsed_request->admin_host;
+  updated_identity.admin_port = parsed_request->admin_port;
+  updated_identity.remote_host = parsed_request->remote_host;
+  updated_identity.remote_port = parsed_request->remote_port;
+  if (parsed_request->codex_command.has_value()) {
+    updated_identity.codex_command = vibe::store::ProviderCommandOverride{
+        .executable = parsed_request->codex_command->front(),
+        .args = std::vector<std::string>(parsed_request->codex_command->begin() + 1,
+                                         parsed_request->codex_command->end()),
+    };
+  } else {
+    updated_identity.codex_command = {};
+  }
+  if (parsed_request->claude_command.has_value()) {
+    updated_identity.claude_command = vibe::store::ProviderCommandOverride{
+        .executable = parsed_request->claude_command->front(),
+        .args = std::vector<std::string>(parsed_request->claude_command->begin() + 1,
+                                         parsed_request->claude_command->end()),
+    };
+  } else {
+    updated_identity.claude_command = {};
+  }
   if (!context.host_config_store->SaveHostIdentity(updated_identity)) {
     return MakeJsonResponse(request, http::status::internal_server_error,
                             "{\"error\":\"failed to save host config\"}");
@@ -539,7 +588,8 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
                               "{\"error\":\"invalid create session request\"}");
     }
 
-    const auto created = session_manager.CreateSession(*parsed_request);
+    const auto created = session_manager.CreateSession(
+        ApplyConfiguredProviderOverride(*parsed_request, context.host_config_store));
     if (!created.has_value()) {
       return MakeJsonResponse(request, http::status::internal_server_error,
                               "{\"error\":\"failed to create session\"}");

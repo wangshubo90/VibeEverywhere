@@ -2,6 +2,7 @@
 #define VIBE_NET_REQUEST_PARSING_H
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <variant>
@@ -40,6 +41,12 @@ struct PairingApprovalPayload {
 
 struct HostConfigPayload {
   std::string display_name;
+  std::string admin_host;
+  std::uint16_t admin_port;
+  std::string remote_host;
+  std::uint16_t remote_port;
+  std::optional<std::vector<std::string>> codex_command;
+  std::optional<std::vector<std::string>> claude_command;
 };
 
 using WebSocketCommand =

@@ -12,6 +12,11 @@ TEST(HttpJsonTest, EscapesQuotedAndControlCharacters) {
 TEST(HttpJsonTest, SerializesHostInfo) {
   const std::string json = ToJsonHostInfo();
   EXPECT_NE(json.find("\"hostId\":\"local-dev-host\""), std::string::npos);
+  EXPECT_NE(json.find("\"adminHost\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(json.find("\"adminPort\":18085"), std::string::npos);
+  EXPECT_NE(json.find("\"remoteHost\":\"0.0.0.0\""), std::string::npos);
+  EXPECT_NE(json.find("\"remotePort\":18086"), std::string::npos);
+  EXPECT_NE(json.find("\"providerCommands\""), std::string::npos);
   EXPECT_NE(json.find("\"capabilities\":[\"sessions\",\"rest\",\"websocket\"]"),
             std::string::npos);
 }

@@ -1,5 +1,7 @@
 #include "vibe/net/request_parsing.h"
 
+#include <limits>
+
 #include <boost/json.hpp>
 
 namespace vibe::net {
@@ -141,12 +143,96 @@ auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfig
 
   const json::object& object = parsed.as_object();
   const auto display_name = object.if_contains("displayName");
-  if (display_name == nullptr || !display_name->is_string()) {
+  const auto admin_host = object.if_contains("adminHost");
+  const auto admin_port = object.if_contains("adminPort");
+  const auto remote_host = object.if_contains("remoteHost");
+  const auto remote_port = object.if_contains("remotePort");
+  if (display_name == nullptr || admin_host == nullptr || admin_port == nullptr ||
+      remote_host == nullptr || remote_port == nullptr || !display_name->is_string() ||
+      !admin_host->is_string() || !admin_port->is_int64() || !remote_host->is_string() ||
+      !remote_port->is_int64()) {
     return std::nullopt;
+  }
+
+  const auto parse_port = [](const json::value& value) -> std::optional<std::uint16_t> {
+    if (!value.is_int64()) {
+      return std::nullopt;
+    }
+    const auto port = value.as_int64();
+    if (port <= 0 || port > std::numeric_limits<std::uint16_t>::max()) {
+      return std::nullopt;
+    }
+    return static_cast<std::uint16_t>(port);
+  };
+
+  const auto parse_command = [](const json::value* value) -> std::optional<std::vector<std::string>> {
+    if (value == nullptr) {
+      return std::nullopt;
+    }
+    if (!value->is_array()) {
+      return std::nullopt;
+    }
+
+    const json::array& array = value->as_array();
+    if (array.empty()) {
+      return std::nullopt;
+    }
+
+    std::vector<std::string> command;
+    command.reserve(array.size());
+    for (const auto& token : array) {
+      if (!token.is_string()) {
+        return std::nullopt;
+      }
+      const std::string value_string = json::value_to<std::string>(token);
+      if (value_string.empty()) {
+        return std::nullopt;
+      }
+      command.push_back(value_string);
+    }
+    return command;
+  };
+
+  const std::string parsed_admin_host = json::value_to<std::string>(*admin_host);
+  const std::string parsed_remote_host = json::value_to<std::string>(*remote_host);
+  const auto parsed_admin_port = parse_port(*admin_port);
+  const auto parsed_remote_port = parse_port(*remote_port);
+  if (parsed_admin_host.empty() || parsed_remote_host.empty() ||
+      !parsed_admin_port.has_value() || !parsed_remote_port.has_value()) {
+    return std::nullopt;
+  }
+
+  std::optional<std::vector<std::string>> codex_command = std::nullopt;
+  std::optional<std::vector<std::string>> claude_command = std::nullopt;
+  if (const auto provider_commands = object.if_contains("providerCommands");
+      provider_commands != nullptr) {
+    if (!provider_commands->is_object()) {
+      return std::nullopt;
+    }
+
+    const json::object& provider_commands_object = provider_commands->as_object();
+    if (provider_commands_object.if_contains("codex") != nullptr) {
+      codex_command = parse_command(provider_commands_object.if_contains("codex"));
+      if (!codex_command.has_value()) {
+        return std::nullopt;
+      }
+    }
+    if (provider_commands_object.if_contains("claude") != nullptr) {
+      claude_command = parse_command(provider_commands_object.if_contains("claude"));
+      if (!claude_command.has_value()) {
+        return std::nullopt;
+      }
+    }
   }
 
   return HostConfigPayload{
       .display_name = json::value_to<std::string>(*display_name),
+      .admin_host = parsed_admin_host,
+      .admin_port = *parsed_admin_port,
+      .remote_host = parsed_remote_host,
+      .remote_port = *parsed_remote_port,
+      .codex_command = std::move(codex_command),
+      .claude_command = std::move(claude_command),
   };
 }
 

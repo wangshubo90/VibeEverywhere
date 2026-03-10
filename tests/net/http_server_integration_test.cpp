@@ -656,9 +656,11 @@ TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {
   EXPECT_NE(pending_response.body().find("\"pairingId\":\""), std::string::npos);
 
   auto config_response =
-      SendRequest(kAdminPort, http::verb::post, "/host/config", R"({"displayName":"Updated Host"})");
+      SendRequest(kAdminPort, http::verb::post, "/host/config",
+                  R"({"displayName":"Updated Host","adminHost":"127.0.0.1","adminPort":18085,"remoteHost":"192.168.1.50","remotePort":18086,"providerCommands":{"codex":["/opt/bin/codex","--fast"],"claude":["/opt/bin/claude","--print"]}})");
   EXPECT_EQ(config_response.result(), http::status::ok);
   EXPECT_NE(config_response.body().find("\"displayName\":\"Updated Host\""), std::string::npos);
+  EXPECT_NE(config_response.body().find("\"remoteHost\":\"192.168.1.50\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, RemoteListenerUsesPlainHttpWhenTlsDisabled) {
@@ -741,7 +743,8 @@ TEST_F(HttpServerFixture, PairingAndHostConfigPersistAcrossServerRestart) {
   ASSERT_TRUE(code->is_string());
 
   auto config_response =
-      SendRequest(kAdminPort, http::verb::post, "/host/config", R"({"displayName":"Persistent Host"})");
+      SendRequest(kAdminPort, http::verb::post, "/host/config",
+                  R"({"displayName":"Persistent Host","adminHost":"127.0.0.1","adminPort":18085,"remoteHost":"10.0.0.7","remotePort":18086,"providerCommands":{"codex":["/opt/bin/codex","--fast"],"claude":["/opt/bin/claude","--print"]}})");
   ASSERT_EQ(config_response.result(), http::status::ok);
 
   StopServer();
@@ -754,6 +757,8 @@ TEST_F(HttpServerFixture, PairingAndHostConfigPersistAcrossServerRestart) {
   auto host_info_response = SendRequest(kAdminPort, http::verb::get, "/host/info");
   ASSERT_EQ(host_info_response.result(), http::status::ok);
   EXPECT_NE(host_info_response.body().find("\"displayName\":\"Persistent Host\""), std::string::npos);
+  EXPECT_NE(host_info_response.body().find("\"remoteHost\":\"10.0.0.7\""), std::string::npos);
+  EXPECT_NE(host_info_response.body().find("\"providerCommands\""), std::string::npos);
 
   const auto token =
       ApprovePairing(json::value_to<std::string>(*pairing_id), json::value_to<std::string>(*code));

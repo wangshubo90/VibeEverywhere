@@ -308,12 +308,115 @@ auto HostIdentityFromJson(const json::value& value) -> std::optional<HostIdentit
     return std::nullopt;
   }
 
-  return HostIdentity{
-      .host_id = std::string(host_id->as_string()),
-      .display_name = std::string(display_name->as_string()),
-      .certificate_pem_path = std::string(certificate_pem_path->as_string()),
-      .private_key_pem_path = std::string(private_key_pem_path->as_string()),
+  HostIdentity identity = MakeDefaultHostIdentity();
+  identity.host_id = std::string(host_id->as_string());
+  identity.display_name = std::string(display_name->as_string());
+  identity.certificate_pem_path = std::string(certificate_pem_path->as_string());
+  identity.private_key_pem_path = std::string(private_key_pem_path->as_string());
+  return identity;
+}
+
+auto ParseProviderCommandOverride(const json::value* value)
+    -> std::optional<vibe::store::ProviderCommandOverride> {
+  if (value == nullptr) {
+    return vibe::store::ProviderCommandOverride{};
+  }
+  if (!value->is_array()) {
+    return std::nullopt;
+  }
+
+  const json::array& array = value->as_array();
+  if (array.empty()) {
+    return vibe::store::ProviderCommandOverride{};
+  }
+  if (!array.front().is_string()) {
+    return std::nullopt;
+  }
+
+  vibe::store::ProviderCommandOverride result{
+      .executable = std::string(array.front().as_string()),
+      .args = {},
   };
+  if (result.executable.empty()) {
+    return std::nullopt;
+  }
+  for (std::size_t index = 1; index < array.size(); ++index) {
+    if (!array[index].is_string()) {
+      return std::nullopt;
+    }
+    result.args.emplace_back(array[index].as_string());
+  }
+
+  return result;
+}
+
+auto HostIdentityFromJsonWithDefaults(const json::value& value) -> std::optional<HostIdentity> {
+  auto parsed_identity = HostIdentityFromJson(value);
+  if (!parsed_identity.has_value()) {
+    return std::nullopt;
+  }
+
+  HostIdentity identity = *parsed_identity;
+  const json::object& object = value.as_object();
+
+  if (const auto* parsed_admin_host = object.if_contains("adminHost"); parsed_admin_host != nullptr) {
+    if (!parsed_admin_host->is_string()) {
+      return std::nullopt;
+    }
+    identity.admin_host = std::string(parsed_admin_host->as_string());
+    if (identity.admin_host.empty()) {
+      return std::nullopt;
+    }
+  }
+
+  if (const auto* parsed_admin_port = object.if_contains("adminPort"); parsed_admin_port != nullptr) {
+    if (!parsed_admin_port->is_int64()) {
+      return std::nullopt;
+    }
+    const auto port = parsed_admin_port->as_int64();
+    if (port <= 0 || port > std::numeric_limits<std::uint16_t>::max()) {
+      return std::nullopt;
+    }
+    identity.admin_port = static_cast<std::uint16_t>(port);
+  }
+
+  if (const auto* parsed_remote_host = object.if_contains("remoteHost"); parsed_remote_host != nullptr) {
+    if (!parsed_remote_host->is_string()) {
+      return std::nullopt;
+    }
+    identity.remote_host = std::string(parsed_remote_host->as_string());
+    if (identity.remote_host.empty()) {
+      return std::nullopt;
+    }
+  }
+
+  if (const auto* parsed_remote_port = object.if_contains("remotePort"); parsed_remote_port != nullptr) {
+    if (!parsed_remote_port->is_int64()) {
+      return std::nullopt;
+    }
+    const auto port = parsed_remote_port->as_int64();
+    if (port <= 0 || port > std::numeric_limits<std::uint16_t>::max()) {
+      return std::nullopt;
+    }
+    identity.remote_port = static_cast<std::uint16_t>(port);
+  }
+
+  if (const auto* parsed_provider_commands = object.if_contains("providerCommands");
+      parsed_provider_commands != nullptr) {
+    if (!parsed_provider_commands->is_object()) {
+      return std::nullopt;
+    }
+    const json::object& commands = parsed_provider_commands->as_object();
+    const auto codex_command = ParseProviderCommandOverride(commands.if_contains("codex"));
+    const auto claude_command = ParseProviderCommandOverride(commands.if_contains("claude"));
+    if (!codex_command.has_value() || !claude_command.has_value()) {
+      return std::nullopt;
+    }
+    identity.codex_command = std::move(*codex_command);
+    identity.claude_command = std::move(*claude_command);
+  }
+
+  return identity;
 }
 
 auto ToJsonValue(const HostIdentity& identity) -> json::value {
@@ -322,6 +425,24 @@ auto ToJsonValue(const HostIdentity& identity) -> json::value {
   object["displayName"] = identity.display_name;
   object["certificatePemPath"] = identity.certificate_pem_path;
   object["privateKeyPemPath"] = identity.private_key_pem_path;
+  object["adminHost"] = identity.admin_host;
+  object["adminPort"] = identity.admin_port;
+  object["remoteHost"] = identity.remote_host;
+  object["remotePort"] = identity.remote_port;
+  json::object provider_commands;
+  auto to_command_json = [](const vibe::store::ProviderCommandOverride& command) -> json::array {
+    json::array array;
+    if (!command.executable.empty()) {
+      array.push_back(json::value(command.executable));
+      for (const auto& arg : command.args) {
+        array.push_back(json::value(arg));
+      }
+    }
+    return array;
+  };
+  provider_commands["codex"] = to_command_json(identity.codex_command);
+  provider_commands["claude"] = to_command_json(identity.claude_command);
+  object["providerCommands"] = std::move(provider_commands);
   return object;
 }
 
@@ -561,7 +682,8 @@ FileHostConfigStore::FileHostConfigStore(std::filesystem::path storage_root)
     : storage_root_(std::move(storage_root)) {}
 
 auto FileHostConfigStore::LoadHostIdentity() const -> std::optional<HostIdentity> {
-  return LoadOptionalFromJsonFile<HostIdentity>(HostIdentityPath(storage_root_), HostIdentityFromJson);
+  return LoadOptionalFromJsonFile<HostIdentity>(HostIdentityPath(storage_root_),
+                                                HostIdentityFromJsonWithDefaults);
 }
 
 auto FileHostConfigStore::SaveHostIdentity(const HostIdentity& identity) -> bool {

@@ -431,8 +431,10 @@
     const sendResizeBtn = document.getElementById('send-resize');
     const stopBtn = document.getElementById('stop');
 
-    hostInput.value = saved.host || '127.0.0.1';
-    portInput.value = saved.port || '18085';
+    const defaultHost = window.location.hostname || '127.0.0.1';
+    const defaultPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+    hostInput.value = saved.host || defaultHost;
+    portInput.value = saved.port || defaultPort;
     tokenInput.value = saved.token || '';
     sessionInput.value = saved.sessionId || 's_1';
     titleInput.value = saved.title || 'smoke-session';
@@ -460,6 +462,7 @@
 
     let ws = null;
     let resizeTimer = null;
+    let connectTimeout = null;
     let connectionState = 'disconnected';
     let sessionState = 'unknown';
     let controllerState = 'observer';
@@ -504,13 +507,21 @@
       terminalSizeEl.textContent = `${terminal.cols} x ${terminal.rows}`;
     }
 
+    function currentProtocol() {
+      return window.location.protocol === 'https:' ? 'https:' : 'http:';
+    }
+
+    function currentWebSocketProtocol() {
+      return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    }
+
     function baseUrl() {
-      return `http://${hostInput.value.trim()}:${portInput.value.trim()}`;
+      return `${currentProtocol()}//${hostInput.value.trim()}:${portInput.value.trim()}`;
     }
 
     function websocketUrl() {
       const token = encodeURIComponent(tokenInput.value.trim());
-      return `ws://${hostInput.value.trim()}:${portInput.value.trim()}/ws/sessions/${sessionInput.value.trim()}?access_token=${token}`;
+      return `${currentWebSocketProtocol()}//${hostInput.value.trim()}:${portInput.value.trim()}/ws/sessions/${sessionInput.value.trim()}?access_token=${token}`;
     }
 
     async function fetchJson(path, options = {}) {
@@ -566,6 +577,13 @@
       stopBtn.disabled = !connected;
       createSessionBtn.disabled = false;
       listSessionsBtn.disabled = false;
+    }
+
+    function clearConnectTimeout() {
+      if (connectTimeout !== null) {
+        clearTimeout(connectTimeout);
+        connectTimeout = null;
+      }
     }
 
     function sendJson(payload) {
@@ -752,6 +770,7 @@
     }
 
     function closeSocket() {
+      clearConnectTimeout();
       if (ws) {
         ws.close();
         ws = null;
@@ -777,13 +796,22 @@
       ws = new WebSocket(websocketUrl());
       setStates('connecting', 'observer', sessionState);
       updateButtons();
+      clearConnectTimeout();
+      connectTimeout = setTimeout(() => {
+        if (ws && ws.readyState !== WebSocket.OPEN) {
+          appendEvent(`websocket connect timeout (state=${ws.readyState})`);
+          closeSocket();
+        }
+      }, 5000);
 
       ws.addEventListener('open', () => {
+        clearConnectTimeout();
         setStates('connected', 'observer', sessionState);
         fitAddon.fit();
         updateTerminalSizeDisplay();
         updateButtons();
         terminal.focus();
+        appendEvent('websocket open');
       });
 
       ws.addEventListener('message', (event) => {
@@ -813,13 +841,15 @@
         }
       });
 
-      ws.addEventListener('close', () => {
-        appendEvent('websocket closed');
+      ws.addEventListener('close', (event) => {
+        clearConnectTimeout();
+        appendEvent(`websocket closed (code=${event.code}, clean=${event.wasClean})`);
         closeSocket();
       });
 
       ws.addEventListener('error', () => {
-        appendEvent('websocket error');
+        appendEvent(`websocket error (state=${ws ? ws.readyState : 'n/a'})`);
+        setStates('error', controllerState, sessionState);
         updateButtons();
       });
     }

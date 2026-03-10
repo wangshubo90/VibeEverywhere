@@ -148,12 +148,14 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
   }
 
   std::optional<vibe::store::HostIdentity> identity{
-      vibe::store::HostIdentity{
-          .host_id = "host_1",
-          .display_name = "Dev Host",
-          .certificate_pem_path = "/tmp/cert.pem",
-          .private_key_pem_path = "/tmp/key.pem",
-      },
+      [] {
+        auto identity = vibe::store::MakeDefaultHostIdentity();
+        identity.host_id = "host_1";
+        identity.display_name = "Dev Host";
+        identity.certificate_pem_path = "/tmp/cert.pem";
+        identity.private_key_pem_path = "/tmp/key.pem";
+        return identity;
+      }(),
   };
 };
 
@@ -675,6 +677,36 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(stop_response.result(), http::status::ok);
   EXPECT_NE(stop_response.body().find("\"status\":\"Exited\""), std::string::npos);
+}
+
+TEST(HttpSharedTest, SavesExpandedHostConfig) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest request;
+  request.method(http::verb::post);
+  request.target("/host/config");
+  request.version(11);
+  request.body() =
+      R"({"displayName":"Ops Host","adminHost":"127.0.0.1","adminPort":19085,"remoteHost":"192.168.1.10","remotePort":19086,"providerCommands":{"codex":["/opt/bin/codex","--fast"],"claude":["/opt/bin/claude","--print"]}})";
+  request.prepare_payload();
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"displayName\":\"Ops Host\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"adminHost\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"remoteHost\":\"192.168.1.10\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"providerCommands\""), std::string::npos);
+
+  ASSERT_TRUE(host_config_store.identity.has_value());
+  EXPECT_EQ(host_config_store.identity->admin_port, 19085);
+  EXPECT_EQ(host_config_store.identity->remote_port, 19086);
+  EXPECT_EQ(host_config_store.identity->codex_command.executable, "/opt/bin/codex");
+  EXPECT_EQ(host_config_store.identity->claude_command.executable, "/opt/bin/claude");
 }
 
 TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {

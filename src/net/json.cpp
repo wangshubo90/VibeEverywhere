@@ -256,10 +256,30 @@ auto ToJsonHostInfo() -> std::string {
 
 auto ToJsonHostInfo(const std::optional<vibe::store::HostIdentity>& host_identity,
                     const bool tls_enabled) -> std::string {
+  const vibe::store::HostIdentity resolved_identity =
+      host_identity.value_or(vibe::store::MakeDefaultHostIdentity());
   json::object object;
-  object["hostId"] = host_identity.has_value() ? host_identity->host_id : "local-dev-host";
-  object["displayName"] =
-      host_identity.has_value() ? host_identity->display_name : "VibeEverywhere Dev Host";
+  object["hostId"] = resolved_identity.host_id;
+  object["displayName"] = resolved_identity.display_name;
+  object["adminHost"] = resolved_identity.admin_host;
+  object["adminPort"] = resolved_identity.admin_port;
+  object["remoteHost"] = resolved_identity.remote_host;
+  object["remotePort"] = resolved_identity.remote_port;
+  json::object provider_commands;
+  auto append_command = [&provider_commands](std::string_view key,
+                                             const vibe::store::ProviderCommandOverride& command) {
+    json::array array;
+    if (!command.executable.empty()) {
+      array.push_back(json::value(command.executable));
+      for (const auto& arg : command.args) {
+        array.push_back(json::value(arg));
+      }
+    }
+    provider_commands[std::string(key)] = std::move(array);
+  };
+  append_command("codex", resolved_identity.codex_command);
+  append_command("claude", resolved_identity.claude_command);
+  object["providerCommands"] = std::move(provider_commands);
   object["version"] = "0.1.0";
   object["capabilities"] = {"sessions", "rest", "websocket"};
   object["pairingMode"] = "approval";

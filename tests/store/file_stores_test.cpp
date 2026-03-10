@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "vibe/store/file_stores.h"
 
@@ -34,6 +35,20 @@ TEST_F(FileStoresTest, HostIdentityRoundTripsAcrossReload) {
       .display_name = "Local Dev Host",
       .certificate_pem_path = "/tmp/cert.pem",
       .private_key_pem_path = "/tmp/key.pem",
+      .admin_host = "127.0.0.1",
+      .admin_port = 19085,
+      .remote_host = "10.0.0.7",
+      .remote_port = 19086,
+      .codex_command =
+          ProviderCommandOverride{
+              .executable = "/opt/bin/codex",
+              .args = {"--fast"},
+          },
+      .claude_command =
+          ProviderCommandOverride{
+              .executable = "/opt/bin/claude",
+              .args = {"--print"},
+          },
   };
 
   {
@@ -45,6 +60,24 @@ TEST_F(FileStoresTest, HostIdentityRoundTripsAcrossReload) {
     FileHostConfigStore store(storage_root());
     EXPECT_EQ(store.LoadHostIdentity(), std::optional<HostIdentity>{expected});
   }
+}
+
+TEST_F(FileStoresTest, HostIdentityLoadsLegacyFilesWithDefaultListenerSettings) {
+  const auto path = storage_root() / "host_identity.json";
+  std::ofstream output(path);
+  ASSERT_TRUE(output.is_open());
+  output << R"({"hostId":"host_legacy","displayName":"Legacy Host","certificatePemPath":"","privateKeyPemPath":""})";
+  output.close();
+
+  FileHostConfigStore store(storage_root());
+  const auto loaded = store.LoadHostIdentity();
+  ASSERT_TRUE(loaded.has_value());
+  EXPECT_EQ(loaded->admin_host, std::string(kDefaultAdminHost));
+  EXPECT_EQ(loaded->admin_port, kDefaultAdminPort);
+  EXPECT_EQ(loaded->remote_host, std::string(kDefaultRemoteHost));
+  EXPECT_EQ(loaded->remote_port, kDefaultRemotePort);
+  EXPECT_TRUE(loaded->codex_command.executable.empty());
+  EXPECT_TRUE(loaded->claude_command.executable.empty());
 }
 
 TEST_F(FileStoresTest, PairingsRoundTripAcrossReloadAndSupportUpsertRemoval) {

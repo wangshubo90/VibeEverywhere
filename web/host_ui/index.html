@@ -30,6 +30,30 @@
               <span>Display Name</span>
               <input id="display-name" name="displayName" placeholder="Display name">
             </label>
+            <label>
+              <span>Admin Host</span>
+              <input id="admin-host" name="adminHost" placeholder="127.0.0.1">
+            </label>
+            <label>
+              <span>Admin Port</span>
+              <input id="admin-port" name="adminPort" type="number" min="1" max="65535" placeholder="18085">
+            </label>
+            <label>
+              <span>Remote Host</span>
+              <input id="remote-host" name="remoteHost" placeholder="0.0.0.0">
+            </label>
+            <label>
+              <span>Remote Port</span>
+              <input id="remote-port" name="remotePort" type="number" min="1" max="65535" placeholder="18086">
+            </label>
+            <label>
+              <span>Codex Command</span>
+              <input id="codex-command" name="codexCommand" placeholder='codex --flag'>
+            </label>
+            <label>
+              <span>Claude Command</span>
+              <input id="claude-command" name="claudeCommand" placeholder='claude --print'>
+            </label>
             <button type="submit">Save Host Config</button>
           </form>
         </section>

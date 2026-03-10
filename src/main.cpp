@@ -11,11 +11,13 @@
 
 #include "vibe/cli/daemon_client.h"
 #include "vibe/net/http_server.h"
+#include "vibe/net/local_auth.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/posix_pty_process.h"
 #include "vibe/session/session_record.h"
 #include "vibe/session/session_runtime.h"
 #include "vibe/session/session_types.h"
+#include "vibe/store/file_stores.h"
 
 namespace {
 
@@ -147,36 +149,58 @@ auto ParseEndpointArgs(const int argc, char** argv, int start_index,
   return {default_endpoint, index};
 }
 
+auto LoadConfiguredAdminEndpoint() -> vibe::cli::DaemonEndpoint {
+  const vibe::store::FileHostConfigStore host_config_store{vibe::net::DefaultStorageRoot()};
+  const auto host_identity = host_config_store.LoadHostIdentity();
+  if (!host_identity.has_value()) {
+    return {};
+  }
+
+  return vibe::cli::DaemonEndpoint{
+      .host = host_identity->admin_host.empty() ? std::string(vibe::store::kDefaultAdminHost)
+                                                : host_identity->admin_host,
+      .port = host_identity->admin_port,
+  };
+}
+
 }  // namespace
 
 auto main(const int argc, char** argv) -> int {
   if (argc >= 2 && std::string(argv[1]) == "serve") {
-    std::string admin_host = "127.0.0.1";
-    std::uint16_t admin_port = 18085;
-    std::string remote_host = "0.0.0.0";
-    std::uint16_t remote_port = 18086;
+    std::string admin_host = std::string(vibe::store::kDefaultAdminHost);
+    std::uint16_t admin_port = vibe::store::kDefaultAdminPort;
+    std::string remote_host = std::string(vibe::store::kDefaultRemoteHost);
+    std::uint16_t remote_port = vibe::store::kDefaultRemotePort;
     std::optional<vibe::net::RemoteTlsFiles> remote_tls_override = std::nullopt;
+    bool admin_host_explicit = false;
+    bool admin_port_explicit = false;
+    bool remote_host_explicit = false;
+    bool remote_port_explicit = false;
 
     int index = 2;
     while (index < argc) {
       const std::string argument = argv[index];
       if (argument == "--admin-host" && index + 1 < argc) {
         admin_host = argv[index + 1];
+        admin_host_explicit = true;
         index += 2;
         continue;
       }
       if (argument == "--admin-port" && index + 1 < argc) {
         admin_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+        admin_port_explicit = true;
         index += 2;
         continue;
       }
       if (argument == "--remote-host" && index + 1 < argc) {
         remote_host = argv[index + 1];
+        remote_host_explicit = true;
         index += 2;
         continue;
       }
       if (argument == "--remote-port" && index + 1 < argc) {
         remote_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+        remote_port_explicit = true;
         index += 2;
         continue;
       }
@@ -204,6 +228,24 @@ auto main(const int argc, char** argv) -> int {
       std::cerr << "invalid serve arguments\n";
       PrintUsage();
       return 1;
+    }
+
+    if (!admin_host_explicit || !admin_port_explicit || !remote_host_explicit || !remote_port_explicit) {
+      const vibe::store::FileHostConfigStore host_config_store{vibe::net::DefaultStorageRoot()};
+      if (const auto host_identity = host_config_store.LoadHostIdentity(); host_identity.has_value()) {
+        if (!admin_host_explicit) {
+          admin_host = host_identity->admin_host;
+        }
+        if (!admin_port_explicit) {
+          admin_port = host_identity->admin_port;
+        }
+        if (!remote_host_explicit) {
+          remote_host = host_identity->remote_host;
+        }
+        if (!remote_port_explicit) {
+          remote_port = host_identity->remote_port;
+        }
+      }
     }
 
     vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port,
@@ -254,7 +296,7 @@ auto main(const int argc, char** argv) -> int {
   }
 
   if (argc >= 2 && std::string(argv[1]) == "session-start") {
-    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, vibe::cli::DaemonEndpoint{});
+    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
     const std::string title = arg_index < argc ? argv[arg_index] : "host-session";
     const auto session_id = vibe::cli::CreateSession(
         endpoint,
@@ -273,7 +315,7 @@ auto main(const int argc, char** argv) -> int {
   }
 
   if (argc >= 3 && std::string(argv[1]) == "session-attach") {
-    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, vibe::cli::DaemonEndpoint{});
+    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
     if (arg_index >= argc) {
       std::cerr << "session id required\n";
       return 1;
