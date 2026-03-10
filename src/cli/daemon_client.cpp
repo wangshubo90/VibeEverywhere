@@ -149,8 +149,19 @@ auto CreateSession(const DaemonEndpoint& endpoint, const vibe::session::Provider
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   tcp::socket socket(io_context);
-  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port));
-  asio::connect(socket, results);
+  boost::system::error_code error_code;
+  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  const auto endpoint_result = asio::connect(socket, results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
 
   http::request<http::string_body> request{http::verb::post, "/sessions", 11};
   request.set(http::field::host, endpoint.host);
@@ -158,10 +169,19 @@ auto CreateSession(const DaemonEndpoint& endpoint, const vibe::session::Provider
   request.body() = BuildCreateSessionRequestBody(provider, workspace_root, title);
   request.prepare_payload();
 
-  http::write(socket, request);
+  http::write(socket, request, error_code);
+  if (error_code) {
+    std::cerr << "http write failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
   beast::flat_buffer buffer;
   http::response<http::string_body> response;
-  http::read(socket, buffer, response);
+  http::read(socket, buffer, response, error_code);
+  if (error_code) {
+    std::cerr << "http read failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
 
   if (response.result() != http::status::created) {
     return std::nullopt;

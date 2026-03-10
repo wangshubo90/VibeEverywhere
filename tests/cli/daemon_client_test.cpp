@@ -1,9 +1,15 @@
 #include <gtest/gtest.h>
 
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+
 #include "vibe/cli/daemon_client.h"
 
 namespace vibe::cli {
 namespace {
+
+namespace asio = boost::asio;
+using tcp = asio::ip::tcp;
 
 TEST(DaemonClientTest, BuildsCreateSessionRequestBody) {
   const std::string body =
@@ -42,6 +48,20 @@ TEST(DaemonClientTest, BuildsControlAndTerminalCommands) {
 TEST(DaemonClientTest, RejectsMalformedCreateSessionResponse) {
   EXPECT_FALSE(ParseCreatedSessionId("{}").has_value());
   EXPECT_FALSE(ParseCreatedSessionId("not-json").has_value());
+}
+
+TEST(DaemonClientTest, ReturnsNulloptWhenDaemonIsUnavailable) {
+  asio::io_context io_context;
+  tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+  const auto port = acceptor.local_endpoint().port();
+  acceptor.close();
+
+  EXPECT_NO_THROW({
+    const auto session_id =
+        CreateSession(DaemonEndpoint{.host = "127.0.0.1", .port = port},
+                      vibe::session::ProviderType::Codex, "/tmp/project", "demo");
+    EXPECT_FALSE(session_id.has_value());
+  });
 }
 
 }  // namespace
