@@ -1,3 +1,5 @@
+find_package(Boost 1.87 REQUIRED CONFIG)
+
 include(FetchContent)
 
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)

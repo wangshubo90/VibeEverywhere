@@ -3,9 +3,11 @@
 
 #include <filesystem>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "vibe/net/http_server.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/posix_pty_process.h"
 #include "vibe/session/session_record.h"
@@ -112,12 +114,22 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
 
 void PrintUsage() {
   std::cout << "Usage:\n"
+            << "  vibe-hostd serve [bind-address] [port]\n"
             << "  vibe-hostd local-pty [command [args...]]\n";
 }
 
 }  // namespace
 
 auto main(const int argc, char** argv) -> int {
+  if (argc >= 2 && std::string(argv[1]) == "serve") {
+    const std::string bind_address = argc >= 3 ? argv[2] : "127.0.0.1";
+    const auto raw_port = argc >= 4 ? std::stoi(argv[3]) : 8080;
+    const auto port = static_cast<std::uint16_t>(raw_port);
+    vibe::net::HttpServer server(bind_address, port);
+    server.Run();
+    return 0;
+  }
+
   if (argc >= 2 && std::string(argv[1]) == "local-pty") {
     std::vector<std::string> command;
     for (int index = 2; index < argc; ++index) {

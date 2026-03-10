@@ -73,16 +73,16 @@ TEST(SessionOutputBufferTest, SliceFromSequenceReturnsChunksFromRequestedPoint) 
   EXPECT_EQ(slice.data, "defghi");
 }
 
-TEST(SessionOutputBufferTest, SliceFromSequenceReturnsEmptyWhenRequestedPointIsGone) {
+TEST(SessionOutputBufferTest, SliceFromSequenceStartsFromOldestAvailableChunkWhenEarlierDataIsGone) {
   SessionOutputBuffer buffer(5);
 
   buffer.Append("abc");
   buffer.Append("def");
 
   const OutputSlice slice = buffer.SliceFromSequence(1);
-  EXPECT_EQ(slice.seq_start, 0U);
-  EXPECT_EQ(slice.seq_end, 0U);
-  EXPECT_TRUE(slice.data.empty());
+  EXPECT_EQ(slice.seq_start, 2U);
+  EXPECT_EQ(slice.seq_end, 2U);
+  EXPECT_EQ(slice.data, "def");
 }
 
 }  // namespace
