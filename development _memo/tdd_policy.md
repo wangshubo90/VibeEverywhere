@@ -12,6 +12,7 @@ This applies to:
 - PTY output buffering
 - reconnect and tail replay logic
 - client control arbitration
+- controller-owned PTY resize behavior
 - API request validation
 - event batching and slow-client degradation
 
@@ -23,6 +24,7 @@ The project has several correctness-heavy areas where regressions will be subtle
 - bounded memory behavior under burst output
 - recovery across reconnect and restart
 - multi-client authorization and controller transfer
+- host-to-remote and remote-to-host control return rules
 - platform-facing process and file-watching code
 
 These areas benefit from executable specifications more than ad hoc manual testing.
@@ -56,6 +58,7 @@ Use end-to-end tests for user-visible behavior:
 - create session, attach, receive output, send input
 - reconnect and replay tail from sequence boundary
 - controller handoff between multiple clients
+- host terminal attach and reclaim-control behavior
 - degraded-mode behavior under backpressure
 
 ## Testability Requirements

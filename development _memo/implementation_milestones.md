@@ -66,13 +66,29 @@ Scope:
 - session create/list/detail routes
 - snapshot and tail endpoints
 - WebSocket subscription and event dispatch
+- initial attach/replay behavior shared by local and remote clients
 
 Exit criteria:
 
 - end-to-end attach flow works
 - API contract tests pass
 
-## Milestone 6: File and Git Observability
+## Milestone 6: Controller Ownership and Attach Semantics
+
+Scope:
+
+- explicit controller state
+- input and resize through the active attached client
+- host-following behavior when remote takes control
+- return-of-control behavior
+
+Exit criteria:
+
+- one controller at a time is enforced
+- PTY resize follows the active controller
+- controller handoff is covered by tests
+
+## Milestone 7: File and Git Observability
 
 Scope:
 
@@ -84,7 +100,7 @@ Exit criteria:
 
 - workspace changes and git summaries appear in session snapshot and live updates
 
-## Milestone 7: Auth and Control Arbitration
+## Milestone 8: Auth and Control Arbitration
 
 Scope:
 
@@ -97,7 +113,7 @@ Exit criteria:
 - unauthorized actions are rejected
 - multi-client controller behavior is tested
 
-## Milestone 8: Recovery Hardening
+## Milestone 9: Recovery Hardening
 
 Scope:
 
@@ -114,3 +130,4 @@ Exit criteria:
 - each milestone should land with tests
 - each architectural deviation should update the relevant markdown
 - avoid expanding scope into IDE features or remote file editing
+- avoid introducing host-only session semantics that bypass daemon control flow

@@ -2,6 +2,8 @@
 
 This document focuses on the most critical runtime boundary: one provider process attached to one PTY, owned by one session runtime.
 
+The PTY belongs to the session, not to the host terminal UI.
+
 ## Session Runtime Data Model
 
 Suggested fields:
@@ -17,6 +19,7 @@ Suggested fields:
 - `GitSummary last_git_summary`
 - `std::optional<ClientId> controller_client`
 - `SessionTimestamps timestamps`
+- `TerminalSize active_terminal_size`
 
 Keep mutable runtime state concentrated here rather than scattered across networking code.
 
@@ -37,6 +40,7 @@ Rules:
 - state transitions should emit structured events
 - exit path should capture final status and timestamps
 - failed launch should never appear as `Running`
+- controller changes should emit structured session updates
 
 This state machine should be built as a pure logic component first and covered by unit tests.
 
@@ -64,6 +68,8 @@ Each provider launch should be explicit:
 - terminal size
 
 The launch specification should be serializable enough for logging and testing, with secrets redacted if later needed.
+
+The launch spec should include a default PTY size used before any client takes control.
 
 ## Output Ingestion
 
@@ -94,6 +100,18 @@ Recommended initial configuration:
 
 These should be configurable rather than hard-coded.
 
+## Controller and Resize Semantics
+
+Because the provider process runs inside a PTY, terminal size affects the bytes emitted by the process.
+
+Therefore:
+
+- only one terminal size can be active for a session at any moment
+- the current controller owns PTY resize
+- observers render the resulting byte stream but do not set PTY size
+- if a remote client takes control from the host, the host view must follow the controller-driven PTY size
+- if control returns to the host or no controller remains, the PTY may snap back to a configured default size
+
 ## Per-Client Delivery State
 
 Each subscribed client should track:
@@ -120,6 +138,8 @@ Recommended attach flow:
 3. client subscribes to live stream
 4. if a sequence gap is detected, client requests tail or snapshot again
 
+If the attaching client becomes controller, it should also send an initial resize command so the PTY matches its viewport.
+
 This avoids replaying the full history while preserving a reliable recent context.
 
 ## Test Priorities
@@ -132,3 +152,5 @@ First tests to write:
 - PTY fixture round-trip for input and output
 - slow-client degradation policy
 - reconnect from sequence watermark
+- controller handoff and return-to-host behavior
+- PTY resize behavior when controller changes

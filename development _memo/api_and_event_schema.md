@@ -27,6 +27,7 @@ Suggested fields per item:
 - `status`
 - `lastActivityAt`
 - `controllerClientId` if present
+- `controllerKind` such as `host`, `remote`, or `none`
 
 ### `POST /sessions`
 
@@ -96,6 +97,10 @@ Suggested request:
 
 Stops the session gracefully, then forcefully if needed.
 
+### `POST /sessions/{sessionId}/control`
+
+Requests controller ownership or releases it back to the host/default path.
+
 ### `GET /sessions/{sessionId}/changes`
 
 Returns recent aggregated file change events.
@@ -134,6 +139,12 @@ Used only when extreme conditions require data loss.
 
 Includes lifecycle state changes and controller changes.
 
+Suggested payload additions:
+
+- `controllerClientId`
+- `controllerKind`
+- `terminalSize`
+
 ### `files.changed`
 
 Contains a bounded batch of normalized file events.
@@ -146,12 +157,71 @@ Contains git summary deltas or full replacement snapshots.
 
 Carries final exit code or error reason.
 
+## WebSocket Commands
+
+These are client-to-server messages over the attached session WebSocket.
+
+### `terminal.input`
+
+Suggested payload:
+
+```json
+{
+  "type": "terminal.input",
+  "data": "run tests\n"
+}
+```
+
+### `terminal.resize`
+
+Suggested payload:
+
+```json
+{
+  "type": "terminal.resize",
+  "cols": 80,
+  "rows": 24
+}
+```
+
+### `session.stop`
+
+Suggested payload:
+
+```json
+{
+  "type": "session.stop"
+}
+```
+
+### `session.control.request`
+
+Suggested payload:
+
+```json
+{
+  "type": "session.control.request"
+}
+```
+
+### `session.control.release`
+
+Suggested payload:
+
+```json
+{
+  "type": "session.control.release"
+}
+```
+
 ## Authorization Rules
 
 - only authenticated paired devices may connect
 - multiple observers may subscribe
 - only one active controller may send terminal input
 - unauthorized input attempts should return a clear error
+- only the active controller may send resize commands
+- host reclaim semantics should be explicit rather than inferred
 
 ## Schema Design Rules
 
