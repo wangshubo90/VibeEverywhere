@@ -1,5 +1,6 @@
 set(VIBE_CORE_SOURCES
   src/session/launch_spec.cpp
+  src/session/posix_pty_process.cpp
   src/session/provider_config.cpp
   src/session/session_record.cpp
   src/session/session_runtime.cpp
@@ -9,6 +10,7 @@ set(VIBE_CORE_SOURCES
 
 set(VIBE_TEST_SOURCES
   tests/session/launch_spec_test.cpp
+  tests/session/posix_pty_process_test.cpp
   tests/session/provider_config_test.cpp
   tests/session/session_record_test.cpp
   tests/session/session_runtime_test.cpp

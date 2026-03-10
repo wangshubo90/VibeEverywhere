@@ -18,10 +18,14 @@ class FakePtyProcess final : public IPtyProcess {
     return write_result;
   }
 
+  [[nodiscard]] auto Read(int /*timeout_ms*/) -> ReadResult override { return next_read_result; }
+
   [[nodiscard]] auto Resize(const TerminalSize terminal_size) -> bool override {
     resizes.push_back(terminal_size);
     return resize_result;
   }
+
+  [[nodiscard]] auto PollExit() -> std::optional<int> override { return next_exit_code; }
 
   [[nodiscard]] auto Terminate() -> bool override {
     terminate_count += 1;
@@ -32,6 +36,8 @@ class FakePtyProcess final : public IPtyProcess {
   bool write_result{true};
   bool resize_result{true};
   bool terminate_result{true};
+  ReadResult next_read_result{.data = "", .closed = false};
+  std::optional<int> next_exit_code{std::nullopt};
   int start_count{0};
   int terminate_count{0};
   LaunchSpec last_launch_spec{
