@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<pre id="out"></pre>
+<script>
+const out = document.getElementById('out');
+const ws = new WebSocket('ws://127.0.0.1:18085/ws/sessions/s_1');
+ws.onopen = () => out.textContent += '[open]\n';
+ws.onmessage = (e) => out.textContent += e.data + '\n';
+ws.onclose = () => out.textContent += '[close]\n';
+ws.onerror = () => out.textContent += '[error]\n';
+</script>
