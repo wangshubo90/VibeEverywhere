@@ -107,6 +107,15 @@ auto SessionManager::GetTail(const std::string& session_id, const std::size_t by
   return std::nullopt;
 }
 
+auto SessionManager::GetOutputSince(const std::string& session_id, const std::uint64_t seq) const
+    -> std::optional<vibe::session::OutputSlice> {
+  if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    return entry->runtime->output_buffer().SliceFromSequence(seq);
+  }
+
+  return std::nullopt;
+}
+
 auto SessionManager::SendInput(const std::string& session_id, const std::string& input) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
     return entry->runtime->WriteInput(input);

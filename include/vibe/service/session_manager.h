@@ -40,6 +40,8 @@ class SessionManager {
       -> std::optional<vibe::session::SessionSnapshot>;
   [[nodiscard]] auto GetTail(const std::string& session_id, std::size_t bytes) const
       -> std::optional<vibe::session::OutputSlice>;
+  [[nodiscard]] auto GetOutputSince(const std::string& session_id, std::uint64_t seq) const
+      -> std::optional<vibe::session::OutputSlice>;
   [[nodiscard]] auto SendInput(const std::string& session_id, const std::string& input) -> bool;
   [[nodiscard]] auto StopSession(const std::string& session_id) -> bool;
   void PollAll(int read_timeout_ms);
