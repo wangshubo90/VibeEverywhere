@@ -99,6 +99,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   EXPECT_NE(first_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"sessionId\":\"s_1\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"status\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"controllerKind\":\"host\""), std::string::npos);
 
   buffer.consume(buffer.size());
   websocket.read(buffer);
@@ -247,6 +248,38 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
   const std::string payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(payload.find("\"type\":\"error\""), std::string::npos);
   EXPECT_NE(payload.find("\"code\":\"command_rejected\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
+  const std::string create_response = CreateSession();
+  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", "18088");
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+
+  websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
+  websocket.read(buffer);
+  const std::string request_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(request_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
+
+  buffer.consume(buffer.size());
+  websocket.write(asio::buffer(std::string(R"({"type":"session.control.release"})")));
+  websocket.read(buffer);
+  const std::string release_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(release_payload.find("\"type\":\"session.updated\""), std::string::npos);
+  EXPECT_NE(release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
 }
 
 }  // namespace

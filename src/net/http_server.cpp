@@ -36,6 +36,8 @@ using WebSocketRegistry = std::unordered_map<std::string, std::vector<std::weak_
 
 class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
  public:
+  ~WebSocketSession() { ReleaseControlIfHeld(); }
+
   WebSocketSession(tcp::socket socket, vibe::service::SessionManager& session_manager,
                    WebSocketRegistry& websocket_registry)
       : websocket_(std::move(socket)),
@@ -49,6 +51,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
         request,
         [self = shared_from_this()](const boost::system::error_code& error_code) {
           if (error_code) {
+            self->ReleaseControlIfHeld();
             return;
           }
 
@@ -157,6 +160,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
         [self = shared_from_this()](const boost::system::error_code& error_code,
                                     const std::size_t /*bytes_transferred*/) {
           if (error_code) {
+            self->ReleaseControlIfHeld();
             return;
           }
 
@@ -172,6 +176,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
         [self = shared_from_this()](const boost::system::error_code& error_code,
                                     const std::size_t /*bytes_transferred*/) {
           if (error_code) {
+            self->ReleaseControlIfHeld();
             return;
           }
 
@@ -235,6 +240,15 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
                  }),
                  last_sequence_);
     }
+  }
+
+  void ReleaseControlIfHeld() {
+    if (session_id_.empty() || client_id_.empty()) {
+      return;
+    }
+
+    const bool released = session_manager_.ReleaseControl(session_id_, client_id_);
+    static_cast<void>(released);
   }
 
   websocket::stream<tcp::socket> websocket_;

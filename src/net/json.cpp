@@ -17,6 +17,10 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["workspaceRoot"] = summary.workspace_root;
   object["title"] = summary.title;
   object["status"] = std::string(vibe::session::ToString(summary.status));
+  if (summary.controller_client_id.has_value()) {
+    object["controllerClientId"] = *summary.controller_client_id;
+  }
+  object["controllerKind"] = std::string(vibe::session::ToString(summary.controller_kind));
   return json::serialize(object);
 }
 

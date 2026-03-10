@@ -39,7 +39,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .runtime = std::move(runtime),
       .git_inspector = std::move(git_inspector),
       .controller_client_id = std::nullopt,
-      .controller_kind = vibe::session::ControllerKind::None,
+      .controller_kind = vibe::session::ControllerKind::Host,
   });
 
   SessionEntry& entry = sessions_.back();
@@ -161,7 +161,8 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
 auto SessionManager::RequestControl(const std::string& session_id, const std::string& client_id,
                                     const vibe::session::ControllerKind controller_kind) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    if (!entry->controller_client_id.has_value()) {
+    if (entry->controller_kind == vibe::session::ControllerKind::Host ||
+        entry->controller_kind == vibe::session::ControllerKind::None) {
       entry->controller_client_id = client_id;
       entry->controller_kind = controller_kind;
       return true;
@@ -175,7 +176,8 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
 
 auto SessionManager::ReleaseControl(const std::string& session_id, const std::string& client_id) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
-    if (!entry->controller_client_id.has_value()) {
+    if (entry->controller_kind == vibe::session::ControllerKind::Host ||
+        entry->controller_kind == vibe::session::ControllerKind::None) {
       return true;
     }
 
@@ -184,7 +186,7 @@ auto SessionManager::ReleaseControl(const std::string& session_id, const std::st
     }
 
     entry->controller_client_id.reset();
-    entry->controller_kind = vibe::session::ControllerKind::None;
+    entry->controller_kind = vibe::session::ControllerKind::Host;
     return true;
   }
 

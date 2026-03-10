@@ -16,6 +16,23 @@ TEST(HttpJsonTest, SerializesHostInfo) {
             std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
+  const auto id = vibe::session::SessionId::TryCreate("s_host");
+  ASSERT_TRUE(id.has_value());
+
+  const std::string json = ToJson(vibe::service::SessionSummary{
+      .id = *id,
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "demo",
+      .status = vibe::session::SessionStatus::Running,
+      .controller_client_id = std::nullopt,
+      .controller_kind = vibe::session::ControllerKind::Host,
+  });
+
+  EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
+}
+
 TEST(HttpJsonTest, SerializesOutputSlice) {
   const std::string json = ToJson(vibe::session::OutputSlice{
       .seq_start = 3,
