@@ -172,10 +172,14 @@ class FakeHostAdmin final : public vibe::net::HostAdmin {
       vibe::net::AttachedClientInfo{
           .client_id = "ws_s_1_1",
           .session_id = "s_1",
+          .session_title = "managed",
           .client_address = "127.0.0.1",
+          .session_status = vibe::session::SessionStatus::Running,
+          .session_is_recovered = false,
           .claimed_kind = vibe::session::ControllerKind::Remote,
           .is_local = false,
           .has_control = true,
+          .connected_at_unix_ms = 123,
       },
   };
   mutable std::string last_disconnected_client_id;
@@ -619,6 +623,8 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(sessions_response.result(), http::status::ok);
   EXPECT_NE(sessions_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(sessions_response.body().find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(sessions_response.body().find("\"isRecovered\":false"), std::string::npos);
 
   HttpRequest clients_request;
   clients_request.method(http::verb::get);
@@ -629,6 +635,9 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(clients_response.result(), http::status::ok);
   EXPECT_NE(clients_response.body().find("\"clientId\":\"ws_s_1_1\""), std::string::npos);
+  EXPECT_NE(clients_response.body().find("\"sessionTitle\":\"managed\""), std::string::npos);
+  EXPECT_NE(clients_response.body().find("\"sessionStatus\":\"Running\""), std::string::npos);
+  EXPECT_NE(clients_response.body().find("\"connectedAtUnixMs\":123"), std::string::npos);
 
   HttpRequest disconnect_request;
   disconnect_request.method(http::verb::post);

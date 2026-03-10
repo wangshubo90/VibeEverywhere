@@ -196,7 +196,8 @@ auto ExtractSessionId(const std::string& create_response) -> std::string {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -209,21 +210,23 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
   const std::string first_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(first_payload.find("\"type\":\"session.updated\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"status\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"isRecovered\":false"), std::string::npos);
 
   buffer.consume(buffer.size());
   websocket.read(buffer);
   const std::string second_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(second_payload.find("\"type\":\"terminal.output\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(second_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"seqStart\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"dataEncoding\":\"base64\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"dataBase64\""), std::string::npos);
@@ -232,7 +235,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -245,7 +249,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -253,26 +257,28 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   websocket.read(buffer);
   buffer.consume(buffer.size());
 
-  auto stop_response = SendRequest(kRemotePort, http::verb::post, "/sessions/s_1/stop", "", token);
+  auto stop_response = SendRequest(kRemotePort, http::verb::post, "/sessions/" + session_id + "/stop", "", token);
   EXPECT_EQ(stop_response.result(), http::status::ok);
 
   websocket.read(buffer);
   const std::string updated_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(updated_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(updated_payload.find("\"status\":\"Exited\""), std::string::npos);
+  EXPECT_NE(updated_payload.find("\"activityState\":\"stopped\""), std::string::npos);
 
   buffer.consume(buffer.size());
   websocket.read(buffer);
   const std::string exited_payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(exited_payload.find("\"type\":\"session.exited\""), std::string::npos);
-  EXPECT_NE(exited_payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(exited_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(exited_payload.find("\"status\":\"Exited\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -285,7 +291,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -304,7 +310,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -317,7 +324,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -349,7 +356,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -362,7 +370,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -380,7 +388,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
 TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -393,7 +402,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -434,7 +443,8 @@ TEST_F(HttpServerFixture, SessionRoutesRejectMissingBearerToken) {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -445,7 +455,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
 
   boost::system::system_error error(http::error::end_of_stream);
   try {
-    websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+    websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
   } catch (const boost::system::system_error& exception) {
     error = exception;
   }
@@ -456,7 +466,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
 TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsAccessTokenQueryParameter) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -465,13 +476,14 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsAccessTokenQueryParamet
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1?access_token=" + token);
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort),
+                      "/ws/sessions/" + session_id + "?access_token=" + token);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
   const std::string payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(payload.find("\"type\":\"session.updated\""), std::string::npos);
-  EXPECT_NE(payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {

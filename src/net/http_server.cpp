@@ -33,6 +33,12 @@ using tcp = asio::ip::tcp;
 
 namespace {
 
+auto CurrentUnixTimeMs() -> std::int64_t {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+
 class WebSocketSession;
 using WebSocketRegistry = std::unordered_map<std::string, std::vector<std::weak_ptr<WebSocketSession>>>;
 
@@ -137,6 +143,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
 
           self->client_id_ = "ws_" + self->session_id_ + "_" +
                              std::to_string(reinterpret_cast<std::uintptr_t>(self.get()));
+          self->connected_at_unix_ms_ = CurrentUnixTimeMs();
           self->last_sequence_ = 1;
           (*self->websocket_registry_)[self->session_id_].push_back(self);
           self->QueueInitialEvents();
@@ -168,6 +175,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   [[nodiscard]] auto client_address() const -> const std::string& { return client_address_; }
   [[nodiscard]] auto is_local_request() const -> bool { return is_local_request_; }
   [[nodiscard]] auto claimed_kind() const -> vibe::session::ControllerKind { return claimed_kind_; }
+  [[nodiscard]] auto connected_at_unix_ms() const -> std::int64_t { return connected_at_unix_ms_; }
 
   void ForceClose() {
     boost::system::error_code error_code;
@@ -369,6 +377,7 @@ class WebSocketSession : public std::enable_shared_from_this<WebSocketSession> {
   bool write_in_progress_{false};
   bool is_local_request_{false};
   ListenerRole listener_role_{ListenerRole::RemoteClient};
+  std::int64_t connected_at_unix_ms_{0};
 };
 
 class HostAdminService final : public vibe::net::HostAdmin {
@@ -389,10 +398,15 @@ class HostAdminService final : public vibe::net::HostAdmin {
           clients.push_back(vibe::net::AttachedClientInfo{
               .client_id = session->client_id(),
               .session_id = session->session_id(),
+              .session_title = summary.has_value() ? summary->title : "",
               .client_address = session->client_address(),
+              .session_status = summary.has_value() ? summary->status
+                                                    : vibe::session::SessionStatus::Created,
+              .session_is_recovered = summary.has_value() && summary->is_recovered,
               .claimed_kind = session->claimed_kind(),
               .is_local = session->is_local_request(),
               .has_control = controller_client_id.has_value() && *controller_client_id == session->client_id(),
+              .connected_at_unix_ms = session->connected_at_unix_ms(),
           });
         }
       }

@@ -1,6 +1,7 @@
 #include "vibe/service/session_manager.h"
 
 #include <algorithm>
+#include <chrono>
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
@@ -14,6 +15,12 @@ namespace {
 auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
   return status == vibe::session::SessionStatus::Running ||
          status == vibe::session::SessionStatus::AwaitingInput;
+}
+
+auto CurrentUnixTimeMs() -> std::int64_t {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
 }
 
 auto NormalizeRecoveredStatus(const vibe::session::SessionStatus status) -> vibe::session::SessionStatus {
@@ -116,6 +123,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       vibe::session::SessionRecord(metadata), launch_spec, *process);
   auto git_inspector = std::make_unique<vibe::service::GitInspector>(request.workspace_root);
 
+  const auto now_unix_ms = CurrentUnixTimeMs();
   sessions_.push_back(SessionEntry{
       .id = *session_id,
       .process = std::move(process),
@@ -124,11 +132,16 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .recovered_snapshot = std::nullopt,
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
+      .is_recovered = false,
+      .created_at_unix_ms = now_unix_ms,
+      .last_status_at_unix_ms = now_unix_ms,
+      .last_observed_status = vibe::session::SessionStatus::Created,
   });
 
   SessionEntry& entry = sessions_.back();
   const bool started = entry.runtime->Start();
   static_cast<void>(started);
+  entry.last_observed_status = entry.runtime->record().metadata().status;
 
   PersistEntry(entry);
   return BuildSummary(entry);
@@ -164,6 +177,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .recent_file_changes = {},
         .git_summary = {},
     };
+    const auto recovered_status = snapshot.metadata.status;
 
     sessions_.push_back(SessionEntry{
         .id = *session_id,
@@ -173,6 +187,10 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .recovered_snapshot = std::move(snapshot),
         .controller_client_id = std::nullopt,
         .controller_kind = vibe::session::ControllerKind::Host,
+        .is_recovered = true,
+        .created_at_unix_ms = std::nullopt,
+        .last_status_at_unix_ms = std::nullopt,
+        .last_observed_status = recovered_status,
     });
     loaded_count += 1;
   }
@@ -281,6 +299,11 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
 
     const bool stopped = entry->runtime->TerminateAndMarkExited();
     if (stopped) {
+      const auto current_status = entry->runtime->record().metadata().status;
+      if (current_status != entry->last_observed_status) {
+        entry->last_status_at_unix_ms = CurrentUnixTimeMs();
+        entry->last_observed_status = current_status;
+      }
       PersistEntry(*entry);
     }
     return stopped;
@@ -358,6 +381,11 @@ void SessionManager::PollAll(const int read_timeout_ms) {
     }
 
     entry.runtime->PollOnce(read_timeout_ms);
+    const auto current_status = entry.runtime->record().metadata().status;
+    if (current_status != entry.last_observed_status) {
+      entry.last_status_at_unix_ms = CurrentUnixTimeMs();
+      entry.last_observed_status = current_status;
+    }
     PersistEntry(entry);
 
     if (should_poll_git && entry.git_inspector) {
@@ -378,6 +406,10 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .status = metadata.status,
         .controller_client_id = entry.controller_client_id,
         .controller_kind = entry.controller_kind,
+        .is_recovered = entry.is_recovered,
+        .is_active = IsInteractiveStatus(metadata.status),
+        .created_at_unix_ms = entry.created_at_unix_ms,
+        .last_status_at_unix_ms = entry.last_status_at_unix_ms,
     };
   }
 
@@ -390,6 +422,10 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .status = metadata.status,
       .controller_client_id = entry.controller_client_id,
       .controller_kind = entry.controller_kind,
+      .is_recovered = entry.is_recovered,
+      .is_active = IsInteractiveStatus(metadata.status),
+      .created_at_unix_ms = entry.created_at_unix_ms,
+      .last_status_at_unix_ms = entry.last_status_at_unix_ms,
   };
 }
 

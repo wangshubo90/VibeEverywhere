@@ -49,6 +49,10 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   EXPECT_EQ(summary->title, "recovered-session");
   EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
   EXPECT_EQ(summary->controller_kind, vibe::session::ControllerKind::Host);
+  EXPECT_TRUE(summary->is_recovered);
+  EXPECT_FALSE(summary->is_active);
+  EXPECT_FALSE(summary->created_at_unix_ms.has_value());
+  EXPECT_FALSE(summary->last_status_at_unix_ms.has_value());
   EXPECT_FALSE(summary->controller_client_id.has_value());
 
   const auto snapshot = manager.GetSnapshot("s_42");
@@ -125,6 +129,10 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
   });
   ASSERT_TRUE(first_created.has_value());
   EXPECT_EQ(first_created->id.value(), "s_10");
+  EXPECT_FALSE(first_created->is_recovered);
+  EXPECT_TRUE(first_created->is_active);
+  EXPECT_TRUE(first_created->created_at_unix_ms.has_value());
+  EXPECT_TRUE(first_created->last_status_at_unix_ms.has_value());
 
   const auto second_created = manager.CreateSession(CreateSessionRequest{
       .provider = vibe::session::ProviderType::Codex,
@@ -134,6 +142,8 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
   });
   ASSERT_TRUE(second_created.has_value());
   EXPECT_EQ(second_created->id.value(), "s_11");
+  EXPECT_FALSE(second_created->is_recovered);
+  EXPECT_TRUE(second_created->is_active);
 
   const auto sessions = manager.ListSessions();
   ASSERT_EQ(sessions.size(), 4U);

@@ -25,6 +25,22 @@ auto ToString(const vibe::auth::DeviceType device_type) -> const char* {
   }
 }
 
+auto ToActivityState(const vibe::service::SessionSummary& summary) -> const char* {
+  if (summary.is_active) {
+    return "active";
+  }
+  if (summary.is_recovered) {
+    return "recovered";
+  }
+  if (summary.status == vibe::session::SessionStatus::Exited) {
+    return "stopped";
+  }
+  if (summary.status == vibe::session::SessionStatus::Error) {
+    return "error";
+  }
+  return "inactive";
+}
+
 }  // namespace
 
 auto JsonEscape(const std::string_view input) -> std::string {
@@ -76,6 +92,15 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
     object["controllerClientId"] = *summary.controller_client_id;
   }
   object["controllerKind"] = std::string(vibe::session::ToString(summary.controller_kind));
+  object["isRecovered"] = summary.is_recovered;
+  object["isActive"] = summary.is_active;
+  object["activityState"] = ToActivityState(summary);
+  if (summary.created_at_unix_ms.has_value()) {
+    object["createdAtUnixMs"] = *summary.created_at_unix_ms;
+  }
+  if (summary.last_status_at_unix_ms.has_value()) {
+    object["lastStatusAtUnixMs"] = *summary.last_status_at_unix_ms;
+  }
   return json::serialize(object);
 }
 
@@ -150,10 +175,16 @@ auto ToJson(const vibe::net::AttachedClientInfo& info) -> std::string {
   json::object object;
   object["clientId"] = info.client_id;
   object["sessionId"] = info.session_id;
+  object["sessionTitle"] = info.session_title;
+  object["sessionStatus"] = std::string(vibe::session::ToString(info.session_status));
+  object["sessionIsRecovered"] = info.session_is_recovered;
   object["clientAddress"] = info.client_address;
   object["claimedKind"] = std::string(vibe::session::ToString(info.claimed_kind));
   object["isLocal"] = info.is_local;
   object["hasControl"] = info.has_control;
+  if (info.connected_at_unix_ms.has_value()) {
+    object["connectedAtUnixMs"] = *info.connected_at_unix_ms;
+  }
   return json::serialize(object);
 }
 
@@ -188,6 +219,15 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
     object["controllerClientId"] = *event.summary.controller_client_id;
   }
   object["controllerKind"] = std::string(vibe::session::ToString(event.summary.controller_kind));
+  object["isRecovered"] = event.summary.is_recovered;
+  object["isActive"] = event.summary.is_active;
+  object["activityState"] = ToActivityState(event.summary);
+  if (event.summary.created_at_unix_ms.has_value()) {
+    object["createdAtUnixMs"] = *event.summary.created_at_unix_ms;
+  }
+  if (event.summary.last_status_at_unix_ms.has_value()) {
+    object["lastStatusAtUnixMs"] = *event.summary.last_status_at_unix_ms;
+  }
   return json::serialize(object);
 }
 
