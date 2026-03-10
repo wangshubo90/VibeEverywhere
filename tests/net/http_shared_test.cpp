@@ -185,7 +185,8 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
                      FakePairingService& pairing_service,
                      FakeHostConfigStore& host_config_store,
                      FakeHostAdmin* host_admin = nullptr,
-                     FakePairingStore* pairing_store = nullptr) -> HttpRouteContext {
+                     FakePairingStore* pairing_store = nullptr,
+                     const ListenerRole listener_role = ListenerRole::AdminLocal) -> HttpRouteContext {
   return HttpRouteContext{
       .authorizer = &authorizer,
       .pairing_service = &pairing_service,
@@ -194,6 +195,7 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
       .host_admin = host_admin,
       .client_address = "127.0.0.1",
       .is_local_request = true,
+      .listener_role = listener_role,
   };
 }
 
@@ -287,6 +289,28 @@ TEST(HttpSharedTest, CanCreateAndListSessions) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(list_response.result(), http::status::ok);
   EXPECT_NE(list_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+}
+
+TEST(HttpSharedTest, AdminLocalCanCreateSessionWithoutBearerToken) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"local-admin\"}";
+  create_request.prepare_payload();
+
+  const HttpResponse create_response = HandleRequest(
+      create_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::AdminLocal));
+  EXPECT_EQ(create_response.result(), http::status::created);
+  EXPECT_NE(create_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
 }
 
 TEST(HttpSharedTest, ReturnsSessionDetailAndSnapshot) {
@@ -432,15 +456,15 @@ TEST(HttpSharedTest, RejectsUnauthorizedSessionRoute) {
   FakeAuthorizer authorizer;
   FakePairingService pairing_service;
   FakeHostConfigStore host_config_store;
+  const auto remote_context = MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr,
+                                              nullptr, ListenerRole::RemoteClient);
 
   HttpRequest request;
   request.method(http::verb::get);
   request.target("/sessions");
   request.version(11);
 
-  const HttpResponse response =
-      HandleRequest(request, session_manager,
-                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  const HttpResponse response = HandleRequest(request, session_manager, remote_context);
   EXPECT_EQ(response.result(), http::status::unauthorized);
   EXPECT_NE(response.body().find("missing token"), std::string::npos);
 }
@@ -547,6 +571,26 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
   EXPECT_NE(approve_response.body().find("\"token\":\"good-token\""), std::string::npos);
 }
 
+TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/");
+  request.version(11);
+
+  const HttpResponse response = HandleRequest(
+      request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_EQ(response[http::field::content_type], "text/html; charset=utf-8");
+  EXPECT_NE(response.body().find("Smoke Client"), std::string::npos);
+}
+
 TEST(HttpSharedTest, ServesHostManagementRoutes) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;
@@ -618,6 +662,7 @@ TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
       .host_config_store = &host_config_store,
       .client_address = "10.0.0.8",
       .is_local_request = false,
+      .listener_role = ListenerRole::RemoteClient,
   };
 
   HttpRequest request;
@@ -626,7 +671,7 @@ TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
   request.version(11);
 
   const HttpResponse response = HandleRequest(request, session_manager, remote_context);
-  EXPECT_EQ(response.result(), http::status::forbidden);
+  EXPECT_EQ(response.result(), http::status::not_found);
 }
 
 }  // namespace

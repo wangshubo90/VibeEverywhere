@@ -31,10 +31,13 @@ namespace http = beast::http;
 
 class HttpServerFixture : public ::testing::Test {
  protected:
+  static constexpr std::uint16_t kRemotePort = 18088;
+  static constexpr std::uint16_t kAdminPort = 18089;
+
   void StartServer() {
     started_.store(false);
     server_thread_ = std::thread([this]() {
-      HttpServer server("127.0.0.1", 18088, storage_root_);
+      HttpServer server("127.0.0.1", kAdminPort, "127.0.0.1", kRemotePort, storage_root_);
       server_ = &server;
       started_.store(true);
       const bool ran = server.Run();
@@ -80,13 +83,14 @@ class HttpServerFixture : public ::testing::Test {
     return parsed.as_object();
   }
 
-  static auto SendRequest(const http::verb method, const std::string& target, const std::string& body = "",
+  static auto SendRequest(const std::uint16_t port, const http::verb method, const std::string& target,
+                          const std::string& body = "",
                           const std::optional<std::string>& bearer_token = std::nullopt)
       -> http::response<http::string_body> {
     asio::io_context io_context;
     tcp::resolver resolver(io_context);
     tcp::socket socket(io_context);
-    const auto results = resolver.resolve("127.0.0.1", "18088");
+    const auto results = resolver.resolve("127.0.0.1", std::to_string(port));
     asio::connect(socket, results);
 
     http::request<http::string_body> request{method, target, 11};
@@ -110,7 +114,7 @@ class HttpServerFixture : public ::testing::Test {
   }
 
   static auto CreateSession(const std::string& token) -> std::string {
-    auto response = SendRequest(http::verb::post, "/sessions",
+    auto response = SendRequest(kRemotePort, http::verb::post, "/sessions",
                                 "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}",
                                 token);
     EXPECT_EQ(response.result(), http::status::created);
@@ -118,7 +122,7 @@ class HttpServerFixture : public ::testing::Test {
   }
 
   static auto StartPairing() -> std::optional<json::object> {
-    auto response = SendRequest(http::verb::post, "/pairing/request",
+    auto response = SendRequest(kRemotePort, http::verb::post, "/pairing/request",
                                 "{\"deviceName\":\"integration-browser\",\"deviceType\":\"browser\"}");
     if (response.result() != http::status::created) {
       return std::nullopt;
@@ -129,7 +133,7 @@ class HttpServerFixture : public ::testing::Test {
 
   static auto ApprovePairing(const std::string& pairing_id, const std::string& code)
       -> std::optional<std::string> {
-    auto response = SendRequest(http::verb::post, "/pairing/approve",
+    auto response = SendRequest(kAdminPort, http::verb::post, "/pairing/approve",
                                 "{\"pairingId\":\"" + pairing_id + "\",\"code\":\"" + code + "\"}");
     if (response.result() != http::status::ok) {
       return std::nullopt;
@@ -197,7 +201,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -205,7 +209,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -233,7 +237,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -241,7 +245,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -249,7 +253,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   websocket.read(buffer);
   buffer.consume(buffer.size());
 
-  auto stop_response = SendRequest(http::verb::post, "/sessions/s_1/stop", "", token);
+  auto stop_response = SendRequest(kRemotePort, http::verb::post, "/sessions/s_1/stop", "", token);
   EXPECT_EQ(stop_response.result(), http::status::ok);
 
   websocket.read(buffer);
@@ -273,7 +277,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -281,7 +285,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -305,7 +309,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -313,7 +317,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -350,7 +354,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -358,7 +362,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -381,7 +385,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
@@ -389,7 +393,7 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -414,7 +418,7 @@ TEST_F(HttpServerFixture, SessionRoutesRejectMissingBearerToken) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   tcp::socket socket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   asio::connect(socket, results);
 
   http::request<http::string_body> request{http::verb::get, "/sessions", 11};
@@ -435,13 +439,13 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMissingBearerToken) {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
   boost::system::system_error error(http::error::end_of_stream);
   try {
-    websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1");
+    websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
   } catch (const boost::system::system_error& exception) {
     error = exception;
   }
@@ -457,11 +461,11 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsAccessTokenQueryParamet
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
-  const auto results = resolver.resolve("127.0.0.1", "18088");
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto endpoint = asio::connect(websocket.next_layer(), results);
   static_cast<void>(endpoint);
 
-  websocket.handshake("127.0.0.1:18088", "/ws/sessions/s_1?access_token=" + token);
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1?access_token=" + token);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
@@ -474,12 +478,12 @@ TEST_F(HttpServerFixture, LocalUiEndpointsSupportPairingAndConfig) {
   const auto pairing = StartPairing();
   ASSERT_TRUE(pairing.has_value());
 
-  auto pending_response = SendRequest(http::verb::get, "/pairing/pending");
+  auto pending_response = SendRequest(kAdminPort, http::verb::get, "/pairing/pending");
   EXPECT_EQ(pending_response.result(), http::status::ok);
   EXPECT_NE(pending_response.body().find("\"pairingId\":\""), std::string::npos);
 
   auto config_response =
-      SendRequest(http::verb::post, "/host/config", R"({"displayName":"Updated Host"})");
+      SendRequest(kAdminPort, http::verb::post, "/host/config", R"({"displayName":"Updated Host"})");
   EXPECT_EQ(config_response.result(), http::status::ok);
   EXPECT_NE(config_response.body().find("\"displayName\":\"Updated Host\""), std::string::npos);
 }
@@ -495,17 +499,17 @@ TEST_F(HttpServerFixture, PairingAndHostConfigPersistAcrossServerRestart) {
   ASSERT_TRUE(code->is_string());
 
   auto config_response =
-      SendRequest(http::verb::post, "/host/config", R"({"displayName":"Persistent Host"})");
+      SendRequest(kAdminPort, http::verb::post, "/host/config", R"({"displayName":"Persistent Host"})");
   ASSERT_EQ(config_response.result(), http::status::ok);
 
   StopServer();
   StartServer();
 
-  auto pending_response = SendRequest(http::verb::get, "/pairing/pending");
+  auto pending_response = SendRequest(kAdminPort, http::verb::get, "/pairing/pending");
   ASSERT_EQ(pending_response.result(), http::status::ok);
   EXPECT_NE(pending_response.body().find(json::value_to<std::string>(*pairing_id)), std::string::npos);
 
-  auto host_info_response = SendRequest(http::verb::get, "/host/info");
+  auto host_info_response = SendRequest(kAdminPort, http::verb::get, "/host/info");
   ASSERT_EQ(host_info_response.result(), http::status::ok);
   EXPECT_NE(host_info_response.body().find("\"displayName\":\"Persistent Host\""), std::string::npos);
 
@@ -513,7 +517,7 @@ TEST_F(HttpServerFixture, PairingAndHostConfigPersistAcrossServerRestart) {
       ApprovePairing(json::value_to<std::string>(*pairing_id), json::value_to<std::string>(*code));
   ASSERT_TRUE(token.has_value());
 
-  auto sessions_response = SendRequest(http::verb::get, "/sessions", "", *token);
+  auto sessions_response = SendRequest(kRemotePort, http::verb::get, "/sessions", "", *token);
   EXPECT_EQ(sessions_response.result(), http::status::ok);
 }
 
@@ -526,7 +530,7 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
   asio::io_context first_io_context;
   tcp::resolver first_resolver(first_io_context);
   websocket::stream<tcp::socket> first_websocket(first_io_context);
-  const auto first_results = first_resolver.resolve("127.0.0.1", "18088");
+  const auto first_results = first_resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto first_endpoint = asio::connect(first_websocket.next_layer(), first_results);
   static_cast<void>(first_endpoint);
 
@@ -534,7 +538,7 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  first_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+  first_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer first_buffer;
   first_websocket.read(first_buffer);
@@ -557,7 +561,7 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
   asio::io_context second_io_context;
   tcp::resolver second_resolver(second_io_context);
   websocket::stream<tcp::socket> second_websocket(second_io_context);
-  const auto second_results = second_resolver.resolve("127.0.0.1", "18088");
+  const auto second_results = second_resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto second_endpoint = asio::connect(second_websocket.next_layer(), second_results);
   static_cast<void>(second_endpoint);
 
@@ -565,7 +569,7 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  second_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+  second_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer second_buffer;
   second_websocket.read(second_buffer);
@@ -584,7 +588,7 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   asio::io_context first_io_context;
   tcp::resolver first_resolver(first_io_context);
   websocket::stream<tcp::socket> first_websocket(first_io_context);
-  const auto first_results = first_resolver.resolve("127.0.0.1", "18088");
+  const auto first_results = first_resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto first_endpoint = asio::connect(first_websocket.next_layer(), first_results);
   static_cast<void>(first_endpoint);
 
@@ -592,7 +596,7 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  first_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+  first_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer first_buffer;
   first_websocket.read(first_buffer);
@@ -608,7 +612,7 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   asio::io_context second_io_context;
   tcp::resolver second_resolver(second_io_context);
   websocket::stream<tcp::socket> second_websocket(second_io_context);
-  const auto second_results = second_resolver.resolve("127.0.0.1", "18088");
+  const auto second_results = second_resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
   auto second_endpoint = asio::connect(second_websocket.next_layer(), second_results);
   static_cast<void>(second_endpoint);
 
@@ -616,7 +620,7 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  second_websocket.handshake("127.0.0.1:18088", "/ws/sessions/" + session_id);
+  second_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer second_buffer;
   second_websocket.read(second_buffer);

@@ -46,6 +46,24 @@ auto LoadHostUiAsset(const std::string_view relative_path) -> std::optional<std:
   return std::nullopt;
 }
 
+auto LoadRemoteUiAsset(const std::string_view relative_path) -> std::optional<std::string> {
+  const auto cwd = std::filesystem::current_path();
+  const std::vector<std::filesystem::path> candidates = {
+      cwd / "web" / "remote_ui" / relative_path,
+      cwd.parent_path() / "web" / "remote_ui" / relative_path,
+      cwd / "tests_smoke" / "websocket_terminal.html",
+      cwd.parent_path() / "tests_smoke" / "websocket_terminal.html",
+  };
+
+  for (const auto& candidate : candidates) {
+    if (const auto file = ReadFile(candidate); file.has_value()) {
+      return file;
+    }
+  }
+
+  return std::nullopt;
+}
+
 auto MakeRandomHexToken(const std::size_t bytes) -> std::string {
   static constexpr char kHexDigits[] = "0123456789abcdef";
   thread_local std::random_device random_device;
@@ -121,6 +139,12 @@ auto BuildRequestContext(const HttpRequest& request, const HttpRouteContext& con
 
 auto RequireAuthorization(const HttpRequest& request, const HttpRouteContext& context,
                           const vibe::auth::AuthorizationAction action) -> std::optional<HttpResponse> {
+  if (context.listener_role == ListenerRole::AdminLocal && context.is_local_request &&
+      (action == vibe::auth::AuthorizationAction::ObserveSessions ||
+       action == vibe::auth::AuthorizationAction::ControlSession)) {
+    return std::nullopt;
+  }
+
   if (context.authorizer == nullptr) {
     return std::nullopt;
   }
@@ -138,6 +162,10 @@ auto RequireAuthorization(const HttpRequest& request, const HttpRouteContext& co
 
 auto RequireLocalAuthorization(const HttpRequest& request, const HttpRouteContext& context,
                                const vibe::auth::AuthorizationAction action) -> std::optional<HttpResponse> {
+  if (context.listener_role != ListenerRole::AdminLocal) {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+  }
+
   if (!context.is_local_request) {
     return MakeJsonResponse(request, http::status::forbidden, "{\"error\":\"local access required\"}");
   }
@@ -280,8 +308,25 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/plain; charset=utf-8", "ok\n");
   }
 
-  if (request.method() == http::verb::get &&
-      (request.target() == "/" || request.target() == "/ui")) {
+  if (request.method() == http::verb::get && request.target() == "/") {
+    const auto asset = context.listener_role == ListenerRole::AdminLocal
+                           ? LoadHostUiAsset("index.html")
+                           : LoadRemoteUiAsset("index.html");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable, "{\"error\":\"ui asset missing\"}");
+    }
+    if (context.listener_role == ListenerRole::AdminLocal) {
+      if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+        return *auth_response;
+      }
+    }
+    return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/ui") {
+    if (context.listener_role != ListenerRole::AdminLocal) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }
@@ -293,10 +338,26 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
   }
 
+  if (request.method() == http::verb::get &&
+      (request.target() == "/client" || request.target() == "/remote")) {
+    if (context.listener_role != ListenerRole::RemoteClient) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
+    const auto asset = LoadRemoteUiAsset("index.html");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"remote ui asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
+  }
+
   const std::string target_string = std::string(request.target());
 
   if (request.method() == http::verb::get &&
       (target_string == "/ui/terminal" || target_string.rfind("/ui/terminal?", 0) == 0)) {
+    if (context.listener_role != ListenerRole::AdminLocal) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }
@@ -309,6 +370,9 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   }
 
   if (request.method() == http::verb::get && request.target() == "/ui/app.js") {
+    if (context.listener_role != ListenerRole::AdminLocal) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }
@@ -321,6 +385,9 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   }
 
   if (request.method() == http::verb::get && request.target() == "/ui/app.css") {
+    if (context.listener_role != ListenerRole::AdminLocal) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }
@@ -333,6 +400,9 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   }
 
   if (request.method() == http::verb::get && request.target() == "/ui/terminal.js") {
+    if (context.listener_role != ListenerRole::AdminLocal) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }

@@ -32,6 +32,10 @@ fitAddon.fit();
 let ws = null;
 let token = '';
 let hasControl = false;
+let requestedControl = false;
+let sessionStatus = 'unknown';
+let activeControllerKind = 'none';
+let activeControllerHasClient = false;
 
 function log(message) {
   const stamp = new Date().toLocaleTimeString();
@@ -76,6 +80,24 @@ function sendJson(payload) {
   ws.send(JSON.stringify(payload));
 }
 
+function isInteractiveStatus(status) {
+  return status === 'Running' || status === 'AwaitingInput';
+}
+
+function maybeRequestHostControl() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  if (!isInteractiveStatus(sessionStatus)) {
+    return;
+  }
+  if (activeControllerKind === 'host' && !activeControllerHasClient && !requestedControl) {
+    requestedControl = true;
+    log('requesting host control');
+    sendJson({ type: 'session.control.request', kind: 'host' });
+  }
+}
+
 function connect() {
   if (!sessionId) {
     setStatus('missing sessionId');
@@ -92,6 +114,7 @@ function connect() {
     fitAddon.fit();
     updateTerminalSize();
     terminal.focus();
+    maybeRequestHostControl();
   });
 
   ws.addEventListener('message', event => {
@@ -102,19 +125,38 @@ function connect() {
     }
 
     if (payload.type === 'session.updated') {
-      hasControl = payload.controllerKind === 'host' || payload.controllerKind === 'remote';
-      setStatus(`status=${payload.status} controller=${payload.controllerKind}`);
+      sessionStatus = payload.status || sessionStatus;
+      activeControllerKind = payload.controllerKind || activeControllerKind;
+      activeControllerHasClient = Boolean(payload.controllerClientId);
+
+      if (requestedControl && activeControllerKind === 'host' && activeControllerHasClient) {
+        hasControl = true;
+        requestedControl = false;
+      } else if (activeControllerKind === 'remote') {
+        hasControl = false;
+        requestedControl = false;
+      } else if (activeControllerKind === 'host' && !activeControllerHasClient) {
+        hasControl = false;
+      }
+
+      setStatus(`status=${sessionStatus} controller=${activeControllerKind}${activeControllerHasClient ? ' (claimed)' : ''}`);
+      maybeRequestHostControl();
       return;
     }
 
     if (payload.type === 'session.exited') {
       setStatus(`exited (${payload.status})`);
       hasControl = false;
+      requestedControl = false;
       return;
     }
 
     if (payload.type === 'error') {
+      if (payload.code === 'command_rejected') {
+        requestedControl = false;
+      }
       log(`error: ${payload.code} | ${payload.message}`);
+      maybeRequestHostControl();
       return;
     }
 
@@ -124,6 +166,7 @@ function connect() {
   ws.addEventListener('close', () => {
     setStatus('disconnected');
     hasControl = false;
+    requestedControl = false;
     log('websocket closed');
   });
 
@@ -133,11 +176,13 @@ function connect() {
 }
 
 requestControlBtn.addEventListener('click', () => {
+  requestedControl = true;
   sendJson({ type: 'session.control.request', kind: 'host' });
 });
 
 releaseControlBtn.addEventListener('click', () => {
   hasControl = false;
+  requestedControl = false;
   sendJson({ type: 'session.control.release' });
 });
 

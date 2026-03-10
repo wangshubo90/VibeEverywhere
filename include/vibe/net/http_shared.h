@@ -19,6 +19,11 @@ namespace http = boost::beast::http;
 using HttpRequest = http::request<http::string_body>;
 using HttpResponse = http::response<http::string_body>;
 
+enum class ListenerRole {
+  AdminLocal,
+  RemoteClient,
+};
+
 struct HttpRouteContext {
   const vibe::auth::Authorizer* authorizer{nullptr};
   vibe::auth::PairingService* pairing_service{nullptr};
@@ -27,6 +32,7 @@ struct HttpRouteContext {
   vibe::net::HostAdmin* host_admin{nullptr};
   std::string client_address;
   bool is_local_request{false};
+  ListenerRole listener_role{ListenerRole::RemoteClient};
 };
 
 [[nodiscard]] auto HandleRequest(const HttpRequest& request,

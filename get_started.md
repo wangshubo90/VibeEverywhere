@@ -20,16 +20,23 @@ ctest --test-dir build --output-on-failure
 ## Start The Daemon
 
 ```bash
-./build/vibe-hostd serve 127.0.0.1 18085
+./build/vibe-hostd serve
 ```
 
-For remote-device testing on your LAN, bind to a non-loopback address, for example:
+Default listeners:
+
+- host admin: `127.0.0.1:18085`
+- remote client/API: `0.0.0.0:18086`
+
+To override them explicitly:
 
 ```bash
-./build/vibe-hostd serve 0.0.0.0 18085
+./build/vibe-hostd serve \
+  --admin-host 127.0.0.1 --admin-port 18085 \
+  --remote-host 0.0.0.0 --remote-port 18086
 ```
 
-Use loopback-only binding when you want the daemon reachable only from the host machine.
+The host admin listener should stay localhost-only. Expose only the remote listener to other devices.
 
 ## Host Network Setup
 
@@ -68,14 +75,14 @@ If you use `ufw`:
 
 ```bash
 sudo ufw status
-sudo ufw allow 18085/tcp
+sudo ufw allow 18086/tcp
 ```
 
 If you use `firewalld`:
 
 ```bash
 sudo firewall-cmd --list-ports
-sudo firewall-cmd --add-port=18085/tcp --permanent
+sudo firewall-cmd --add-port=18086/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
@@ -86,7 +93,7 @@ If you use raw `iptables`/`nftables`, allow inbound TCP on the daemon port befor
 From another machine on the same network:
 
 ```bash
-curl http://HOST_IP:18085/health
+curl http://HOST_IP:18086/health
 ```
 
 Expected response:
@@ -112,11 +119,11 @@ Use it to:
 - stop sessions
 - disconnect clients
 
-## Pair A Browser Smoke Client
+## Pair A Remote Browser Client
 
-Open:
+On another device, open:
 
-- [websocket_terminal.html](/Users/shubow/dev/VibeEverywhere/tests_smoke/websocket_terminal.html)
+- `http://HOST_IP:18086/`
 
 In the browser smoke client:
 
@@ -139,7 +146,7 @@ Pending pairing requests expire automatically after a short timeout and then can
 ## Start A Session From The Host Terminal
 
 ```bash
-./build/vibe-hostd session-start --host 127.0.0.1 --port 18085 my-session
+./build/vibe-hostd session-start my-session
 ```
 
 This creates a daemon-managed session and attaches the current terminal as the host client.
@@ -147,7 +154,7 @@ This creates a daemon-managed session and attaches the current terminal as the h
 To attach to an existing session:
 
 ```bash
-./build/vibe-hostd session-attach --host 127.0.0.1 --port 18085 s_1
+./build/vibe-hostd session-attach s_1
 ```
 
 ## Create A Session From The Browser Client
@@ -181,7 +188,11 @@ The smoke client parses that into argv and sends it as an explicit session comma
 
 ## Current Notes
 
-- One daemon port serves all sessions. Sessions are selected by `sessionId`, not by port.
+- The daemon now uses two listeners by default:
+- host admin on `127.0.0.1:18085`
+- remote client/API on `0.0.0.0:18086`
+- Sessions are still selected by `sessionId`, not by port.
 - A session can outlive any particular client attachment.
 - Stopping a session stops the real host-side PTY process.
-- Browser smoke client is still a smoke tool, not the final remote product client.
+- Host admin UI is localhost-only and should not be exposed.
+- The served remote browser page is still a smoke client, not the final remote product client.

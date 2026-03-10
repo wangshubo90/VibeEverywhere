@@ -12,7 +12,7 @@ namespace vibe::cli {
 
 struct DaemonEndpoint {
   std::string host{"127.0.0.1"};
-  std::uint16_t port{8080};
+  std::uint16_t port{18085};
 };
 
 [[nodiscard]] auto BuildCreateSessionRequestBody(vibe::session::ProviderType provider,

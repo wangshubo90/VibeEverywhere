@@ -112,7 +112,8 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
 
 void PrintUsage() {
   std::cout << "Usage:\n"
-            << "  vibe-hostd serve [bind-address] [port]\n"
+            << "  vibe-hostd serve [--admin-host HOST] [--admin-port PORT]"
+               " [--remote-host HOST] [--remote-port PORT]\n"
             << "  vibe-hostd local-pty [command [args...]]\n"
             << "  vibe-hostd session-start [--host HOST] [--port PORT] [title]\n"
             << "  vibe-hostd session-attach [--host HOST] [--port PORT] <session-id>\n";
@@ -144,10 +145,45 @@ auto ParseEndpointArgs(const int argc, char** argv, int start_index,
 
 auto main(const int argc, char** argv) -> int {
   if (argc >= 2 && std::string(argv[1]) == "serve") {
-    const std::string bind_address = argc >= 3 ? argv[2] : "127.0.0.1";
-    const auto raw_port = argc >= 4 ? std::stoi(argv[3]) : 8080;
-    const auto port = static_cast<std::uint16_t>(raw_port);
-    vibe::net::HttpServer server(bind_address, port);
+    std::string admin_host = "127.0.0.1";
+    std::uint16_t admin_port = 18085;
+    std::string remote_host = "0.0.0.0";
+    std::uint16_t remote_port = 18086;
+
+    int index = 2;
+    while (index < argc) {
+      const std::string argument = argv[index];
+      if (argument == "--admin-host" && index + 1 < argc) {
+        admin_host = argv[index + 1];
+        index += 2;
+        continue;
+      }
+      if (argument == "--admin-port" && index + 1 < argc) {
+        admin_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+        index += 2;
+        continue;
+      }
+      if (argument == "--remote-host" && index + 1 < argc) {
+        remote_host = argv[index + 1];
+        index += 2;
+        continue;
+      }
+      if (argument == "--remote-port" && index + 1 < argc) {
+        remote_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+        index += 2;
+        continue;
+      }
+      if (argc - index == 2) {
+        remote_host = argv[index];
+        remote_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+        break;
+      }
+      std::cerr << "invalid serve arguments\n";
+      PrintUsage();
+      return 1;
+    }
+
+    vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port);
     return server.Run() ? 0 : 1;
   }
 
