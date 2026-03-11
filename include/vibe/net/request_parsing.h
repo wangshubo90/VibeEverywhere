@@ -39,6 +39,11 @@ struct PairingApprovalPayload {
   std::string code;
 };
 
+struct PairingClaimPayload {
+  std::string pairing_id;
+  std::string code;
+};
+
 struct HostConfigPayload {
   std::string display_name;
   std::string admin_host;
@@ -59,6 +64,8 @@ using WebSocketCommand =
 [[nodiscard]] auto ParsePairingRequest(const std::string& body) -> std::optional<PairingRequestPayload>;
 [[nodiscard]] auto ParsePairingApprovalRequest(const std::string& body)
     -> std::optional<PairingApprovalPayload>;
+[[nodiscard]] auto ParsePairingClaimRequest(const std::string& body)
+    -> std::optional<PairingClaimPayload>;
 [[nodiscard]] auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfigPayload>;
 [[nodiscard]] auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCommand>;
 [[nodiscard]] auto ParseTailBytes(const std::string& target) -> std::size_t;

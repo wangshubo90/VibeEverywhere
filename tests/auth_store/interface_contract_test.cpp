@@ -41,6 +41,18 @@ class FakePairingService final : public vibe::auth::PairingService {
     };
   }
 
+  [[nodiscard]] auto ClaimApprovedPairing(const std::string& /*pairing_id*/,
+                                          const std::string& /*code*/)
+      -> std::optional<vibe::auth::PairingRecord> override {
+    return vibe::auth::PairingRecord{
+        .device_id = vibe::auth::DeviceId{.value = "d_1"},
+        .device_name = "phone",
+        .device_type = vibe::auth::DeviceType::Mobile,
+        .bearer_token = "token",
+        .approved_at_unix_ms = 2,
+    };
+  }
+
   [[nodiscard]] auto RejectPairing(const std::string& /*pairing_id*/) -> bool override { return true; }
 };
 

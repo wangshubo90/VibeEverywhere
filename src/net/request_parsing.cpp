@@ -134,6 +134,18 @@ auto ParsePairingApprovalRequest(const std::string& body) -> std::optional<Pairi
   };
 }
 
+auto ParsePairingClaimRequest(const std::string& body) -> std::optional<PairingClaimPayload> {
+  const auto approval = ParsePairingApprovalRequest(body);
+  if (!approval.has_value()) {
+    return std::nullopt;
+  }
+
+  return PairingClaimPayload{
+      .pairing_id = approval->pairing_id,
+      .code = approval->code,
+  };
+}
+
 auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfigPayload> {
   boost::system::error_code error_code;
   const json::value parsed = json::parse(body, error_code);

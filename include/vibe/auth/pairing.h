@@ -50,6 +50,8 @@ class PairingService {
   [[nodiscard]] virtual auto ListPendingPairings() const -> std::vector<PairingRequest> = 0;
   [[nodiscard]] virtual auto ApprovePairing(const std::string& pairing_id, const std::string& code)
       -> std::optional<PairingRecord> = 0;
+  [[nodiscard]] virtual auto ClaimApprovedPairing(const std::string& pairing_id, const std::string& code)
+      -> std::optional<PairingRecord> = 0;
   [[nodiscard]] virtual auto RejectPairing(const std::string& pairing_id) -> bool = 0;
 };
 

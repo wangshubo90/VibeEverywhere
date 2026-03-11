@@ -2,6 +2,7 @@
 #define VIBE_AUTH_DEFAULT_PAIRING_SERVICE_H
 
 #include <functional>
+#include <unordered_map>
 #include <optional>
 #include <string>
 
@@ -30,9 +31,16 @@ class DefaultPairingService final : public PairingService {
   [[nodiscard]] auto ListPendingPairings() const -> std::vector<PairingRequest> override;
   [[nodiscard]] auto ApprovePairing(const std::string& pairing_id, const std::string& code)
       -> std::optional<PairingRecord> override;
+  [[nodiscard]] auto ClaimApprovedPairing(const std::string& pairing_id, const std::string& code)
+      -> std::optional<PairingRecord> override;
   [[nodiscard]] auto RejectPairing(const std::string& pairing_id) -> bool override;
 
  private:
+  struct ApprovedClaim {
+    std::string code;
+    PairingRecord record;
+  };
+
   vibe::store::PairingStore& pairing_store_;
   TimestampProvider timestamp_provider_;
   StringGenerator pairing_id_generator_;
@@ -40,6 +48,7 @@ class DefaultPairingService final : public PairingService {
   StringGenerator device_id_generator_;
   StringGenerator token_generator_;
   DurationMs pairing_request_ttl_ms_{10 * 60 * 1000};
+  std::unordered_map<std::string, ApprovedClaim> approved_claims_;
 };
 
 }  // namespace vibe::auth

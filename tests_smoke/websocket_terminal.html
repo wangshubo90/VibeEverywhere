@@ -463,6 +463,7 @@
     let ws = null;
     let resizeTimer = null;
     let connectTimeout = null;
+    let pairingPollTimer = null;
     let connectionState = 'disconnected';
     let sessionState = 'unknown';
     let controllerState = 'observer';
@@ -586,6 +587,43 @@
       }
     }
 
+    function clearPairingPoll() {
+      if (pairingPollTimer !== null) {
+        clearTimeout(pairingPollTimer);
+        pairingPollTimer = null;
+      }
+    }
+
+    async function pollPairingClaim(pairingId, code) {
+      try {
+        const payload = await fetchJson('/pairing/claim', {
+          method: 'POST',
+          body: JSON.stringify({ pairingId, code })
+        });
+        if (payload && payload.token) {
+          tokenInput.value = payload.token;
+          saveSettings();
+          renderJson(pairingOutput, {
+            pairingId,
+            code,
+            status: 'approved',
+            token: payload.token
+          });
+          appendEvent(`pairing approved: token received for ${pairingId}`);
+          clearPairingPoll();
+          return;
+        }
+      } catch (error) {
+        appendEvent(`pairing claim failed: ${String(error)}`);
+        clearPairingPoll();
+        return;
+      }
+
+      pairingPollTimer = setTimeout(() => {
+        pollPairingClaim(pairingId, code);
+      }, 2000);
+    }
+
     function sendJson(payload) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         appendEvent('websocket not open');
@@ -661,6 +699,7 @@
 
     async function startPairing() {
       try {
+        clearPairingPoll();
         const payload = await fetchJson('/pairing/request', {
           method: 'POST',
           body: JSON.stringify({
@@ -670,9 +709,12 @@
         });
         renderJson(pairingOutput, {
           ...payload,
-          nextStep: 'Approve this pairing in the host-local UI, then paste the returned token here.'
+          nextStep: 'Approve this pairing in the host-local UI. This page will poll and fill the token automatically.'
         });
         appendEvent(`pairing requested: ${payload.pairingId}`);
+        pairingPollTimer = setTimeout(() => {
+          pollPairingClaim(payload.pairingId, payload.code);
+        }, 1500);
       } catch (error) {
         renderJson(pairingOutput, `pairing failed: ${String(error)}`);
       }
