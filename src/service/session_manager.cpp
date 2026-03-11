@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
+#include "vibe/service/workspace_file_watcher.h"
 #include "vibe/session/provider_config.h"
 #include "vibe/session/session_record.h"
 
@@ -185,6 +186,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   auto runtime = std::make_unique<vibe::session::SessionRuntime>(
       vibe::session::SessionRecord(metadata), launch_spec, *process);
   auto git_inspector = std::make_unique<vibe::service::GitInspector>(request.workspace_root);
+  auto file_watcher = std::make_unique<vibe::service::WorkspaceFileWatcher>(request.workspace_root);
 
   const auto now_unix_ms = CurrentUnixTimeMs();
   sessions_.push_back(SessionEntry{
@@ -192,6 +194,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .process = std::move(process),
       .runtime = std::move(runtime),
       .git_inspector = std::move(git_inspector),
+      .file_watcher = std::move(file_watcher),
       .recovered_snapshot = std::nullopt,
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
@@ -260,6 +263,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .process = nullptr,
         .runtime = nullptr,
         .git_inspector = nullptr,
+        .file_watcher = nullptr,
         .recovered_snapshot = std::move(snapshot),
         .controller_client_id = std::nullopt,
         .controller_kind = vibe::session::ControllerKind::Host,
@@ -681,6 +685,7 @@ auto SessionManager::Shutdown() -> std::size_t {
 void SessionManager::PollAll(const int read_timeout_ms) {
   poll_count_ += 1;
   const bool should_poll_git = (poll_count_ % 100 == 0);
+  const bool should_poll_files = (poll_count_ % 20 == 0);
 
   for (SessionEntry& entry : sessions_) {
     if (entry.runtime == nullptr) {
@@ -708,6 +713,15 @@ void SessionManager::PollAll(const int read_timeout_ms) {
       const auto git_summary = entry.git_inspector->Inspect();
       if (git_summary != snapshot.git_summary) {
         entry.runtime->UpdateGitSummary(git_summary);
+        entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
+        PersistEntry(entry);
+      }
+    }
+
+    if (should_poll_files && entry.file_watcher) {
+      const auto changed_files = entry.file_watcher->PollChangedFiles();
+      if (!changed_files.empty()) {
+        entry.runtime->UpdateRecentFileChanges(changed_files);
         entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
         PersistEntry(entry);
       }
