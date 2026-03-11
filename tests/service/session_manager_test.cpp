@@ -405,5 +405,16 @@ TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndS
   EXPECT_TRUE(clean_snapshot->git_summary.untracked_files.empty());
 }
 
+TEST(SessionManagerTest, InfersActiveQuietAndStoppedSupervisionStatesConservatively) {
+  using vibe::session::SessionStatus;
+  using vibe::session::SupervisionState;
+
+  EXPECT_EQ(InferSupervisionState(SessionStatus::Running, 1'000, 5'500), SupervisionState::Active);
+  EXPECT_EQ(InferSupervisionState(SessionStatus::AwaitingInput, 1'000, 8'000), SupervisionState::Quiet);
+  EXPECT_EQ(InferSupervisionState(SessionStatus::Starting, std::nullopt, 8'000), SupervisionState::Quiet);
+  EXPECT_EQ(InferSupervisionState(SessionStatus::Exited, 1'000, 1'001), SupervisionState::Stopped);
+  EXPECT_EQ(InferSupervisionState(SessionStatus::Error, std::nullopt, 1'001), SupervisionState::Stopped);
+}
+
 }  // namespace
 }  // namespace vibe::service

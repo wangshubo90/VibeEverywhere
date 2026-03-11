@@ -54,6 +54,7 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.signals.last_activity_at_unix_ms, std::optional<std::int64_t>{110});
   EXPECT_EQ(snapshot.signals.current_sequence, 42U);
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 2U);
+  EXPECT_EQ(snapshot.signals.supervision_state, SupervisionState::Quiet);
   EXPECT_TRUE(snapshot.signals.git_dirty);
   EXPECT_EQ(snapshot.signals.git_branch, "main");
   EXPECT_EQ(snapshot.signals.git_modified_count, 1U);
@@ -96,6 +97,7 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
   EXPECT_FALSE(snapshot.signals.last_activity_at_unix_ms.has_value());
   EXPECT_EQ(snapshot.signals.current_sequence, 0U);
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 0U);
+  EXPECT_EQ(snapshot.signals.supervision_state, SupervisionState::Quiet);
   EXPECT_FALSE(snapshot.signals.git_dirty);
   EXPECT_TRUE(snapshot.signals.git_branch.empty());
   EXPECT_EQ(snapshot.signals.git_modified_count, 0U);

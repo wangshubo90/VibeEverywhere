@@ -137,19 +137,7 @@ auto CurrentUnixTimeMs() -> std::int64_t {
 }
 
 auto ToActivityStateLabel(const vibe::service::SessionSummary& summary) -> const char* {
-  if (summary.is_active) {
-    return "active";
-  }
-  if (summary.is_recovered) {
-    return "recovered";
-  }
-  if (summary.status == vibe::session::SessionStatus::Exited) {
-    return "stopped";
-  }
-  if (summary.status == vibe::session::SessionStatus::Error) {
-    return "error";
-  }
-  return "inactive";
+  return vibe::session::ToString(summary.supervision_state).data();
 }
 
 auto ExtractBearerToken(const HttpRequest& request) -> std::string {

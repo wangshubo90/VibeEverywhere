@@ -35,6 +35,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .controller_kind = vibe::session::ControllerKind::Host,
       .is_recovered = false,
       .is_active = true,
+      .supervision_state = vibe::session::SupervisionState::Active,
       .created_at_unix_ms = 100,
       .last_status_at_unix_ms = 200,
       .last_output_at_unix_ms = 210,
@@ -50,6 +51,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
@@ -91,6 +93,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .last_activity_at_unix_ms = 110,
               .current_sequence = 42,
               .recent_file_change_count = 2,
+              .supervision_state = vibe::session::SupervisionState::Active,
               .git_dirty = true,
               .git_branch = "main",
               .git_modified_count = 1,
@@ -115,6 +118,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":110"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":42"), std::string::npos);
   EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
+  EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
   EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
   EXPECT_NE(json.find("\"gitModifiedCount\":1"), std::string::npos);
@@ -160,6 +164,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
               .is_active = true,
+              .supervision_state = vibe::session::SupervisionState::Active,
               .created_at_unix_ms = 100,
               .last_status_at_unix_ms = 200,
               .last_output_at_unix_ms = 210,
@@ -180,6 +185,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"controllerClientId\":\"client-1\""), std::string::npos);
   EXPECT_NE(json.find("\"controllerKind\":\"remote\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
@@ -214,6 +220,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
               .is_active = true,
+              .supervision_state = vibe::session::SupervisionState::Active,
               .created_at_unix_ms = 100,
               .last_status_at_unix_ms = 200,
               .last_output_at_unix_ms = 210,
@@ -231,6 +238,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
   EXPECT_NE(json.find("\"type\":\"session.activity\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
@@ -256,6 +264,7 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .controller_kind = vibe::session::ControllerKind::Host,
                   .is_recovered = false,
                   .is_active = true,
+                  .supervision_state = vibe::session::SupervisionState::Active,
                   .created_at_unix_ms = std::nullopt,
                   .last_status_at_unix_ms = std::nullopt,
                   .last_output_at_unix_ms = std::nullopt,
@@ -275,6 +284,7 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .controller_kind = vibe::session::ControllerKind::None,
                   .is_recovered = true,
                   .is_active = false,
+                  .supervision_state = vibe::session::SupervisionState::Stopped,
                   .created_at_unix_ms = std::nullopt,
                   .last_status_at_unix_ms = std::nullopt,
                   .last_output_at_unix_ms = std::nullopt,

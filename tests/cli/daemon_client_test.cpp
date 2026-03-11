@@ -28,7 +28,7 @@ TEST(DaemonClientTest, ParsesCreatedSessionId) {
 
 TEST(DaemonClientTest, ParsesSessionList) {
   const auto sessions = ParseSessionList(
-      R"([{"sessionId":"s_1","title":"one","activityState":"active","status":"Running"},{"sessionId":"s_2","title":"two","activityState":"inactive","status":"Exited"}])");
+      R"([{"sessionId":"s_1","title":"one","activityState":"active","status":"Running"},{"sessionId":"s_2","title":"two","activityState":"stopped","status":"Exited"}])");
 
   ASSERT_EQ(sessions.size(), 2U);
   EXPECT_EQ(sessions[0].session_id, "s_1");

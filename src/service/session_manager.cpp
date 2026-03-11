@@ -17,6 +17,8 @@ auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
          status == vibe::session::SessionStatus::AwaitingInput;
 }
 
+constexpr std::int64_t kRecentOutputWindowMs = 5'000;
+
 auto CurrentUnixTimeMs() -> std::int64_t {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
@@ -107,6 +109,22 @@ SessionManager::SessionManager(vibe::store::SessionStore* session_store,
                                PtyProcessFactory pty_process_factory)
     : session_store_(session_store),
       pty_process_factory_(std::move(pty_process_factory)) {}
+
+auto InferSupervisionState(const vibe::session::SessionStatus status,
+                           const std::optional<std::int64_t> last_output_at_unix_ms,
+                           const std::int64_t now_unix_ms) -> vibe::session::SupervisionState {
+  if (status == vibe::session::SessionStatus::Exited ||
+      status == vibe::session::SessionStatus::Error) {
+    return vibe::session::SupervisionState::Stopped;
+  }
+
+  if (IsInteractiveStatus(status) && last_output_at_unix_ms.has_value() &&
+      now_unix_ms - *last_output_at_unix_ms <= kRecentOutputWindowMs) {
+    return vibe::session::SupervisionState::Active;
+  }
+
+  return vibe::session::SupervisionState::Quiet;
+}
 
 auto SessionManager::CreateSession(const CreateSessionRequest& request)
     -> std::optional<SessionSummary> {
@@ -264,6 +282,7 @@ auto SessionManager::GetSession(const std::string& session_id) const
 
 auto SessionManager::GetSnapshot(const std::string& session_id) const
     -> std::optional<vibe::session::SessionSnapshot> {
+  const auto now_unix_ms = CurrentUnixTimeMs();
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
     if (entry->runtime) {
       auto snapshot = entry->runtime->record().snapshot();
@@ -272,6 +291,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
           .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
           .current_sequence = snapshot.current_sequence,
           .recent_file_change_count = snapshot.recent_file_changes.size(),
+          .supervision_state =
+              InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
           .git_dirty = IsGitDirty(snapshot.git_summary),
           .git_branch = snapshot.git_summary.branch,
           .git_modified_count = GitModifiedCount(snapshot.git_summary),
@@ -286,6 +307,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
         .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
+        .supervision_state =
+            InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
@@ -536,6 +559,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
 }
 
 auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSummary {
+  const auto now_unix_ms = CurrentUnixTimeMs();
   if (entry.runtime) {
     const auto snapshot = entry.runtime->record().snapshot();
     const auto& metadata = snapshot.metadata;
@@ -549,6 +573,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .controller_kind = entry.controller_kind,
         .is_recovered = entry.is_recovered,
         .is_active = IsInteractiveStatus(metadata.status),
+        .supervision_state =
+            InferSupervisionState(metadata.status, entry.last_output_at_unix_ms, now_unix_ms),
         .created_at_unix_ms = entry.created_at_unix_ms,
         .last_status_at_unix_ms = entry.last_status_at_unix_ms,
         .last_output_at_unix_ms = entry.last_output_at_unix_ms,
@@ -575,6 +601,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .controller_kind = entry.controller_kind,
       .is_recovered = entry.is_recovered,
       .is_active = IsInteractiveStatus(metadata.status),
+      .supervision_state = InferSupervisionState(metadata.status, entry.last_output_at_unix_ms, now_unix_ms),
       .created_at_unix_ms = entry.created_at_unix_ms,
       .last_status_at_unix_ms = entry.last_status_at_unix_ms,
       .last_output_at_unix_ms = entry.last_output_at_unix_ms,

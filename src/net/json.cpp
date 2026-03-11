@@ -26,19 +26,7 @@ auto ToString(const vibe::auth::DeviceType device_type) -> const char* {
 }
 
 auto ToActivityState(const vibe::service::SessionSummary& summary) -> const char* {
-  if (summary.is_active) {
-    return "active";
-  }
-  if (summary.is_recovered) {
-    return "recovered";
-  }
-  if (summary.status == vibe::session::SessionStatus::Exited) {
-    return "stopped";
-  }
-  if (summary.status == vibe::session::SessionStatus::Error) {
-    return "error";
-  }
-  return "inactive";
+  return vibe::session::ToString(summary.supervision_state).data();
 }
 
 }  // namespace
@@ -95,6 +83,7 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["isRecovered"] = summary.is_recovered;
   object["isActive"] = summary.is_active;
   object["activityState"] = ToActivityState(summary);
+  object["supervisionState"] = std::string(vibe::session::ToString(summary.supervision_state));
   if (summary.created_at_unix_ms.has_value()) {
     object["createdAtUnixMs"] = *summary.created_at_unix_ms;
   }
@@ -153,6 +142,7 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   }
   signals["currentSequence"] = snapshot.signals.current_sequence;
   signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
+  signals["supervisionState"] = std::string(vibe::session::ToString(snapshot.signals.supervision_state));
   signals["gitDirty"] = snapshot.signals.git_dirty;
   signals["gitBranch"] = snapshot.signals.git_branch;
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
@@ -253,6 +243,7 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["isRecovered"] = event.summary.is_recovered;
   object["isActive"] = event.summary.is_active;
   object["activityState"] = ToActivityState(event.summary);
+  object["supervisionState"] = std::string(vibe::session::ToString(event.summary.supervision_state));
   if (event.summary.created_at_unix_ms.has_value()) {
     object["createdAtUnixMs"] = *event.summary.created_at_unix_ms;
   }
@@ -289,6 +280,7 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   object["sessionId"] = event.summary.id.value();
   object["activityState"] = ToActivityState(event.summary);
   object["isActive"] = event.summary.is_active;
+  object["supervisionState"] = std::string(vibe::session::ToString(event.summary.supervision_state));
   if (event.summary.last_output_at_unix_ms.has_value()) {
     object["lastOutputAtUnixMs"] = *event.summary.last_output_at_unix_ms;
   }

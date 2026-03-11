@@ -380,7 +380,8 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   EXPECT_NE(first_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"status\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"controllerKind\":\"host\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"activityState\":\"quiet\""), std::string::npos);
+  EXPECT_NE(first_payload.find("\"supervisionState\":\"quiet\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"isRecovered\":false"), std::string::npos);
 
   buffer.consume(buffer.size());

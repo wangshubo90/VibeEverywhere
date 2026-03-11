@@ -668,7 +668,8 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(sessions_response.result(), http::status::ok);
   EXPECT_NE(sessions_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
-  EXPECT_NE(sessions_response.body().find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(sessions_response.body().find("\"activityState\":\"quiet\""), std::string::npos);
+  EXPECT_NE(sessions_response.body().find("\"supervisionState\":\"quiet\""), std::string::npos);
   EXPECT_NE(sessions_response.body().find("\"isRecovered\":false"), std::string::npos);
 
   HttpRequest clients_request;

@@ -5,17 +5,38 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "vibe/session/session_types.h"
 
 namespace vibe::session {
 
+enum class SupervisionState {
+  Active,
+  Quiet,
+  Stopped,
+};
+
+[[nodiscard]] constexpr auto ToString(const SupervisionState state) -> std::string_view {
+  switch (state) {
+    case SupervisionState::Active:
+      return "active";
+    case SupervisionState::Quiet:
+      return "quiet";
+    case SupervisionState::Stopped:
+      return "stopped";
+  }
+
+  return "quiet";
+}
+
 struct SessionSignals {
   std::optional<std::int64_t> last_output_at_unix_ms;
   std::optional<std::int64_t> last_activity_at_unix_ms;
   std::uint64_t current_sequence{0};
   std::size_t recent_file_change_count{0};
+  SupervisionState supervision_state{SupervisionState::Quiet};
   bool git_dirty{false};
   std::string git_branch;
   std::size_t git_modified_count{0};
