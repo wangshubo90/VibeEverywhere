@@ -42,6 +42,9 @@ struct SessionSummary {
   std::size_t recent_file_change_count{0};
   bool git_dirty{false};
   std::string git_branch;
+  std::size_t git_modified_count{0};
+  std::size_t git_staged_count{0};
+  std::size_t git_untracked_count{0};
 };
 
 class SessionManager {

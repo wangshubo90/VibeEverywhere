@@ -18,13 +18,21 @@ struct SessionSignals {
   std::size_t recent_file_change_count{0};
   bool git_dirty{false};
   std::string git_branch;
+  std::size_t git_modified_count{0};
+  std::size_t git_staged_count{0};
+  std::size_t git_untracked_count{0};
 };
 
 struct GitSummary {
   std::string branch;
+  std::size_t modified_count{0};
+  std::size_t staged_count{0};
+  std::size_t untracked_count{0};
   std::vector<std::string> modified_files;
   std::vector<std::string> staged_files;
   std::vector<std::string> untracked_files;
+
+  [[nodiscard]] auto operator==(const GitSummary& other) const -> bool = default;
 };
 
 struct SessionSnapshot {

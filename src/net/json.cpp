@@ -111,6 +111,9 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["recentFileChangeCount"] = summary.recent_file_change_count;
   object["gitDirty"] = summary.git_dirty;
   object["gitBranch"] = summary.git_branch;
+  object["gitModifiedCount"] = summary.git_modified_count;
+  object["gitStagedCount"] = summary.git_staged_count;
+  object["gitUntrackedCount"] = summary.git_untracked_count;
   return json::serialize(object);
 }
 
@@ -125,6 +128,9 @@ auto ToJson(const std::vector<vibe::service::SessionSummary>& summaries) -> std:
 auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   json::object git;
   git["branch"] = snapshot.git_summary.branch;
+  git["modifiedCount"] = snapshot.git_summary.modified_count;
+  git["stagedCount"] = snapshot.git_summary.staged_count;
+  git["untrackedCount"] = snapshot.git_summary.untracked_count;
   git["modifiedFiles"] = json::value_from(snapshot.git_summary.modified_files);
   git["stagedFiles"] = json::value_from(snapshot.git_summary.staged_files);
   git["untrackedFiles"] = json::value_from(snapshot.git_summary.untracked_files);
@@ -149,6 +155,9 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
   signals["gitDirty"] = snapshot.signals.git_dirty;
   signals["gitBranch"] = snapshot.signals.git_branch;
+  signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
+  signals["gitStagedCount"] = snapshot.signals.git_staged_count;
+  signals["gitUntrackedCount"] = snapshot.signals.git_untracked_count;
   object["signals"] = std::move(signals);
   object["git"] = std::move(git);
   return json::serialize(object);
@@ -260,6 +269,9 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
   object["gitDirty"] = event.summary.git_dirty;
   object["gitBranch"] = event.summary.git_branch;
+  object["gitModifiedCount"] = event.summary.git_modified_count;
+  object["gitStagedCount"] = event.summary.git_staged_count;
+  object["gitUntrackedCount"] = event.summary.git_untracked_count;
   return json::serialize(object);
 }
 
@@ -287,6 +299,9 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
   object["gitDirty"] = event.summary.git_dirty;
   object["gitBranch"] = event.summary.git_branch;
+  object["gitModifiedCount"] = event.summary.git_modified_count;
+  object["gitStagedCount"] = event.summary.git_staged_count;
+  object["gitUntrackedCount"] = event.summary.git_untracked_count;
   return json::serialize(object);
 }
 

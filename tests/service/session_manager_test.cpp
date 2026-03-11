@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -39,6 +43,47 @@ auto FindLastPersistedRecord(const FakeSessionStore& session_store, const std::s
   }
   return std::nullopt;
 }
+
+class GitSessionManagerTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = std::filesystem::temp_directory_path() /
+                ("vibe session manager git test " +
+                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(test_dir_);
+    std::filesystem::create_directories(test_dir_);
+
+    RunGit("init");
+    RunGit("config user.email \"test@example.com\"");
+    RunGit("config user.name \"Test User\"");
+
+    WriteFile("tracked.txt", "tracked\n");
+    RunGit("add tracked.txt");
+    RunGit("commit -m \"initial commit\"");
+  }
+
+  void TearDown() override {
+    std::filesystem::remove_all(test_dir_);
+  }
+
+  void RunGit(const std::string& command) const {
+    const std::string full_command = "git -C '" + test_dir_.string() + "' " + command;
+    ASSERT_EQ(std::system(full_command.c_str()), 0);
+  }
+
+  void WriteFile(const std::string& name, const std::string& contents) const {
+    std::ofstream stream(test_dir_ / name);
+    stream << contents;
+  }
+
+  void PollUntilGitCheck(SessionManager& manager, const int batches = 100) const {
+    for (int index = 0; index < batches; ++index) {
+      manager.PollAll(0);
+    }
+  }
+
+  std::filesystem::path test_dir_;
+};
 
 TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   FakeSessionStore session_store;
@@ -245,6 +290,104 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
   EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
   EXPECT_GT(summary->current_sequence, 0U);
+}
+
+TEST_F(GitSessionManagerTest, GitPollDoesNotAdvanceActivityWithoutGitStateChange) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = test_dir_.string(),
+      .title = "git-idle",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  PollUntilGitCheck(manager);
+  const auto initial_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(initial_summary.has_value());
+  ASSERT_TRUE(initial_summary->last_activity_at_unix_ms.has_value());
+  const auto activity_before = *initial_summary->last_activity_at_unix_ms;
+
+  PollUntilGitCheck(manager);
+  const auto later_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(later_summary.has_value());
+  ASSERT_TRUE(later_summary->last_activity_at_unix_ms.has_value());
+  EXPECT_EQ(*later_summary->last_activity_at_unix_ms, activity_before);
+  EXPECT_FALSE(later_summary->git_dirty);
+  EXPECT_FALSE(later_summary->git_branch.empty());
+  EXPECT_EQ(later_summary->git_modified_count, 0U);
+  EXPECT_EQ(later_summary->git_staged_count, 0U);
+  EXPECT_EQ(later_summary->git_untracked_count, 0U);
+}
+
+TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndSnapshot) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = test_dir_.string(),
+      .title = "git-transitions",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  PollUntilGitCheck(manager);
+  const auto clean_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(clean_summary.has_value());
+  ASSERT_TRUE(clean_summary->last_activity_at_unix_ms.has_value());
+
+  WriteFile("tracked.txt", "changed\n");
+  WriteFile("new.txt", "new\n");
+  PollUntilGitCheck(manager);
+
+  const auto dirty_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(dirty_summary.has_value());
+  EXPECT_TRUE(dirty_summary->git_dirty);
+  EXPECT_FALSE(dirty_summary->git_branch.empty());
+  EXPECT_EQ(dirty_summary->git_modified_count, 1U);
+  EXPECT_EQ(dirty_summary->git_staged_count, 0U);
+  EXPECT_EQ(dirty_summary->git_untracked_count, 1U);
+  ASSERT_TRUE(dirty_summary->last_activity_at_unix_ms.has_value());
+  EXPECT_GT(*dirty_summary->last_activity_at_unix_ms, *clean_summary->last_activity_at_unix_ms);
+
+  const auto dirty_snapshot = manager.GetSnapshot(created->id.value());
+  ASSERT_TRUE(dirty_snapshot.has_value());
+  EXPECT_TRUE(dirty_snapshot->signals.git_dirty);
+  EXPECT_EQ(dirty_snapshot->signals.git_modified_count, 1U);
+  EXPECT_EQ(dirty_snapshot->signals.git_staged_count, 0U);
+  EXPECT_EQ(dirty_snapshot->signals.git_untracked_count, 1U);
+  EXPECT_EQ(dirty_snapshot->git_summary.modified_count, 1U);
+  EXPECT_EQ(dirty_snapshot->git_summary.staged_count, 0U);
+  EXPECT_EQ(dirty_snapshot->git_summary.untracked_count, 1U);
+  EXPECT_EQ(dirty_snapshot->git_summary.modified_files, (std::vector<std::string>{"tracked.txt"}));
+  EXPECT_EQ(dirty_snapshot->git_summary.untracked_files, (std::vector<std::string>{"new.txt"}));
+
+  RunGit("add tracked.txt new.txt");
+  RunGit("commit -m \"clean repo\"");
+  PollUntilGitCheck(manager);
+
+  const auto clean_again = manager.GetSession(created->id.value());
+  ASSERT_TRUE(clean_again.has_value());
+  EXPECT_FALSE(clean_again->git_dirty);
+  EXPECT_EQ(clean_again->git_modified_count, 0U);
+  EXPECT_EQ(clean_again->git_staged_count, 0U);
+  EXPECT_EQ(clean_again->git_untracked_count, 0U);
+
+  const auto clean_snapshot = manager.GetSnapshot(created->id.value());
+  ASSERT_TRUE(clean_snapshot.has_value());
+  EXPECT_FALSE(clean_snapshot->signals.git_dirty);
+  EXPECT_EQ(clean_snapshot->signals.git_modified_count, 0U);
+  EXPECT_EQ(clean_snapshot->signals.git_staged_count, 0U);
+  EXPECT_EQ(clean_snapshot->signals.git_untracked_count, 0U);
+  EXPECT_EQ(clean_snapshot->git_summary.modified_count, 0U);
+  EXPECT_EQ(clean_snapshot->git_summary.staged_count, 0U);
+  EXPECT_EQ(clean_snapshot->git_summary.untracked_count, 0U);
+  EXPECT_TRUE(clean_snapshot->git_summary.modified_files.empty());
+  EXPECT_TRUE(clean_snapshot->git_summary.staged_files.empty());
+  EXPECT_TRUE(clean_snapshot->git_summary.untracked_files.empty());
 }
 
 }  // namespace

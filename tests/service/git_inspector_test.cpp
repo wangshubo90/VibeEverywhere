@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
@@ -68,14 +69,37 @@ TEST_F(GitInspectorTest, DetectsBranchAndFileStates) {
   RunInTestDir("git commit -m \"initial commit\"");
   summary = inspector.Inspect();
   EXPECT_FALSE(summary.branch.empty());
+  EXPECT_EQ(summary.staged_count, 0U);
+  EXPECT_EQ(summary.modified_count, 0U);
+  EXPECT_EQ(summary.untracked_count, 0U);
   EXPECT_TRUE(summary.staged_files.empty());
   EXPECT_TRUE(summary.modified_files.empty());
 
   // Modified file
   CreateFile("untracked.txt", "modified content");
   summary = inspector.Inspect();
+  EXPECT_EQ(summary.modified_count, 1U);
   ASSERT_EQ(summary.modified_files.size(), 1U);
   EXPECT_EQ(summary.modified_files[0], "untracked.txt");
+}
+
+TEST_F(GitInspectorTest, CountsRenamedDeletedAndUntrackedChanges) {
+  CreateFile("tracked.txt", "tracked");
+  RunInTestDir("git add tracked.txt");
+  RunInTestDir("git commit -m \"initial commit\"");
+
+  std::filesystem::rename(test_dir_ / "tracked.txt", test_dir_ / "renamed.txt");
+  CreateFile("extra.txt", "extra");
+
+  GitInspector inspector(test_dir_);
+  const vibe::session::GitSummary summary = inspector.Inspect();
+
+  EXPECT_FALSE(summary.branch.empty());
+  EXPECT_EQ(summary.staged_count, 0U);
+  EXPECT_EQ(summary.modified_count, 1U);
+  EXPECT_EQ(summary.untracked_count, 2U);
+  EXPECT_EQ(summary.modified_files, (std::vector<std::string>{"tracked.txt"}));
+  EXPECT_EQ(summary.untracked_files, (std::vector<std::string>{"extra.txt", "renamed.txt"}));
 }
 
 }  // namespace

@@ -28,11 +28,17 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
               .recent_file_change_count = 2,
               .git_dirty = true,
               .git_branch = "main",
+              .git_modified_count = 1,
+              .git_staged_count = 1,
+              .git_untracked_count = 1,
           },
       .recent_file_changes = {"src/main.cpp", "tests/session_test.cpp"},
       .git_summary =
           GitSummary{
               .branch = "main",
+              .modified_count = 1,
+              .staged_count = 1,
+              .untracked_count = 1,
               .modified_files = {"src/main.cpp"},
               .staged_files = {"CMakeLists.txt"},
               .untracked_files = {"notes.txt"},
@@ -50,9 +56,15 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 2U);
   EXPECT_TRUE(snapshot.signals.git_dirty);
   EXPECT_EQ(snapshot.signals.git_branch, "main");
+  EXPECT_EQ(snapshot.signals.git_modified_count, 1U);
+  EXPECT_EQ(snapshot.signals.git_staged_count, 1U);
+  EXPECT_EQ(snapshot.signals.git_untracked_count, 1U);
   EXPECT_EQ(snapshot.recent_file_changes,
             (std::vector<std::string>{"src/main.cpp", "tests/session_test.cpp"}));
   EXPECT_EQ(snapshot.git_summary.branch, "main");
+  EXPECT_EQ(snapshot.git_summary.modified_count, 1U);
+  EXPECT_EQ(snapshot.git_summary.staged_count, 1U);
+  EXPECT_EQ(snapshot.git_summary.untracked_count, 1U);
   EXPECT_EQ(snapshot.git_summary.modified_files, (std::vector<std::string>{"src/main.cpp"}));
   EXPECT_EQ(snapshot.git_summary.staged_files, (std::vector<std::string>{"CMakeLists.txt"}));
   EXPECT_EQ(snapshot.git_summary.untracked_files, (std::vector<std::string>{"notes.txt"}));
@@ -86,8 +98,14 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 0U);
   EXPECT_FALSE(snapshot.signals.git_dirty);
   EXPECT_TRUE(snapshot.signals.git_branch.empty());
+  EXPECT_EQ(snapshot.signals.git_modified_count, 0U);
+  EXPECT_EQ(snapshot.signals.git_staged_count, 0U);
+  EXPECT_EQ(snapshot.signals.git_untracked_count, 0U);
   EXPECT_TRUE(snapshot.recent_file_changes.empty());
   EXPECT_TRUE(snapshot.git_summary.branch.empty());
+  EXPECT_EQ(snapshot.git_summary.modified_count, 0U);
+  EXPECT_EQ(snapshot.git_summary.staged_count, 0U);
+  EXPECT_EQ(snapshot.git_summary.untracked_count, 0U);
   EXPECT_TRUE(snapshot.git_summary.modified_files.empty());
   EXPECT_TRUE(snapshot.git_summary.staged_files.empty());
   EXPECT_TRUE(snapshot.git_summary.untracked_files.empty());

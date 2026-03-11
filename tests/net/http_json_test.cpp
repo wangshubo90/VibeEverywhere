@@ -43,6 +43,9 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .recent_file_change_count = 0,
       .git_dirty = false,
       .git_branch = "",
+      .git_modified_count = 0,
+      .git_staged_count = 0,
+      .git_untracked_count = 0,
   });
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
@@ -90,11 +93,17 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .recent_file_change_count = 2,
               .git_dirty = true,
               .git_branch = "main",
+              .git_modified_count = 1,
+              .git_staged_count = 1,
+              .git_untracked_count = 1,
           },
       .recent_file_changes = {"src/main.cpp", "tests/session_test.cpp"},
       .git_summary =
           vibe::session::GitSummary{
               .branch = "main",
+              .modified_count = 1,
+              .staged_count = 1,
+              .untracked_count = 1,
               .modified_files = {"src/main.cpp"},
               .staged_files = {"CMakeLists.txt"},
               .untracked_files = {"notes.txt"},
@@ -108,6 +117,12 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
   EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
+  EXPECT_NE(json.find("\"gitModifiedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"gitStagedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"gitUntrackedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"modifiedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"stagedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"untrackedCount\":1"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesTerminalOutputEvent) {
@@ -153,6 +168,9 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .recent_file_change_count = 0,
               .git_dirty = false,
               .git_branch = "",
+              .git_modified_count = 0,
+              .git_staged_count = 0,
+              .git_untracked_count = 0,
           },
   });
 
@@ -204,6 +222,9 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .recent_file_change_count = 3,
               .git_dirty = true,
               .git_branch = "main",
+              .git_modified_count = 1,
+              .git_staged_count = 1,
+              .git_untracked_count = 1,
           },
   });
 
@@ -216,6 +237,9 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
   EXPECT_NE(json.find("\"recentFileChangeCount\":3"), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
   EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
+  EXPECT_NE(json.find("\"gitModifiedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"gitStagedCount\":1"), std::string::npos);
+  EXPECT_NE(json.find("\"gitUntrackedCount\":1"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionInventoryEvent) {

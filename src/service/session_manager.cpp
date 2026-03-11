@@ -33,8 +33,21 @@ auto NormalizeRecoveredStatus(const vibe::session::SessionStatus status) -> vibe
 }
 
 auto IsGitDirty(const vibe::session::GitSummary& summary) -> bool {
-  return !summary.modified_files.empty() || !summary.staged_files.empty() ||
-         !summary.untracked_files.empty();
+  return std::max(summary.modified_count, summary.modified_files.size()) > 0U ||
+         std::max(summary.staged_count, summary.staged_files.size()) > 0U ||
+         std::max(summary.untracked_count, summary.untracked_files.size()) > 0U;
+}
+
+auto GitModifiedCount(const vibe::session::GitSummary& summary) -> std::size_t {
+  return std::max(summary.modified_count, summary.modified_files.size());
+}
+
+auto GitStagedCount(const vibe::session::GitSummary& summary) -> std::size_t {
+  return std::max(summary.staged_count, summary.staged_files.size());
+}
+
+auto GitUntrackedCount(const vibe::session::GitSummary& summary) -> std::size_t {
+  return std::max(summary.untracked_count, summary.untracked_files.size());
 }
 
 auto MakeRecoveredTailSlice(const vibe::session::SessionSnapshot& snapshot,
@@ -255,6 +268,9 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
           .recent_file_change_count = snapshot.recent_file_changes.size(),
           .git_dirty = IsGitDirty(snapshot.git_summary),
           .git_branch = snapshot.git_summary.branch,
+          .git_modified_count = GitModifiedCount(snapshot.git_summary),
+          .git_staged_count = GitStagedCount(snapshot.git_summary),
+          .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
       };
       return snapshot;
     }
@@ -266,6 +282,9 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
+        .git_modified_count = GitModifiedCount(snapshot.git_summary),
+        .git_staged_count = GitStagedCount(snapshot.git_summary),
+        .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
     };
     return snapshot;
   }
@@ -500,9 +519,12 @@ void SessionManager::PollAll(const int read_timeout_ms) {
     PersistEntry(entry);
 
     if (should_poll_git && entry.git_inspector) {
-      entry.runtime->UpdateGitSummary(entry.git_inspector->Inspect());
-      entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
-      PersistEntry(entry);
+      const auto git_summary = entry.git_inspector->Inspect();
+      if (git_summary != snapshot.git_summary) {
+        entry.runtime->UpdateGitSummary(git_summary);
+        entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
+        PersistEntry(entry);
+      }
     }
   }
 }
@@ -529,6 +551,9 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
+        .git_modified_count = GitModifiedCount(snapshot.git_summary),
+        .git_staged_count = GitStagedCount(snapshot.git_summary),
+        .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
     };
   }
 
@@ -552,6 +577,9 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .recent_file_change_count = snapshot.recent_file_changes.size(),
       .git_dirty = IsGitDirty(snapshot.git_summary),
       .git_branch = snapshot.git_summary.branch,
+      .git_modified_count = GitModifiedCount(snapshot.git_summary),
+      .git_staged_count = GitStagedCount(snapshot.git_summary),
+      .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
   };
 }
 

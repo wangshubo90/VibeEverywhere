@@ -55,6 +55,9 @@ TEST(SessionRecordTest, SnapshotReflectsAccumulatedSessionState) {
   record.SetRecentFileChanges({"src/main.cpp", "README.md"});
   record.SetGitSummary(GitSummary{
       .branch = "feature/session-record",
+      .modified_count = 1,
+      .staged_count = 1,
+      .untracked_count = 1,
       .modified_files = {"src/main.cpp"},
       .staged_files = {"README.md"},
       .untracked_files = {"notes.md"},
@@ -66,6 +69,9 @@ TEST(SessionRecordTest, SnapshotReflectsAccumulatedSessionState) {
   EXPECT_EQ(snapshot.recent_terminal_tail, "git status\n");
   EXPECT_EQ(snapshot.recent_file_changes, (std::vector<std::string>{"src/main.cpp", "README.md"}));
   EXPECT_EQ(snapshot.git_summary.branch, "feature/session-record");
+  EXPECT_EQ(snapshot.git_summary.modified_count, 1U);
+  EXPECT_EQ(snapshot.git_summary.staged_count, 1U);
+  EXPECT_EQ(snapshot.git_summary.untracked_count, 1U);
   EXPECT_EQ(snapshot.git_summary.modified_files, (std::vector<std::string>{"src/main.cpp"}));
   EXPECT_EQ(snapshot.git_summary.staged_files, (std::vector<std::string>{"README.md"}));
   EXPECT_EQ(snapshot.git_summary.untracked_files, (std::vector<std::string>{"notes.md"}));

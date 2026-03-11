@@ -58,21 +58,29 @@ auto GitInspector::Inspect() const -> vibe::session::GitSummary {
     const char y = line[1];
     const std::string file = line.substr(3);
 
+    if (x == '!' && y == '!') {
+      continue;
+    }
+
     // Staged: X is not ' ', and not '?'
     if (x != ' ' && x != '?') {
       summary.staged_files.push_back(file);
     }
 
-    // Modified (unstaged): Y is 'M'
-    if (y == 'M') {
+    // Unstaged working tree changes include modifications, deletions, renames, and conflicts.
+    if (y != ' ' && y != '?') {
       summary.modified_files.push_back(file);
     }
 
-    // Untracked: X is '?'
-    if (x == '?') {
+    // Untracked: porcelain encodes this as "??".
+    if (x == '?' && y == '?') {
       summary.untracked_files.push_back(file);
     }
   }
+
+  summary.staged_count = summary.staged_files.size();
+  summary.modified_count = summary.modified_files.size();
+  summary.untracked_count = summary.untracked_files.size();
 
   return summary;
 }
