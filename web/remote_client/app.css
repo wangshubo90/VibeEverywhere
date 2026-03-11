@@ -249,11 +249,11 @@ button:disabled {
   box-shadow: 0 0 0 1px rgba(21, 94, 82, 0.12), 0 18px 42px rgba(31, 29, 26, 0.08);
 }
 
-.session-card.state-active {
+.session-card.state-live {
   background: linear-gradient(180deg, rgba(21, 94, 82, 0.08), rgba(255, 252, 246, 0.95));
 }
 
-.session-card.state-recovered {
+.session-card.state-archived {
   background: linear-gradient(180deg, rgba(176, 87, 52, 0.1), rgba(255, 252, 246, 0.95));
 }
 

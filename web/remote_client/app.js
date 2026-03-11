@@ -7,6 +7,7 @@ const tokenInput = document.getElementById("token");
 const providerInput = document.getElementById("provider");
 const sessionInput = document.getElementById("session");
 const titleInput = document.getElementById("title");
+const conversationIdInput = document.getElementById("conversation-id");
 const workspaceInput = document.getElementById("workspace");
 const commandInput = document.getElementById("command");
 
@@ -51,6 +52,7 @@ portInput.value = saved.port || defaultPort;
 tokenInput.value = saved.token || "";
 sessionInput.value = saved.sessionId || "s_1";
 titleInput.value = saved.title || "smoke-session";
+conversationIdInput.value = saved.conversationId || "";
 workspaceInput.value = saved.workspaceRoot || ".";
 providerInput.value = saved.provider || "codex";
 commandInput.value = saved.command || "";
@@ -102,6 +104,7 @@ function saveSettings() {
     token: tokenInput.value.trim(),
     sessionId: sessionInput.value.trim(),
     title: titleInput.value.trim(),
+    conversationId: conversationIdInput.value.trim(),
     workspaceRoot: workspaceInput.value.trim(),
     provider: providerInput.value,
     command: commandInput.value,
@@ -208,12 +211,12 @@ function formatTimestamp(value) {
 
 function bucketSession(session) {
   if (session.isActive) {
-    return "active";
+    return "live";
   }
   if (session.isRecovered) {
-    return "recovered";
+    return "archived";
   }
-  return "inactive";
+  return "ended";
 }
 
 function badge(text, tone = "") {
@@ -258,6 +261,8 @@ function detailValue(session, label) {
       return formatTimestamp(session.lastOutputAtUnixMs);
     case "Git":
       return session.gitDirty ? `dirty (${session.gitBranch || "unknown"})` : (session.gitBranch || "clean");
+    case "Conversation":
+      return session.conversationId || "fresh";
     default:
       return "n/a";
   }
@@ -382,12 +387,14 @@ function applySelectedSession(session) {
   if (session) {
     sessionInput.value = session.sessionId;
     titleInput.value = session.title || titleInput.value;
+    conversationIdInput.value = session.conversationId || "";
     sessionState = session.status || "unknown";
     controllerState =
       session.controllerKind === "remote" ? "remote" :
       session.controllerKind === "host" ? "host" :
       "observer";
   } else {
+    conversationIdInput.value = "";
     sessionState = "unknown";
     controllerState = "observer";
   }
@@ -410,14 +417,14 @@ function renderSessions(sessions) {
 
   const sorted = [...state.sessions].sort((left, right) =>
     String(left.sessionId).localeCompare(String(right.sessionId)));
-  const active = sorted.filter((session) => bucketSession(session) === "active");
-  const recovered = sorted.filter((session) => bucketSession(session) === "recovered");
-  const inactive = sorted.filter((session) => bucketSession(session) === "inactive");
+  const live = sorted.filter((session) => bucketSession(session) === "live");
+  const archived = sorted.filter((session) => bucketSession(session) === "archived");
+  const ended = sorted.filter((session) => bucketSession(session) === "ended");
 
   sessionsSummaryEl.append(
-    badge(`${active.length} active`, active.length > 0 ? "good" : "muted"),
-    badge(`${recovered.length} recovered`, recovered.length > 0 ? "warn" : "muted"),
-    badge(`${inactive.length} inactive`, inactive.length > 0 ? "" : "muted")
+    badge(`${live.length} live`, live.length > 0 ? "good" : "muted"),
+    badge(`${ended.length} ended`, ended.length > 0 ? "" : "muted"),
+    badge(`${archived.length} archived`, archived.length > 0 ? "warn" : "muted")
   );
 
   const currentSelected =
@@ -470,8 +477,9 @@ function renderSessions(sessions) {
       const badges = document.createElement("div");
       badges.className = "badge-row";
       badges.append(
-        badge(session.activityState || "unknown", session.isActive ? "good" : session.isRecovered ? "warn" : "muted"),
         badge(session.status || "unknown", session.status === "Error" ? "warn" : ""),
+        badge(session.isRecovered ? "archived record" : session.isActive ? "live" : "ended",
+              session.isRecovered ? "warn" : session.isActive ? "good" : "muted"),
         badge(describeController(session.controllerKind, session.controllerClientId),
               session.controllerKind === "remote" ? "warn" : "muted"),
         badge(`${session.attachedClientCount ?? 0} clients`)
@@ -483,7 +491,8 @@ function renderSessions(sessions) {
         metaCell("Last Activity", formatTimestamp(session.lastActivityAtUnixMs)),
         metaCell("Files", String(session.recentFileChangeCount ?? 0)),
         metaCell("Git", detailValue(session, "Git")),
-        metaCell("Workspace", session.workspaceRoot || "n/a")
+        metaCell("Workspace", session.workspaceRoot || "n/a"),
+        metaCell("Conversation", detailValue(session, "Conversation"))
       );
 
       card.append(head, badges, meta);
@@ -494,9 +503,9 @@ function renderSessions(sessions) {
   }
 
   sessionsListEl.append(
-    renderSection("Active", active),
-    renderSection("Quiet", inactive),
-    renderSection("Stopped / Recovered", recovered)
+    renderSection("Live", live),
+    renderSection("Ended", ended),
+    renderSection("Archived Records", archived)
   );
 }
 
@@ -520,9 +529,10 @@ function renderSelectedSession() {
   selectedSessionSubtitleEl.textContent =
     `${session.sessionId} · ${session.provider} · ${session.workspaceRoot || "no workspace"}`;
   selectedSessionBadgesEl.append(
-    badge(session.activityState || "unknown", session.isActive ? "good" : session.isRecovered ? "warn" : "muted"),
     badge(session.status || "unknown", session.status === "Error" ? "warn" : ""),
-    badge(session.supervisionState || "unknown"),
+    badge(session.isRecovered ? "archived record" : session.isActive ? "live" : "ended",
+          session.isRecovered ? "warn" : session.isActive ? "good" : "muted"),
+    ...(session.isActive ? [badge(session.supervisionState || "quiet")] : []),
     badge(describeController(session.controllerKind, session.controllerClientId),
           session.controllerKind === "remote" ? "warn" : "muted")
   );
@@ -533,7 +543,8 @@ function renderSelectedSession() {
     metaCell("Created", detailValue(session, "Created")),
     metaCell("Last Activity", detailValue(session, "Last Activity")),
     metaCell("Last Output", detailValue(session, "Last Output")),
-    metaCell("Git", detailValue(session, "Git"))
+    metaCell("Git", detailValue(session, "Git")),
+    metaCell("Conversation", detailValue(session, "Conversation"))
   );
 
   renderSnapshotDetails();
@@ -743,6 +754,9 @@ async function createSession() {
       workspaceRoot: workspaceInput.value.trim(),
       title: titleInput.value.trim()
     };
+    if (conversationIdInput.value.trim()) {
+      request.conversationId = conversationIdInput.value.trim();
+    }
     const explicitCommand = parseCommandInput(commandInput.value.trim());
     if (explicitCommand !== null) {
       request.command = explicitCommand;
@@ -975,7 +989,7 @@ sendResizeBtn.addEventListener("click", () => {
 });
 stopBtn.addEventListener("click", () => sendJson({ type: "session.stop" }));
 
-for (const input of [hostInput, portInput, tokenInput, providerInput, sessionInput, titleInput, workspaceInput, commandInput]) {
+for (const input of [hostInput, portInput, tokenInput, providerInput, sessionInput, titleInput, conversationIdInput, workspaceInput, commandInput]) {
   input.addEventListener("change", saveSettings);
 }
 

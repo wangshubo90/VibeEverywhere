@@ -15,6 +15,7 @@ auto MakeMetadata() -> SessionMetadata {
       .workspace_root = "/tmp/project",
       .title = "session-record",
       .status = SessionStatus::Created,
+      .conversation_id = std::nullopt,
   };
 }
 

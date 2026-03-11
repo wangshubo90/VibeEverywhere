@@ -161,6 +161,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .workspace_root = request.workspace_root,
       .title = request.title,
       .status = vibe::session::SessionStatus::Created,
+      .conversation_id = request.conversation_id,
   };
 
   const vibe::session::ProviderConfig provider_config =
@@ -241,6 +242,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
                 .workspace_root = persisted.workspace_root,
                 .title = persisted.title,
                 .status = NormalizeRecoveredStatus(persisted.status),
+                .conversation_id = persisted.conversation_id,
             },
         .current_sequence = persisted.current_sequence,
         .recent_terminal_tail = persisted.recent_terminal_tail,
@@ -743,6 +745,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .workspace_root = metadata.workspace_root,
         .title = metadata.title,
         .status = metadata.status,
+        .conversation_id = metadata.conversation_id,
         .controller_client_id = entry.controller_client_id,
         .controller_kind = entry.controller_kind,
         .is_recovered = entry.is_recovered,
@@ -771,6 +774,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .workspace_root = metadata.workspace_root,
       .title = metadata.title,
       .status = metadata.status,
+      .conversation_id = metadata.conversation_id,
       .controller_client_id = entry.controller_client_id,
       .controller_kind = entry.controller_kind,
       .is_recovered = entry.is_recovered,
@@ -807,6 +811,7 @@ void SessionManager::PersistEntry(const SessionEntry& entry) {
       .workspace_root = snapshot.metadata.workspace_root,
       .title = snapshot.metadata.title,
       .status = snapshot.metadata.status,
+      .conversation_id = snapshot.metadata.conversation_id,
       .current_sequence = snapshot.current_sequence,
       .recent_terminal_tail = snapshot.recent_terminal_tail,
   };

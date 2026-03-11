@@ -145,6 +145,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .workspace_root = "/tmp/project-a",
       .title = "First Session",
       .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
       .current_sequence = 42,
       .recent_terminal_tail = std::string("tail\0bytes\n", 11),
   };
@@ -154,6 +155,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .workspace_root = "/tmp/project-b",
       .title = "Recovered Session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = "conv_42",
       .current_sequence = 84,
       .recent_terminal_tail = std::string("\x1b[31merror\x1b[0m\n", 15),
   };
@@ -163,6 +165,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .workspace_root = "/tmp/project-c",
       .title = "Other Session",
       .status = vibe::session::SessionStatus::Error,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "fatal\n",
   };

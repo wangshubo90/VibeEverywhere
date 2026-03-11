@@ -22,6 +22,7 @@ auto ParseCreateSessionRequest(const std::string& body)
   const auto provider_value = object.if_contains("provider");
   const auto workspace_root = object.if_contains("workspaceRoot");
   const auto title = object.if_contains("title");
+  const auto conversation_id = object.if_contains("conversationId");
   const auto command = object.if_contains("command");
 
   if (provider_value == nullptr || workspace_root == nullptr || title == nullptr ||
@@ -38,6 +39,18 @@ auto ParseCreateSessionRequest(const std::string& body)
   }
 
   std::optional<std::vector<std::string>> command_argv = std::nullopt;
+  std::optional<std::string> parsed_conversation_id = std::nullopt;
+  if (conversation_id != nullptr) {
+    if (!conversation_id->is_string()) {
+      return std::nullopt;
+    }
+    const std::string value = json::value_to<std::string>(*conversation_id);
+    if (value.empty()) {
+      return std::nullopt;
+    }
+    parsed_conversation_id = std::move(value);
+  }
+
   if (command != nullptr) {
     if (!command->is_array()) {
       return std::nullopt;
@@ -65,6 +78,7 @@ auto ParseCreateSessionRequest(const std::string& body)
       .provider = provider,
       .workspace_root = json::value_to<std::string>(*workspace_root),
       .title = json::value_to<std::string>(*title),
+      .conversation_id = std::move(parsed_conversation_id),
       .command_argv = std::move(command_argv),
   };
 }

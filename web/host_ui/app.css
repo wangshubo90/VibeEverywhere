@@ -227,11 +227,11 @@ button.ghost {
   gap: 12px;
 }
 
-.state-active {
+.state-live {
   border-color: rgba(12, 109, 98, 0.35);
 }
 
-.state-recovered {
+.state-archived {
   border-color: rgba(217, 108, 63, 0.45);
 }
 

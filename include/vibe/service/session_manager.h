@@ -24,6 +24,7 @@ struct CreateSessionRequest {
   vibe::session::ProviderType provider;
   std::string workspace_root;
   std::string title;
+  std::optional<std::string> conversation_id;
   std::optional<std::vector<std::string>> command_argv;
 };
 
@@ -33,6 +34,7 @@ struct SessionSummary {
   std::string workspace_root;
   std::string title;
   vibe::session::SessionStatus status;
+  std::optional<std::string> conversation_id;
   std::optional<std::string> controller_client_id;
   vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
   bool is_recovered{false};

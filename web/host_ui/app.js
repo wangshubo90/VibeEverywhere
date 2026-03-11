@@ -130,16 +130,16 @@
 
   function bucketSession(session) {
     if (session.isActive) {
-      return "active";
+      return "live";
     }
     if (session.isRecovered) {
-      return "recovered";
+      return "archived";
     }
-    return "inactive";
+    return "ended";
   }
 
   function sessionSortKey(session) {
-    const bucketOrder = { active: 0, recovered: 1, inactive: 2 };
+    const bucketOrder = { live: 0, ended: 1, archived: 2 };
     return [
       bucketOrder[bucketSession(session)] ?? 9,
       -(session.lastStatusAtUnixMs ?? 0),
@@ -366,8 +366,9 @@
     const badges = document.createElement("div");
     badges.className = "badge-row";
     badges.append(
-      makeBadge(session.activityState, session.isActive ? "good" : session.isRecovered ? "warn" : "muted"),
       makeBadge(session.status, session.status === "Error" ? "danger" : "neutral"),
+      makeBadge(session.isRecovered ? "archived record" : session.isActive ? "live" : "ended",
+                session.isRecovered ? "warn" : session.isActive ? "good" : "muted"),
       makeBadge(`${session.attachedClientCount ?? sessionClients.length} client${(session.attachedClientCount ?? sessionClients.length) === 1 ? "" : "s"}`)
     );
     header.append(titleBlock, badges);
@@ -375,6 +376,7 @@
     const details = document.createElement("div");
     details.className = "detail-list";
     appendDetail(details, "Workspace", session.workspaceRoot);
+    appendDetail(details, "Conversation", session.conversationId || "fresh");
     appendDetail(details, "Control", describeController(session));
     appendDetail(details, "Created", formatTimestamp(session.createdAtUnixMs));
     appendDetail(details, "Last lifecycle change", formatTimestamp(session.lastStatusAtUnixMs));
@@ -422,7 +424,7 @@
       const empty = document.createElement("div");
       empty.className = "empty-note";
       empty.textContent = session.isRecovered
-        ? "Recovered record only. No live clients can still be attached."
+        ? "Archived record only. No live clients can still be attached."
         : (session.attachedClientCount ?? 0) > 0
           ? "Refreshing attached client details..."
           : "No clients are currently attached.";
@@ -488,24 +490,24 @@
 
     const sessions = [...state.sessions].sort((left, right) =>
       compareKeys(sessionSortKey(left), sessionSortKey(right)));
-    const active = sessions.filter((session) => bucketSession(session) === "active");
-    const recovered = sessions.filter((session) => bucketSession(session) === "recovered");
-    const inactive = sessions.filter((session) => bucketSession(session) === "inactive");
+    const live = sessions.filter((session) => bucketSession(session) === "live");
+    const archived = sessions.filter((session) => bucketSession(session) === "archived");
+    const ended = sessions.filter((session) => bucketSession(session) === "ended");
 
     sessionsList.innerHTML = "";
 
     const summary = document.createElement("div");
     summary.className = "summary-row";
     summary.append(
-      makeBadge(`${active.length} active`, active.length > 0 ? "good" : "muted"),
-      makeBadge(`${recovered.length} recovered`, recovered.length > 0 ? "warn" : "muted"),
-      makeBadge(`${inactive.length} inactive`, inactive.length > 0 ? "neutral" : "muted")
+      makeBadge(`${live.length} live`, live.length > 0 ? "good" : "muted"),
+      makeBadge(`${ended.length} ended`, ended.length > 0 ? "neutral" : "muted"),
+      makeBadge(`${archived.length} archived`, archived.length > 0 ? "warn" : "muted")
     );
     sessionsList.appendChild(summary);
     sessionsList.append(
-      renderSessionSection("Active", active, clientsBySession),
-      renderSessionSection("Recovered", recovered, clientsBySession),
-      renderSessionSection("Inactive / Stopped", inactive, clientsBySession)
+      renderSessionSection("Live", live, clientsBySession),
+      renderSessionSection("Ended", ended, clientsBySession),
+      renderSessionSection("Archived Records", archived, clientsBySession)
     );
   }
 
@@ -548,7 +550,7 @@
       meta.className = "detail-list compact";
       appendDetail(meta, "Session", `${client.sessionId} · ${client.sessionTitle || "(untitled)"}`);
       appendDetail(meta, "Session state",
-                   `${client.sessionStatus}${client.sessionIsRecovered ? " · recovered" : ""}`);
+                   `${client.sessionStatus}${client.sessionIsRecovered ? " · archived" : ""}`);
       appendDetail(meta, "Role", describeClientRole(client));
       appendDetail(meta, "Connected", formatTimestamp(client.connectedAtUnixMs));
       appendDetail(meta, "Address", client.clientAddress);

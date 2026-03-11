@@ -76,6 +76,9 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["workspaceRoot"] = summary.workspace_root;
   object["title"] = summary.title;
   object["status"] = std::string(vibe::session::ToString(summary.status));
+  if (summary.conversation_id.has_value()) {
+    object["conversationId"] = *summary.conversation_id;
+  }
   if (summary.controller_client_id.has_value()) {
     object["controllerClientId"] = *summary.controller_client_id;
   }
@@ -141,6 +144,9 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   object["workspaceRoot"] = snapshot.metadata.workspace_root;
   object["title"] = snapshot.metadata.title;
   object["status"] = std::string(vibe::session::ToString(snapshot.metadata.status));
+  if (snapshot.metadata.conversation_id.has_value()) {
+    object["conversationId"] = *snapshot.metadata.conversation_id;
+  }
   object["currentSequence"] = snapshot.current_sequence;
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
   object["recentFileChanges"] = json::value_from(snapshot.recent_file_changes);
@@ -247,6 +253,9 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["workspaceRoot"] = event.summary.workspace_root;
   object["title"] = event.summary.title;
   object["status"] = std::string(vibe::session::ToString(event.summary.status));
+  if (event.summary.conversation_id.has_value()) {
+    object["conversationId"] = *event.summary.conversation_id;
+  }
   if (event.summary.controller_client_id.has_value()) {
     object["controllerClientId"] = *event.summary.controller_client_id;
   }

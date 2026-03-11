@@ -15,6 +15,14 @@ TEST(RequestParsingTest, ParsesCreateSessionRequestWithExplicitCommand) {
             (std::vector<std::string>{"/opt/homebrew/bin/claude", "--print"}));
 }
 
+TEST(RequestParsingTest, ParsesCreateSessionRequestWithConversationId) {
+  const auto request = ParseCreateSessionRequest(
+      R"({"provider":"codex","workspaceRoot":".","title":"demo","conversationId":"conv_123"})");
+  ASSERT_TRUE(request.has_value());
+  ASSERT_TRUE(request->conversation_id.has_value());
+  EXPECT_EQ(*request->conversation_id, "conv_123");
+}
+
 TEST(RequestParsingTest, RejectsInvalidExplicitCommandInCreateSessionRequest) {
   EXPECT_FALSE(ParseCreateSessionRequest(
                    R"({"provider":"codex","workspaceRoot":".","title":"demo","command":[]})")

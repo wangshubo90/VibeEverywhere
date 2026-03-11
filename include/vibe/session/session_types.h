@@ -46,6 +46,7 @@ struct SessionMetadata {
   std::string workspace_root;
   std::string title;
   SessionStatus status{SessionStatus::Created};
+  std::optional<std::string> conversation_id;
 };
 
 [[nodiscard]] auto ToString(ProviderType provider) -> std::string_view;

@@ -31,6 +31,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .workspace_root = ".",
       .title = "demo",
       .status = vibe::session::SessionStatus::Running,
+      .conversation_id = "conv_hash_1",
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
       .is_recovered = false,
@@ -51,6 +52,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   });
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_NE(json.find("\"conversationId\":\"conv_hash_1\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
@@ -102,6 +104,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .workspace_root = "/tmp/project",
               .title = "recoverable-session",
               .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
           },
       .current_sequence = 42,
       .recent_terminal_tail = "tail",
@@ -178,6 +181,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .workspace_root = "/tmp/project",
               .title = "demo",
               .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
               .controller_client_id = "client-1",
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
@@ -236,6 +240,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .workspace_root = "/tmp/project",
               .title = "demo",
               .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
               .controller_client_id = "client-1",
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
@@ -282,6 +287,7 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .workspace_root = ".",
                   .title = "one",
                   .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
                   .controller_client_id = std::nullopt,
                   .controller_kind = vibe::session::ControllerKind::Host,
                   .is_recovered = false,
@@ -302,6 +308,7 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .workspace_root = "/tmp",
                   .title = "two",
                   .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
                   .controller_client_id = std::nullopt,
                   .controller_kind = vibe::session::ControllerKind::None,
                   .is_recovered = true,

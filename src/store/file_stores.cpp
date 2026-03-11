@@ -539,12 +539,16 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
   const auto* workspace_root = object.if_contains("workspaceRoot");
   const auto* title = object.if_contains("title");
   const auto* status = object.if_contains("status");
+  const auto* conversation_id = object.if_contains("conversationId");
   const auto* current_sequence = object.if_contains("currentSequence");
   const auto* recent_terminal_tail = object.if_contains("recentTerminalTailBase64");
   if (session_id == nullptr || provider == nullptr || workspace_root == nullptr || title == nullptr ||
       status == nullptr || current_sequence == nullptr || recent_terminal_tail == nullptr ||
       !session_id->is_string() || !provider->is_string() || !workspace_root->is_string() ||
       !title->is_string() || !status->is_string() || !recent_terminal_tail->is_string()) {
+    return std::nullopt;
+  }
+  if (conversation_id != nullptr && !conversation_id->is_string()) {
     return std::nullopt;
   }
 
@@ -570,6 +574,9 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
       .workspace_root = std::string(workspace_root->as_string()),
       .title = std::string(title->as_string()),
       .status = *parsed_status,
+      .conversation_id =
+          conversation_id != nullptr ? std::make_optional(std::string(conversation_id->as_string()))
+                                     : std::nullopt,
       .current_sequence = parsed_sequence,
       .recent_terminal_tail = *decoded_tail,
   };
@@ -582,6 +589,9 @@ auto ToJsonValue(const PersistedSessionRecord& record) -> json::value {
   object["workspaceRoot"] = record.workspace_root;
   object["title"] = record.title;
   object["status"] = std::string(vibe::session::ToString(record.status));
+  if (record.conversation_id.has_value()) {
+    object["conversationId"] = *record.conversation_id;
+  }
   object["currentSequence"] = record.current_sequence;
   object["recentTerminalTailBase64"] = Base64Encode(record.recent_terminal_tail);
   return object;

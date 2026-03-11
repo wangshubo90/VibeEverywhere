@@ -39,6 +39,8 @@ TEST(SessionMetadataTest, DefaultsToCreatedStatus) {
       .provider = ProviderType::Codex,
       .workspace_root = "/tmp/project",
       .title = "bootstrap",
+      .status = SessionStatus::Created,
+      .conversation_id = std::nullopt,
   };
 
   EXPECT_EQ(metadata.id.value(), "session_123");

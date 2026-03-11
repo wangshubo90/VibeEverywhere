@@ -15,6 +15,7 @@ struct PersistedSessionRecord {
   std::string workspace_root;
   std::string title;
   vibe::session::SessionStatus status{vibe::session::SessionStatus::Created};
+  std::optional<std::string> conversation_id;
   std::uint64_t current_sequence{0};
   std::string recent_terminal_tail;
 

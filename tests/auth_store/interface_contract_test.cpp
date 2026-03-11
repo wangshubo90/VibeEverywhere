@@ -173,6 +173,7 @@ TEST(InterfaceContractTest, PairingAndStoreSeamsSupportBasicUsage) {
       .workspace_root = "/tmp/project",
       .title = "demo",
       .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
       .current_sequence = 12,
       .recent_terminal_tail = "tail",
   };

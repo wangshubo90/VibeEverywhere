@@ -33,6 +33,7 @@ auto MakeLocalSessionMetadata() -> vibe::session::SessionMetadata {
       .workspace_root = std::filesystem::current_path().string(),
       .title = "local-pty",
       .status = vibe::session::SessionStatus::Created,
+      .conversation_id = std::nullopt,
   };
 }
 

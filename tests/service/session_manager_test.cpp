@@ -94,6 +94,7 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
       .workspace_root = "/tmp/recovered",
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -147,6 +148,7 @@ TEST(SessionManagerTest, SkipsInvalidPersistedSessionIds) {
       .workspace_root = ".",
       .title = "bad-session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 0,
       .recent_terminal_tail = "",
   });
@@ -165,6 +167,7 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .workspace_root = "/tmp/recovered-two",
       .title = "recovered-two",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 2,
       .recent_terminal_tail = "tail-2",
   });
@@ -174,6 +177,7 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .workspace_root = "/tmp/recovered-nine",
       .title = "recovered-nine",
       .status = vibe::session::SessionStatus::Running,
+      .conversation_id = std::nullopt,
       .current_sequence = 9,
       .recent_terminal_tail = "tail-9",
   });
@@ -185,6 +189,7 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "live-one",
+      .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
   });
   ASSERT_TRUE(first_created.has_value());
@@ -198,6 +203,7 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "live-two",
+      .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
   });
   ASSERT_TRUE(second_created.has_value());
@@ -222,6 +228,7 @@ TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "missing-pty",
+      .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
   });
 
@@ -236,6 +243,7 @@ TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsE
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "shutdown-target",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
@@ -263,6 +271,7 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
       .workspace_root = "/tmp/recovered",
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -274,6 +283,7 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "clear-target",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
@@ -295,6 +305,7 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "output-target",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "printf 'ready\\n'; sleep 1"},
   });
   ASSERT_TRUE(created.has_value());
@@ -316,6 +327,7 @@ TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = ".",
       .title = "control-activity",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
@@ -353,6 +365,7 @@ TEST_F(GitSessionManagerTest, GitPollDoesNotAdvanceActivityWithoutGitStateChange
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = test_dir_.string(),
       .title = "git-idle",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
@@ -383,6 +396,7 @@ TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndS
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = test_dir_.string(),
       .title = "git-transitions",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
@@ -473,6 +487,7 @@ TEST(SessionManagerTest, ReadFileReturnsContentWithinRecoveredWorkspaceRoot) {
       .workspace_root = temp_root.string(),
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -509,6 +524,7 @@ TEST(SessionManagerTest, ReadFileRejectsInvalidOrEscapingPaths) {
       .workspace_root = temp_root.string(),
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -545,6 +561,7 @@ TEST(SessionManagerTest, ReadFileMarksTruncatedResponses) {
       .workspace_root = temp_root.string(),
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -578,6 +595,7 @@ TEST(SessionManagerTest, PollAllTracksRecentWorkspaceFileChangesForLiveSession) 
       .provider = vibe::session::ProviderType::Codex,
       .workspace_root = temp_root.string(),
       .title = "file-watch",
+      .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
   });
   ASSERT_TRUE(created.has_value());
