@@ -728,6 +728,17 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
   EXPECT_EQ(terminal_script_response[http::field::content_type], "application/javascript; charset=utf-8");
   EXPECT_NE(terminal_script_response.body().find("host/local-token"), std::string::npos);
 
+  HttpRequest vendor_css_request;
+  vendor_css_request.method(http::verb::get);
+  vendor_css_request.target("/assets/xterm/xterm.css");
+  vendor_css_request.version(11);
+  const HttpResponse vendor_css_response =
+      HandleRequest(vendor_css_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(vendor_css_response.result(), http::status::ok);
+  EXPECT_EQ(vendor_css_response[http::field::content_type], "text/css; charset=utf-8");
+  EXPECT_NE(vendor_css_response.body().find(".xterm"), std::string::npos);
+
   HttpRequest local_token_request;
   local_token_request.method(http::verb::get);
   local_token_request.target("/host/local-token");
@@ -832,6 +843,18 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
   EXPECT_EQ(script_response.result(), http::status::ok);
   EXPECT_EQ(script_response[http::field::content_type], "application/javascript; charset=utf-8");
   EXPECT_NE(script_response.body().find("loadSelectedSnapshot"), std::string::npos);
+
+  HttpRequest vendor_script_request;
+  vendor_script_request.method(http::verb::get);
+  vendor_script_request.target("/assets/xterm/xterm.js");
+  vendor_script_request.version(11);
+  const HttpResponse vendor_script_response = HandleRequest(
+      vendor_script_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(vendor_script_response.result(), http::status::ok);
+  EXPECT_EQ(vendor_script_response[http::field::content_type], "application/javascript; charset=utf-8");
+  EXPECT_NE(vendor_script_response.body().find("Terminal"), std::string::npos);
 }
 
 TEST(HttpSharedTest, ServesHostManagementRoutes) {

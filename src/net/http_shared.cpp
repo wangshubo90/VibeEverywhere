@@ -99,6 +99,22 @@ auto LoadRemoteUiAsset(const std::string_view relative_path) -> std::optional<st
   return std::nullopt;
 }
 
+auto LoadVendorAsset(const std::string_view relative_path) -> std::optional<std::string> {
+  const auto cwd = std::filesystem::current_path();
+  const std::vector<std::filesystem::path> candidates = {
+      cwd / "web" / "vendor" / relative_path,
+      cwd.parent_path() / "web" / "vendor" / relative_path,
+  };
+
+  for (const auto& candidate : candidates) {
+    if (const auto file = ReadFile(candidate); file.has_value()) {
+      return file;
+    }
+  }
+
+  return std::nullopt;
+}
+
 auto MakeRandomHexToken(const std::size_t bytes) -> std::string {
   static constexpr char kHexDigits[] = "0123456789abcdef";
   thread_local std::random_device random_device;
@@ -547,6 +563,33 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
                               "{\"error\":\"remote ui asset missing\"}");
     }
     return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/assets/xterm/xterm.css") {
+    const auto asset = LoadVendorAsset("xterm/xterm.css");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"vendor asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/assets/xterm/xterm.js") {
+    const auto asset = LoadVendorAsset("xterm/xterm.js");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"vendor asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/assets/xterm/addon-fit.js") {
+    const auto asset = LoadVendorAsset("xterm/addon-fit.js");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"vendor asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
   }
 
   const std::string target_string = std::string(request.target());

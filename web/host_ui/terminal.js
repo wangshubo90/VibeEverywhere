@@ -1,6 +1,3 @@
-import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm/+esm';
-import { FitAddon } from 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit/+esm';
-
 const params = new URLSearchParams(window.location.search);
 const sessionId = params.get('sessionId') || '';
 const statusEl = document.getElementById('status');
@@ -11,6 +8,8 @@ const terminalSizeEl = document.getElementById('terminal-size');
 const requestControlBtn = document.getElementById('request-control');
 const releaseControlBtn = document.getElementById('release-control');
 const stopSessionBtn = document.getElementById('stop-session');
+const { Terminal } = window;
+const { FitAddon } = window.FitAddon;
 
 const terminal = new Terminal({
   convertEol: false,
@@ -45,6 +44,7 @@ function log(message) {
 
 function setStatus(message) {
   statusEl.textContent = message;
+  updateButtons();
 }
 
 function updateTerminalSize() {
@@ -84,6 +84,17 @@ function isInteractiveStatus(status) {
   return status === 'Running' || status === 'AwaitingInput';
 }
 
+function updateButtons() {
+  const connected = ws && ws.readyState === WebSocket.OPEN;
+  const interactive = isInteractiveStatus(sessionStatus);
+  const hostHasControl = activeControllerKind === 'host' && activeControllerHasClient;
+
+  requestControlBtn.disabled = !connected || !interactive || requestedControl || hostHasControl;
+  releaseControlBtn.disabled = !connected || !hostHasControl;
+  stopSessionBtn.disabled = !connected || sessionStatus === 'Exited' || sessionStatus === 'Error';
+  terminal.options.disableStdin = !hasControl;
+}
+
 function maybeRequestHostControl() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
@@ -94,6 +105,7 @@ function maybeRequestHostControl() {
   if (activeControllerKind === 'host' && !activeControllerHasClient && !requestedControl) {
     requestedControl = true;
     log('requesting host control');
+    updateButtons();
     sendJson({ type: 'session.control.request', kind: 'host' });
   }
 }
@@ -148,6 +160,7 @@ function connect() {
       setStatus(`exited (${payload.status})`);
       hasControl = false;
       requestedControl = false;
+      updateButtons();
       return;
     }
 
@@ -156,6 +169,7 @@ function connect() {
         requestedControl = false;
       }
       log(`error: ${payload.code} | ${payload.message}`);
+      updateButtons();
       maybeRequestHostControl();
       return;
     }
@@ -168,6 +182,7 @@ function connect() {
     hasControl = false;
     requestedControl = false;
     log('websocket closed');
+    updateButtons();
   });
 
   ws.addEventListener('error', () => {
@@ -177,12 +192,14 @@ function connect() {
 
 requestControlBtn.addEventListener('click', () => {
   requestedControl = true;
+  updateButtons();
   sendJson({ type: 'session.control.request', kind: 'host' });
 });
 
 releaseControlBtn.addEventListener('click', () => {
   hasControl = false;
   requestedControl = false;
+  updateButtons();
   sendJson({ type: 'session.control.release' });
 });
 

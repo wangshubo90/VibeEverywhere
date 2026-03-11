@@ -1,6 +1,3 @@
-import { Terminal } from "https://cdn.jsdelivr.net/npm/@xterm/xterm/+esm";
-import { FitAddon } from "https://cdn.jsdelivr.net/npm/@xterm/addon-fit/+esm";
-
 const storageKey = "vibe-remote-client";
 const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
@@ -44,6 +41,8 @@ const requestControlBtn = document.getElementById("request-control");
 const releaseControlBtn = document.getElementById("release-control");
 const sendResizeBtn = document.getElementById("send-resize");
 const stopBtn = document.getElementById("stop");
+const { Terminal } = window;
+const { FitAddon } = window.FitAddon;
 
 const defaultHost = window.location.hostname || "127.0.0.1";
 const defaultPort = window.location.port || (window.location.protocol === "https:" ? "443" : "80");
@@ -269,12 +268,23 @@ function updateButtons() {
   const connected = readyState === WebSocket.OPEN;
   const connecting = readyState === WebSocket.CONNECTING;
   const selected = Boolean(state.selectedSessionId);
-  connectBtn.disabled = !selected || connected || connecting;
+  const selectedSession = state.selectedSession;
+  const selectedIsLive = Boolean(selectedSession && selectedSession.isActive);
+  const selectedCanStop = Boolean(
+    selectedSession &&
+    !selectedSession.isRecovered &&
+    selectedSession.status !== "Exited" &&
+    selectedSession.status !== "Error"
+  );
+  const interactive = sessionState === "Running" || sessionState === "AwaitingInput";
+  const remoteHasControl = controllerState === "remote";
+
+  connectBtn.disabled = !selected || !selectedIsLive || connected || connecting;
   disconnectBtn.disabled = !(connected || connecting);
-  requestControlBtn.disabled = !connected;
-  releaseControlBtn.disabled = !connected;
-  sendResizeBtn.disabled = !connected;
-  stopBtn.disabled = !connected;
+  requestControlBtn.disabled = !connected || !interactive || remoteHasControl;
+  releaseControlBtn.disabled = !connected || !remoteHasControl;
+  sendResizeBtn.disabled = !connected || !interactive || !remoteHasControl;
+  stopBtn.disabled = !connected || !selectedCanStop;
 }
 
 function clearConnectTimeout() {
@@ -368,10 +378,20 @@ function scheduleResize() {
 function applySelectedSession(session) {
   state.selectedSession = session || null;
   state.selectedSessionId = session ? session.sessionId : "";
+  state.selectedSnapshot = null;
   if (session) {
     sessionInput.value = session.sessionId;
     titleInput.value = session.title || titleInput.value;
+    sessionState = session.status || "unknown";
+    controllerState =
+      session.controllerKind === "remote" ? "remote" :
+      session.controllerKind === "host" ? "host" :
+      "observer";
+  } else {
+    sessionState = "unknown";
+    controllerState = "observer";
   }
+  setStates(connectionState, controllerState, sessionState);
   saveSettings();
   renderSelectedSession();
   updateButtons();
@@ -833,7 +853,7 @@ function connect() {
   terminal.clear();
   appendEvent(`connecting ${websocketUrl()}`);
   ws = new WebSocket(websocketUrl());
-  setStates("connecting", "observer", sessionState);
+  setStates("connecting", controllerState, sessionState);
   updateButtons();
   clearConnectTimeout();
   connectTimeout = setTimeout(() => {
@@ -845,7 +865,7 @@ function connect() {
 
   ws.addEventListener("open", () => {
     clearConnectTimeout();
-    setStates("connected", "observer", sessionState);
+    setStates("connected", controllerState, sessionState);
     fitAddon.fit();
     updateTerminalSizeDisplay();
     updateButtons();
@@ -883,6 +903,13 @@ function connect() {
       } else if (payload.type === "session.exited") {
         setStates(connectionState, controllerState, payload.status || "Exited");
         setInputEnabled(false);
+        const updated = state.sessions.find((session) => session.sessionId === state.selectedSessionId);
+        if (updated) {
+          updated.status = payload.status || "Exited";
+          updated.isActive = false;
+          state.selectedSession = updated;
+          renderSelectedSession();
+        }
       } else if (payload.type === "error") {
         appendEvent(`server error: ${payload.code} | ${payload.message}`);
       } else {
