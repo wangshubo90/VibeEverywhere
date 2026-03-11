@@ -7,13 +7,15 @@
   <link rel="stylesheet" href="/ui/app.css">
 </head>
 <body>
-  <main>
+  <main class="shell">
     <header class="hero panel">
-      <div>
+      <div class="hero-copy">
+        <div class="eyebrow">Localhost Operational Console</div>
         <h1>Host Admin</h1>
-        <p>Local-only approval, config, and live session management for the daemon.</p>
+        <p>Approve pairing, supervise active sessions, inspect files, and disconnect clients without leaving the control room.</p>
       </div>
-      <div class="actions">
+      <div class="hero-actions">
+        <div id="host-overview" class="summary-row"></div>
         <button id="refresh-all" class="primary">Refresh All</button>
       </div>
     </header>
@@ -22,11 +24,27 @@
       <div class="column">
         <section class="panel">
           <div class="section-head">
-            <h2>Host Config</h2>
+            <div>
+              <div class="eyebrow">Status</div>
+              <h2>Host Status</h2>
+            </div>
           </div>
-          <pre id="host-info" class="output">loading...</pre>
+          <div id="host-status-grid" class="detail-list host-status-grid"></div>
+          <details class="raw-output">
+            <summary>Raw host payload</summary>
+            <pre id="host-info" class="output">loading...</pre>
+          </details>
           <div class="actions">
             <a id="download-cert" href="/host/tls/certificate">Download Remote TLS Certificate</a>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Config</div>
+              <h2>Host Config</h2>
+            </div>
           </div>
           <form id="config-form" class="stack">
             <label>
@@ -63,11 +81,17 @@
 
         <section class="panel">
           <div class="section-head">
-            <h2>Pending Pairings</h2>
+            <div>
+              <div class="eyebrow">Approval Queue</div>
+              <h2>Pending Pairings</h2>
+            </div>
             <button id="refresh-pairings" class="ghost">Refresh</button>
           </div>
           <div id="pending-actions" class="list"></div>
-          <pre id="pending-list" class="output">loading...</pre>
+          <details class="raw-output">
+            <summary>Raw pairing payload</summary>
+            <pre id="pending-list" class="output">loading...</pre>
+          </details>
           <form id="approve-form" class="stack">
             <label>
               <span>Pairing ID</span>
@@ -81,12 +105,27 @@
           </form>
           <pre id="approve-result" class="output small">No approvals yet.</pre>
         </section>
+
+        <section class="panel">
+          <div class="section-head">
+            <div>
+              <div class="eyebrow">Presence</div>
+              <h2>Attached Clients</h2>
+            </div>
+            <button id="refresh-clients" class="ghost">Refresh</button>
+          </div>
+          <div id="clients-summary" class="summary-row"></div>
+          <div id="clients-list" class="list"></div>
+        </section>
       </div>
 
       <div class="column wide">
         <section class="panel">
           <div class="section-head">
-            <h2>Sessions</h2>
+            <div>
+              <div class="eyebrow">Inventory</div>
+              <h2>Sessions</h2>
+            </div>
             <div class="actions">
               <button id="clear-inactive-sessions" class="ghost">Clear Inactive</button>
               <button id="refresh-sessions" class="ghost">Refresh</button>
@@ -97,7 +136,10 @@
 
         <section class="panel">
           <div class="section-head">
-            <h2>File Inspector</h2>
+            <div>
+              <div class="eyebrow">Inspection</div>
+              <h2>File Inspector</h2>
+            </div>
           </div>
           <div id="file-inspector" class="file-inspector">
             <div class="empty-note">Select a session file to inspect it here.</div>
@@ -106,15 +148,10 @@
 
         <section class="panel">
           <div class="section-head">
-            <h2>Client Connections</h2>
-            <button id="refresh-clients" class="ghost">Refresh</button>
-          </div>
-          <div id="clients-list" class="list"></div>
-        </section>
-
-        <section class="panel">
-          <div class="section-head">
-            <h2>Events</h2>
+            <div>
+              <div class="eyebrow">Log</div>
+              <h2>Events</h2>
+            </div>
           </div>
           <pre id="events" class="output event-log"></pre>
         </section>
