@@ -1,6 +1,6 @@
 # VibeEverywhere Agent Guide
 
-This repository is implementing `vibe-hostd`, a local-network remote session system for AI coding CLIs.
+This repository is implementing `vibe-hostd`, a local-network session runtime and supervision/control plane for AI coding CLIs.
 
 ## Working Baseline
 
@@ -55,6 +55,8 @@ ctest --test-dir build --output-on-failure
 - Avoid designs where slow network clients can interfere with PTY ingestion.
 - Treat the host terminal as another daemon-attached session client, not as a special out-of-band runtime.
 - Preserve the invariant: one session PTY, many views, one controller.
+- Bias new work toward runtime observability, supervision events, and session-state quality before investing in larger frontend rewrites.
+- Keep `SessionPhase` support extensible but conservative; do not hard-code provider-specific heuristics too early.
 
 ## Expected Early Project Layout
 

@@ -14,11 +14,13 @@ A session is defined by:
 - runtime status
 - lightweight persisted metadata
 
-The host is the owner of session execution and observation. Clients are subscribers and optional controllers.
+The host is the owner of session execution and observation. Clients are subscribers, watchers, and optional controllers.
 
 There is one PTY per session. The PTY belongs to the session runtime, not to any specific UI surface.
 
 The host-side terminal should eventually attach through the same daemon-managed session protocol as any remote client, usually as the initial controller.
+
+The terminal path is important, but it is not the whole product. The daemon is a supervision-oriented session runtime and control plane, not merely a PTY forwarder.
 
 ## Primary Runtime Components
 
@@ -39,8 +41,20 @@ Responsibilities:
 - create, load, list, stop, and inspect sessions
 - own session registry
 - arbitrate controller assignment
-- coordinate SessionRuntime, SnapshotStore, FileWatcher, and GitInspector
+- coordinate SessionRuntime, SnapshotStore, FileWatcher, GitInspector, and future ProcessInspector / ResourceMonitor components
 - manage return-of-control behavior when the active controller yields or disconnects
+- aggregate low-level runtime signals into session-observable state
+
+### SessionInference
+
+Responsibilities:
+
+- consume PTY, filesystem, process, and resource signals
+- infer higher-level supervisory state
+- expose a coarse `SessionPhase` plus attention-oriented flags
+- remain provider-agnostic by default
+
+`SessionPhase` should be supported by the architecture now, but not overfit too early. The first implementation should keep the phase model coarse and tunable because some detection logic may vary by provider and prompt style.
 
 ### SessionRuntime
 
@@ -88,6 +102,21 @@ Responsibilities:
 - aggregate noisy change bursts
 - produce normalized file-change events
 
+### ProcessInspector
+
+Responsibilities:
+
+- observe child-process tree shape
+- summarize spawned commands
+- provide signals for long-running task detection
+
+### ResourceMonitor
+
+Responsibilities:
+
+- sample CPU and memory usage
+- provide optional resource-alert signals
+
 ### GitInspector
 
 Responsibilities:
@@ -119,18 +148,24 @@ Responsibilities:
 Client
   -> API Layer
   -> SessionManager
-  -> SessionRuntime / SnapshotStore / AuthManager
+  -> SessionRuntime / SessionInference / SnapshotStore / AuthManager
 
 Provider Process
   -> PTY
   -> SessionRuntime
   -> SessionOutputBuffer
+  -> SessionInference
   -> ClientDispatcher
   -> WebSocket subscribers
 
 Workspace
   -> FileWatcher / GitInspector
-  -> SessionManager
+  -> SessionInference / SessionManager
+  -> API Layer / WebSocket subscribers
+
+Process Tree / Resource Signals
+  -> ProcessInspector / ResourceMonitor
+  -> SessionInference
   -> API Layer / WebSocket subscribers
 
 Pairing Client
@@ -188,12 +223,14 @@ Persist:
 - bounded recent terminal tail
 - paired device records
 - host identity and TLS material references
+- lightweight signal summaries and last-observed supervisory state when useful for recovery
 
 Do not persist:
 
 - active PTY handles
 - full process state
 - full terminal history
+- overconfident inferred phase history in MVP
 
 ## Failure Containment Rules
 
@@ -201,6 +238,36 @@ Do not persist:
 - a file watcher fault must not terminate active sessions
 - a provider process crash should transition only its own session to `Exited` or `Error`
 - persistence failures should degrade recovery guarantees, not break live session execution
+
+## Session State Layers
+
+The runtime should keep two distinct state layers:
+
+1. Low-level runtime state
+- process status
+- PTY connectivity
+- controller ownership
+- websocket/client attachment state
+
+2. Supervisory state
+- recent filesystem activity
+- PTY output rate
+- child-process activity
+- resource signals
+- coarse `SessionPhase`
+- attention flags such as waiting-input, idle-too-long, or long-task
+
+Clients should not need to infer these from raw signals themselves.
+
+## Web Product Direction
+
+Near-term web work should stay intentionally light:
+
+- local host admin UI remains a small operational interface
+- remote web client remains a focused session client for observe/control/watch flows
+- avoid introducing a full frontend framework until runtime state, event schema, and supervision workflows stabilize
+
+This keeps product iteration centered on runtime correctness rather than frontend churn.
 
 ## MVP Security Model
 

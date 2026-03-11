@@ -4,7 +4,7 @@ This document turns the initiative docs into an implementable plan for a C++20 c
 
 ## Project Goal
 
-Build `vibe-hostd`, a host daemon that manages AI coding CLI sessions and exposes them to remote clients over REST and WebSocket without using remote desktop streaming.
+Build `vibe-hostd`, a host daemon that acts as a session runtime and supervision/control plane for AI coding CLIs, exposing sessions to remote clients over REST and WebSocket without using remote desktop streaming.
 
 ## Delivery Priorities
 
@@ -13,9 +13,11 @@ Build `vibe-hostd`, a host daemon that manages AI coding CLI sessions and expose
 3. Bounded output buffering with replay support
 4. REST and WebSocket surfaces for session interaction
 5. Multi-client control semantics
-6. File and git observation
-7. Pairing/auth foundations
-8. Lightweight recovery and persisted metadata
+6. Runtime observability signals
+7. Coarse supervision state and event generation
+8. Pairing/auth foundations
+9. Lightweight recovery and persisted metadata
+10. Thin operational web clients
 
 ## Recommended Initial Stack
 
@@ -125,6 +127,7 @@ Deliverables:
 
 - file watching
 - git state inspection
+- process-tree observation seam
 - event aggregation and throttling
 
 Acceptance criteria:
@@ -132,7 +135,22 @@ Acceptance criteria:
 - file and git updates are visible through session APIs
 - high-frequency changes do not flood clients uncontrollably
 
-## Phase 7: Security and Pairing
+## Phase 7: Session Inference and Supervision
+
+Deliverables:
+
+- coarse `SessionPhase` model
+- phase inference seam fed by PTY/filesystem/process/resource signals
+- attention-oriented session events
+- watch-oriented state surfaces for clients
+
+Acceptance criteria:
+
+- architecture supports `SessionPhase` without locking into provider-specific rules too early
+- waiting-for-input, idle, active-output, and file-activity signals are surfaced cleanly
+- clients can consume high-level supervision state without re-inferring it locally
+- detection remains tunable and conservative
+## Phase 8: Security and Pairing
 
 Deliverables:
 
@@ -150,7 +168,7 @@ Acceptance criteria:
 - a remote client can pair only after local host approval
 - paired clients can reconnect without repeating approval
 
-## Phase 8: Recovery and Host Identity Persistence
+## Phase 9: Recovery and Host Identity Persistence
 
 Deliverables:
 
@@ -173,6 +191,8 @@ Acceptance criteria:
 - Keep platform-specific behavior behind interfaces from the start.
 - Treat the host terminal and remote clients as the same class of daemon-attached session participants.
 - Freeze module interfaces before parallel work starts when a phase spans auth, persistence, and network changes.
+- Treat `SessionPhase` as an extensibility seam, not a prematurely rigid taxonomy.
+- Prefer improving runtime signal quality before investing in large frontend rewrites.
 
 ## Immediate Next Docs to Consult
 

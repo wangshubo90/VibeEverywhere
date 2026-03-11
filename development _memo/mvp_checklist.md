@@ -2,6 +2,8 @@
 
 This checklist defines the minimum end-to-end user flows that should work before calling the host daemon implementation an MVP.
 
+The product should now be interpreted as a supervision-oriented session runtime. Terminal attach remains important, but the MVP should increasingly validate observe/intervene/watch workflows rather than terminal transport alone.
+
 ## Core User Flows
 
 ### 1. Start Local Session
@@ -55,7 +57,22 @@ Acceptance:
 - explicit stop via API/client terminates the session cleanly
 - attached clients receive session lifecycle updates and exit notification
 
-### 7. Lightweight Recovery
+### 7. Runtime Observability
+
+Acceptance:
+
+- a session exposes basic runtime signals beyond raw terminal transport
+- clients can see recent activity state clearly enough to distinguish active, waiting, idle, and ended sessions
+- session summaries remain usable even when no terminal is currently attached
+
+### 8. Minimum Supervision Signals
+
+Acceptance:
+
+- the architecture exposes a place for future `SessionPhase`
+- clients receive at least coarse attention-oriented state without parsing raw PTY output themselves
+- waiting-for-input and ended-session conditions are easy to surface in clients
+### 9. Lightweight Recovery
 
 Acceptance:
 
@@ -63,7 +80,7 @@ Acceptance:
 - recent terminal tail for persisted records is still accessible
 - the system does not pretend that pre-restart live PTY processes survived
 
-### 8. Minimum Access Control
+### 10. Minimum Access Control
 
 Acceptance:
 
@@ -77,13 +94,16 @@ Acceptance:
 
 - full IDE-like file editing
 - arbitrary attach to unrelated local terminals
-- polished multi-platform GUI clients
+- polished native mobile clients
 - advanced multi-controller arbitration beyond one controller plus observers
 - comprehensive file watching and rich git visualization
+- deep provider-specific `SessionPhase` tuning
+- full timeline/history analytics
 
 ## Recommended Next Build Order
 
-1. finish and stabilize host/remote control handoff
-2. add minimum viable pairing/auth with local host approval UI
-3. add lightweight persisted session metadata and terminal tail recovery
-4. decide whether discovery remains manual in MVP or gets a lightweight follow-up
+1. stabilize runtime observability and supervision-oriented session summaries
+2. finish and harden host/remote control and attach flows
+3. add minimum viable pairing/auth with local host approval UI
+4. add lightweight persisted session metadata and terminal tail recovery
+5. keep the web clients thin until runtime/event shape stabilizes
