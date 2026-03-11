@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -8,6 +9,7 @@
 #include "vibe/auth/authorizer.h"
 #include "vibe/auth/pairing.h"
 #include "vibe/net/host_admin.h"
+#include "vibe/net/json.h"
 #include "vibe/net/http_shared.h"
 #include "vibe/store/host_config_store.h"
 
@@ -391,6 +393,142 @@ TEST(HttpSharedTest, ReturnsSessionDetailAndSnapshot) {
   EXPECT_NE(snapshot_response.body().find("\"currentSequence\":0"), std::string::npos);
 }
 
+TEST(HttpSharedTest, ReturnsSessionFileContentWithinWorkspaceRoot) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-http-file-route-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root / "src");
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "int main() { return 0; }\n";
+  }
+
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::SessionManager session_manager;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\"" +
+      JsonEscape(temp_root.string()) +
+      "\",\"title\":\"new-session\",\"command\":[\"/bin/sh\",\"-c\",\"sleep 30\"]}";
+  create_request.prepare_payload();
+  const HttpResponse create_response =
+      HandleRequest(create_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(create_response.result(), http::status::created);
+
+  HttpRequest file_request;
+  file_request.method(http::verb::get);
+  file_request.target("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=1024");
+  file_request.version(11);
+  file_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse file_response =
+      HandleRequest(file_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(file_response.result(), http::status::ok);
+  EXPECT_NE(file_response.body().find("\"workspacePath\":\"src/main.cpp\""), std::string::npos);
+  EXPECT_NE(file_response.body().find("\"contentBase64\":\"aW50IG1haW4oKSB7IHJldHVybiAwOyB9Cg==\""),
+            std::string::npos);
+
+  EXPECT_EQ(session_manager.Shutdown(), 1U);
+  std::filesystem::remove_all(temp_root);
+}
+
+TEST(HttpSharedTest, RejectsInvalidSessionFilePath) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-http-file-invalid-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root);
+
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::SessionManager session_manager;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\"" +
+      JsonEscape(temp_root.string()) +
+      "\",\"title\":\"new-session\",\"command\":[\"/bin/sh\",\"-c\",\"sleep 30\"]}";
+  create_request.prepare_payload();
+  const HttpResponse create_response =
+      HandleRequest(create_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(create_response.result(), http::status::created);
+
+  HttpRequest file_request;
+  file_request.method(http::verb::get);
+  file_request.target("/sessions/s_1/file?path=..%2Fsecret.txt");
+  file_request.version(11);
+  file_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse file_response =
+      HandleRequest(file_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(file_response.result(), http::status::bad_request);
+  EXPECT_NE(file_response.body().find("invalid file path"), std::string::npos);
+
+  EXPECT_EQ(session_manager.Shutdown(), 1U);
+  std::filesystem::remove_all(temp_root);
+}
+
+TEST(HttpSharedTest, RejectsMalformedFileByteLimit) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-http-file-bytes-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root / "src");
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "int main() { return 0; }\n";
+  }
+
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::SessionManager session_manager;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\"" +
+      JsonEscape(temp_root.string()) +
+      "\",\"title\":\"new-session\",\"command\":[\"/bin/sh\",\"-c\",\"sleep 30\"]}";
+  create_request.prepare_payload();
+  const HttpResponse create_response =
+      HandleRequest(create_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(create_response.result(), http::status::created);
+
+  HttpRequest file_request;
+  file_request.method(http::verb::get);
+  file_request.target("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=abc");
+  file_request.version(11);
+  file_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse file_response =
+      HandleRequest(file_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(file_response.result(), http::status::bad_request);
+  EXPECT_NE(file_response.body().find("invalid byte limit"), std::string::npos);
+
+  EXPECT_EQ(session_manager.Shutdown(), 1U);
+  std::filesystem::remove_all(temp_root);
+}
+
 TEST(HttpSharedTest, RejectsInvalidCreateSessionBody) {
   auto session_manager = MakeManager();
 
@@ -435,6 +573,38 @@ TEST(HttpSharedTest, CanFetchTailForExistingSession) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(tail_response.result(), http::status::ok);
   EXPECT_NE(tail_response.body().find("\"seqStart\""), std::string::npos);
+}
+
+TEST(HttpSharedTest, RejectsMalformedTailByteLimit) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"new-session\"}";
+  create_request.prepare_payload();
+  const HttpResponse create_response =
+      HandleRequest(create_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(create_response.result(), http::status::created);
+
+  HttpRequest tail_request;
+  tail_request.method(http::verb::get);
+  tail_request.target("/sessions/s_1/tail?bytes=abc");
+  tail_request.version(11);
+  tail_request.set(http::field::authorization, "Bearer good-token");
+
+  const HttpResponse tail_response =
+      HandleRequest(tail_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(tail_response.result(), http::status::bad_request);
+  EXPECT_NE(tail_response.body().find("invalid byte limit"), std::string::npos);
 }
 
 TEST(HttpSharedTest, RejectsInvalidInputRequest) {

@@ -103,5 +103,21 @@ TEST(RequestParsingTest, RejectsMalformedOrUnknownWebSocketCommands) {
   EXPECT_FALSE(ParseWebSocketCommand("not-json").has_value());
 }
 
+TEST(RequestParsingTest, ParsesTailAndFileByteLimitsSafely) {
+  EXPECT_EQ(ParseTailBytes("/sessions/s_1/tail"), std::optional<std::size_t>{65536U});
+  EXPECT_EQ(ParseTailBytes("/sessions/s_1/tail?bytes=128"), std::optional<std::size_t>{128U});
+  EXPECT_FALSE(ParseTailBytes("/sessions/s_1/tail?bytes=abc").has_value());
+  EXPECT_FALSE(ParseTailBytes("/sessions/s_1/tail?bytes=-1").has_value());
+
+  EXPECT_EQ(ParseFileBytes("/sessions/s_1/file?path=src%2Fmain.cpp"),
+            std::optional<std::size_t>{65536U});
+  EXPECT_EQ(ParseFileBytes("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=512"),
+            std::optional<std::size_t>{512U});
+  EXPECT_EQ(ParseFileBytes("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=2097152"),
+            std::optional<std::size_t>{1048576U});
+  EXPECT_FALSE(ParseFileBytes("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=abc").has_value());
+  EXPECT_FALSE(ParseFileBytes("/sessions/s_1/file?path=src%2Fmain.cpp&bytes=-1").has_value());
+}
+
 }  // namespace
 }  // namespace vibe::net

@@ -55,6 +55,24 @@ struct SessionSummary {
                                          std::int64_t now_unix_ms)
     -> vibe::session::SupervisionState;
 
+enum class FileReadStatus {
+  Ok,
+  SessionNotFound,
+  InvalidPath,
+  WorkspaceUnavailable,
+  NotFound,
+  NotRegularFile,
+  IoError,
+};
+
+struct SessionFileReadResult {
+  FileReadStatus status{FileReadStatus::SessionNotFound};
+  std::string workspace_path;
+  std::string content;
+  std::uint64_t size_bytes{0};
+  bool truncated{false};
+};
+
 class SessionManager {
  public:
   using PtyProcessFactory = std::function<std::unique_ptr<vibe::session::IPtyProcess>()>;
@@ -74,6 +92,8 @@ class SessionManager {
       -> std::optional<vibe::session::OutputSlice>;
   [[nodiscard]] auto GetOutputSince(const std::string& session_id, std::uint64_t seq) const
       -> std::optional<vibe::session::OutputSlice>;
+  [[nodiscard]] auto ReadFile(const std::string& session_id, const std::string& workspace_path,
+                              std::size_t max_bytes) const -> SessionFileReadResult;
   [[nodiscard]] auto SendInput(const std::string& session_id, const std::string& input) -> bool;
   [[nodiscard]] auto ResizeSession(const std::string& session_id,
                                    vibe::session::TerminalSize terminal_size) -> bool;

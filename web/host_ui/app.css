@@ -136,6 +136,33 @@ button.ghost {
   gap: 10px;
 }
 
+.file-inspector {
+  display: grid;
+  gap: 12px;
+}
+
+.file-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.file-chip {
+  width: auto;
+  background: #f4efe6;
+}
+
+.file-chip.selected {
+  background: rgba(12, 109, 98, 0.14);
+  border-color: rgba(12, 109, 98, 0.35);
+  color: #0b5c53;
+}
+
+.file-output {
+  min-height: 280px;
+  max-height: 520px;
+}
+
 .summary-row,
 .badge-row {
   display: flex;

@@ -1,6 +1,8 @@
 #include "vibe/net/request_parsing.h"
 
+#include <charconv>
 #include <limits>
+#include <string_view>
 
 #include <boost/json.hpp>
 
@@ -330,21 +332,104 @@ auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCo
   return std::nullopt;
 }
 
-auto ParseTailBytes(const std::string& target) -> std::size_t {
-  constexpr std::size_t default_tail_bytes = 65536;
-  const std::string marker = "?bytes=";
-  const std::size_t marker_pos = target.find(marker);
-  if (marker_pos == std::string::npos) {
-    return default_tail_bytes;
+auto ParseQueryValue(const std::string& target, const std::string_view key) -> std::string {
+  const auto query_start = target.find('?');
+  if (query_start == std::string::npos || query_start + 1 >= target.size()) {
+    return "";
   }
 
-  const std::size_t value_start = marker_pos + marker.size();
-  const std::string value = target.substr(value_start);
+  const std::string_view query(target.c_str() + query_start + 1, target.size() - query_start - 1);
+  std::size_t offset = 0;
+  while (offset < query.size()) {
+    const auto next = query.find('&', offset);
+    const auto item = query.substr(offset, next == std::string_view::npos ? query.size() - offset : next - offset);
+    const auto equals = item.find('=');
+    const auto current_key = item.substr(0, equals);
+    if (current_key == key) {
+      if (equals == std::string_view::npos) {
+        return "";
+      }
+      return std::string(item.substr(equals + 1));
+    }
+    if (next == std::string_view::npos) {
+      break;
+    }
+    offset = next + 1;
+  }
+
+  return "";
+}
+
+auto UrlDecode(const std::string_view encoded) -> std::optional<std::string> {
+  std::string decoded;
+  decoded.reserve(encoded.size());
+
+  const auto hex_value = [](const char ch) -> int {
+    if (ch >= '0' && ch <= '9') {
+      return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+      return 10 + (ch - 'a');
+    }
+    if (ch >= 'A' && ch <= 'F') {
+      return 10 + (ch - 'A');
+    }
+    return -1;
+  };
+
+  for (std::size_t index = 0; index < encoded.size(); ++index) {
+    if (encoded[index] == '%') {
+      if (index + 2 >= encoded.size()) {
+        return std::nullopt;
+      }
+      const int high = hex_value(encoded[index + 1]);
+      const int low = hex_value(encoded[index + 2]);
+      if (high < 0 || low < 0) {
+        return std::nullopt;
+      }
+      decoded.push_back(static_cast<char>((high << 4) | low));
+      index += 2;
+      continue;
+    }
+
+    decoded.push_back(encoded[index] == '+' ? ' ' : encoded[index]);
+  }
+
+  return decoded;
+}
+
+auto ParseByteLimit(const std::string& target, const std::size_t default_bytes,
+                    const std::optional<std::size_t> max_bytes = std::nullopt)
+    -> std::optional<std::size_t> {
+  const std::string value = ParseQueryValue(target, "bytes");
   if (value.empty()) {
-    return default_tail_bytes;
+    return default_bytes;
   }
 
-  return static_cast<std::size_t>(std::stoul(value));
+  std::size_t parsed = 0;
+  const auto* begin = value.data();
+  const auto* end = value.data() + value.size();
+  const auto [ptr, error] = std::from_chars(begin, end, parsed);
+  if (error != std::errc{} || ptr != end) {
+    return std::nullopt;
+  }
+
+  if (max_bytes.has_value()) {
+    return std::min(parsed, *max_bytes);
+  }
+
+  return parsed;
+}
+
+auto ParseTailBytes(const std::string& target) -> std::optional<std::size_t> {
+  constexpr std::size_t default_tail_bytes = 65536;
+  return ParseByteLimit(target, default_tail_bytes);
+}
+
+auto ParseFileBytes(const std::string& target) -> std::optional<std::size_t> {
+  constexpr std::size_t default_file_bytes = 65536;
+  constexpr std::size_t max_file_bytes = 1024 * 1024;
+  return ParseByteLimit(target, default_file_bytes, max_file_bytes);
 }
 
 }  // namespace vibe::net

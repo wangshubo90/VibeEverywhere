@@ -68,7 +68,10 @@ using WebSocketCommand =
     -> std::optional<PairingClaimPayload>;
 [[nodiscard]] auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfigPayload>;
 [[nodiscard]] auto ParseWebSocketCommand(const std::string& body) -> std::optional<WebSocketCommand>;
-[[nodiscard]] auto ParseTailBytes(const std::string& target) -> std::size_t;
+[[nodiscard]] auto ParseQueryValue(const std::string& target, std::string_view key) -> std::string;
+[[nodiscard]] auto UrlDecode(std::string_view encoded) -> std::optional<std::string>;
+[[nodiscard]] auto ParseTailBytes(const std::string& target) -> std::optional<std::size_t>;
+[[nodiscard]] auto ParseFileBytes(const std::string& target) -> std::optional<std::size_t>;
 
 }  // namespace vibe::net
 
