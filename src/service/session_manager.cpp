@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
@@ -86,6 +89,24 @@ auto ParseSessionSequenceNumber(const std::string& session_id) -> std::optional<
   }
 
   return parsed_value;
+}
+
+auto IsPathWithinRoot(const std::filesystem::path& root, const std::filesystem::path& candidate) -> bool {
+  auto root_it = root.begin();
+  auto candidate_it = candidate.begin();
+  for (; root_it != root.end() && candidate_it != candidate.end(); ++root_it, ++candidate_it) {
+    if (*root_it != *candidate_it) {
+      return false;
+    }
+  }
+
+  return root_it == root.end();
+}
+
+auto ContainsParentTraversal(const std::filesystem::path& path) -> bool {
+  return std::any_of(path.begin(), path.end(), [](const std::filesystem::path& component) {
+    return component == "..";
+  });
 }
 
 }  // namespace
@@ -299,6 +320,76 @@ auto SessionManager::GetOutputSince(const std::string& session_id, const std::ui
   }
 
   return std::nullopt;
+}
+
+auto SessionManager::ReadFile(const std::string& session_id, const std::string& workspace_path,
+                              const std::size_t max_bytes) const -> SessionFileReadResult {
+  const SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr) {
+    return SessionFileReadResult{.status = FileReadStatus::SessionNotFound};
+  }
+
+  if (workspace_path.empty()) {
+    return SessionFileReadResult{.status = FileReadStatus::InvalidPath};
+  }
+
+  const auto snapshot = entry->runtime ? entry->runtime->record().snapshot() : *entry->recovered_snapshot;
+  const std::filesystem::path requested_path(workspace_path);
+  if (requested_path.empty() || requested_path.is_absolute() || ContainsParentTraversal(requested_path)) {
+    return SessionFileReadResult{.status = FileReadStatus::InvalidPath};
+  }
+
+  std::error_code error_code;
+  const std::filesystem::path workspace_root =
+      std::filesystem::weakly_canonical(std::filesystem::absolute(snapshot.metadata.workspace_root), error_code);
+  if (error_code || workspace_root.empty() || !std::filesystem::exists(workspace_root) ||
+      !std::filesystem::is_directory(workspace_root)) {
+    return SessionFileReadResult{.status = FileReadStatus::WorkspaceUnavailable};
+  }
+
+  const std::filesystem::path resolved_path =
+      std::filesystem::weakly_canonical(workspace_root / requested_path, error_code);
+  if (error_code) {
+    return SessionFileReadResult{.status = FileReadStatus::NotFound};
+  }
+  if (!IsPathWithinRoot(workspace_root, resolved_path)) {
+    return SessionFileReadResult{.status = FileReadStatus::InvalidPath};
+  }
+  if (!std::filesystem::exists(resolved_path)) {
+    return SessionFileReadResult{.status = FileReadStatus::NotFound};
+  }
+  if (!std::filesystem::is_regular_file(resolved_path)) {
+    return SessionFileReadResult{.status = FileReadStatus::NotRegularFile};
+  }
+
+  const auto file_size = std::filesystem::file_size(resolved_path, error_code);
+  if (error_code) {
+    return SessionFileReadResult{.status = FileReadStatus::IoError};
+  }
+
+  std::ifstream stream(resolved_path, std::ios::binary);
+  if (!stream.is_open()) {
+    return SessionFileReadResult{.status = FileReadStatus::IoError};
+  }
+
+  const std::size_t bytes_to_read = static_cast<std::size_t>(
+      std::min<std::uint64_t>(file_size, static_cast<std::uint64_t>(max_bytes)));
+  std::string content(bytes_to_read, '\0');
+  if (bytes_to_read > 0) {
+    stream.read(content.data(), static_cast<std::streamsize>(bytes_to_read));
+    if (!stream && !stream.eof()) {
+      return SessionFileReadResult{.status = FileReadStatus::IoError};
+    }
+    content.resize(static_cast<std::size_t>(stream.gcount()));
+  }
+
+  return SessionFileReadResult{
+      .status = FileReadStatus::Ok,
+      .workspace_path = requested_path.generic_string(),
+      .content = std::move(content),
+      .size_bytes = file_size,
+      .truncated = file_size > static_cast<std::uint64_t>(max_bytes),
+  };
 }
 
 auto SessionManager::SendInput(const std::string& session_id, const std::string& input) -> bool {

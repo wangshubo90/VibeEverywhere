@@ -122,6 +122,16 @@ auto ToJson(const std::vector<vibe::service::SessionSummary>& summaries) -> std:
   return json::serialize(array);
 }
 
+auto ToJson(const vibe::service::SessionFileReadResult& file) -> std::string {
+  json::object object;
+  object["workspacePath"] = file.workspace_path;
+  object["contentBase64"] = Base64Encode(file.content);
+  object["contentEncoding"] = "base64";
+  object["sizeBytes"] = file.size_bytes;
+  object["truncated"] = file.truncated;
+  return json::serialize(object);
+}
+
 auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   json::object git;
   git["branch"] = snapshot.git_summary.branch;

@@ -67,6 +67,22 @@ TEST(HttpJsonTest, SerializesOutputSlice) {
   EXPECT_NE(json.find("\"dataBase64\":\"aGVsbG8K\""), std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesSessionFileReadResult) {
+  const std::string json = ToJson(vibe::service::SessionFileReadResult{
+      .status = vibe::service::FileReadStatus::Ok,
+      .workspace_path = "src/main.cpp",
+      .content = "hello\n",
+      .size_bytes = 12,
+      .truncated = true,
+  });
+
+  EXPECT_NE(json.find("\"workspacePath\":\"src/main.cpp\""), std::string::npos);
+  EXPECT_NE(json.find("\"contentEncoding\":\"base64\""), std::string::npos);
+  EXPECT_NE(json.find("\"contentBase64\":\"aGVsbG8K\""), std::string::npos);
+  EXPECT_NE(json.find("\"sizeBytes\":12"), std::string::npos);
+  EXPECT_NE(json.find("\"truncated\":true"), std::string::npos);
+}
+
 TEST(HttpJsonTest, SerializesSnapshotSignals) {
   const auto session_id = vibe::session::SessionId::TryCreate("snapshot_001");
   ASSERT_TRUE(session_id.has_value());

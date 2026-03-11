@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <vector>
@@ -245,6 +248,113 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
   EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
   EXPECT_GT(summary->current_sequence, 0U);
+}
+
+TEST(SessionManagerTest, ReadFileReturnsContentWithinRecoveredWorkspaceRoot) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-session-file-read-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root / "src");
+
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "int main() { return 0; }\n";
+  }
+
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_42",
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = temp_root.string(),
+      .title = "recovered-session",
+      .status = vibe::session::SessionStatus::Exited,
+      .current_sequence = 7,
+      .recent_terminal_tail = "restored tail",
+  });
+
+  SessionManager manager(&session_store);
+  ASSERT_EQ(manager.LoadPersistedSessions(), 1U);
+
+  const auto file = manager.ReadFile("s_42", "src/main.cpp", 1024);
+  EXPECT_EQ(file.status, FileReadStatus::Ok);
+  EXPECT_EQ(file.workspace_path, "src/main.cpp");
+  EXPECT_EQ(file.size_bytes, 25U);
+  EXPECT_FALSE(file.truncated);
+  EXPECT_EQ(file.content, "int main() { return 0; }\n");
+
+  std::filesystem::remove_all(temp_root);
+}
+
+TEST(SessionManagerTest, ReadFileRejectsInvalidOrEscapingPaths) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-session-file-path-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root / "src");
+
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "content\n";
+  }
+
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_42",
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = temp_root.string(),
+      .title = "recovered-session",
+      .status = vibe::session::SessionStatus::Exited,
+      .current_sequence = 7,
+      .recent_terminal_tail = "restored tail",
+  });
+
+  SessionManager manager(&session_store);
+  ASSERT_EQ(manager.LoadPersistedSessions(), 1U);
+
+  EXPECT_EQ(manager.ReadFile("missing", "src/main.cpp", 1024).status, FileReadStatus::SessionNotFound);
+  EXPECT_EQ(manager.ReadFile("s_42", "", 1024).status, FileReadStatus::InvalidPath);
+  EXPECT_EQ(manager.ReadFile("s_42", "/etc/passwd", 1024).status, FileReadStatus::InvalidPath);
+  EXPECT_EQ(manager.ReadFile("s_42", "../outside.txt", 1024).status, FileReadStatus::InvalidPath);
+  EXPECT_EQ(manager.ReadFile("s_42", "src/missing.cpp", 1024).status, FileReadStatus::NotFound);
+  EXPECT_EQ(manager.ReadFile("s_42", "src", 1024).status, FileReadStatus::NotRegularFile);
+
+  std::filesystem::remove_all(temp_root);
+}
+
+TEST(SessionManagerTest, ReadFileMarksTruncatedResponses) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-session-file-truncate-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root);
+
+  {
+    std::ofstream file(temp_root / "notes.txt");
+    file << "abcdef";
+  }
+
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_42",
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = temp_root.string(),
+      .title = "recovered-session",
+      .status = vibe::session::SessionStatus::Exited,
+      .current_sequence = 7,
+      .recent_terminal_tail = "restored tail",
+  });
+
+  SessionManager manager(&session_store);
+  ASSERT_EQ(manager.LoadPersistedSessions(), 1U);
+
+  const auto file = manager.ReadFile("s_42", "notes.txt", 4);
+  EXPECT_EQ(file.status, FileReadStatus::Ok);
+  EXPECT_EQ(file.size_bytes, 6U);
+  EXPECT_TRUE(file.truncated);
+  EXPECT_EQ(file.content, "abcd");
+
+  std::filesystem::remove_all(temp_root);
 }
 
 }  // namespace

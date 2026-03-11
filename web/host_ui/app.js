@@ -11,11 +11,19 @@
   const codexCommand = document.getElementById("codex-command");
   const claudeCommand = document.getElementById("claude-command");
   const sessionsList = document.getElementById("sessions-list");
+  const fileInspector = document.getElementById("file-inspector");
   const clientsList = document.getElementById("clients-list");
   const events = document.getElementById("events");
   const state = {
     sessions: [],
-    clients: []
+    clients: [],
+    inspectedSessionId: "",
+    inspectedSessionTitle: "",
+    recentFiles: [],
+    inspectedFilePath: "",
+    inspectedFileContent: "",
+    inspectedFileTruncated: false,
+    inspectedFileSizeBytes: 0
   };
   let overviewSocket = null;
   let overviewReconnectTimer = null;
@@ -38,6 +46,12 @@
 
   function renderJson(element, payload) {
     element.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function decodeBase64ToString(encoded) {
+    const binary = atob(encoded || "");
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
   }
 
   async function approvePairing(pairingId, code) {
@@ -191,6 +205,108 @@
     container.appendChild(row);
   }
 
+  function resetFileInspector(message = "Select a session file to inspect it here.") {
+    state.inspectedSessionId = "";
+    state.inspectedSessionTitle = "";
+    state.recentFiles = [];
+    state.inspectedFilePath = "";
+    state.inspectedFileContent = "";
+    state.inspectedFileTruncated = false;
+    state.inspectedFileSizeBytes = 0;
+    fileInspector.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "empty-note";
+    empty.textContent = message;
+    fileInspector.appendChild(empty);
+  }
+
+  async function loadSessionFiles(session) {
+    try {
+      const snapshot = await fetchJson(`/sessions/${encodeURIComponent(session.sessionId)}/snapshot`);
+      const recentFiles = Array.isArray(snapshot.recentFileChanges) ? snapshot.recentFileChanges : [];
+      state.inspectedSessionId = session.sessionId;
+      state.inspectedSessionTitle = session.title || "(untitled)";
+      state.recentFiles = recentFiles;
+      state.inspectedFilePath = "";
+      state.inspectedFileContent = "";
+      state.inspectedFileTruncated = false;
+      state.inspectedFileSizeBytes = 0;
+      renderFileInspector();
+      log(`loaded recent files for ${session.sessionId}`);
+    } catch (error) {
+      resetFileInspector(`Failed to load recent files: ${String(error)}`);
+      log(`load recent files failed for ${session.sessionId}: ${String(error)}`);
+    }
+  }
+
+  async function inspectFile(sessionId, workspacePath) {
+    try {
+      const payload = await fetchJson(
+        `/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(workspacePath)}`
+      );
+      state.inspectedFilePath = payload.workspacePath || workspacePath;
+      state.inspectedFileContent = decodeBase64ToString(payload.contentBase64 || "");
+      state.inspectedFileTruncated = Boolean(payload.truncated);
+      state.inspectedFileSizeBytes = Number(payload.sizeBytes || 0);
+      renderFileInspector();
+      log(`loaded file ${workspacePath} from ${sessionId}`);
+    } catch (error) {
+      log(`file read failed for ${workspacePath}: ${String(error)}`);
+    }
+  }
+
+  function renderFileInspector() {
+    fileInspector.innerHTML = "";
+
+    if (!state.inspectedSessionId) {
+      resetFileInspector();
+      return;
+    }
+
+    const heading = document.createElement("div");
+    heading.className = "subhead";
+    heading.textContent = `${state.inspectedSessionTitle} · ${state.inspectedSessionId}`;
+    fileInspector.appendChild(heading);
+
+    const filesBlock = document.createElement("div");
+    filesBlock.className = "file-chip-list";
+    if (state.recentFiles.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-note";
+      empty.textContent = "No recent files are available for this session yet.";
+      filesBlock.appendChild(empty);
+    } else {
+      for (const workspacePath of state.recentFiles) {
+        const button = document.createElement("button");
+        button.className = `file-chip${workspacePath === state.inspectedFilePath ? " selected" : ""}`;
+        button.textContent = workspacePath;
+        button.addEventListener("click", () => inspectFile(state.inspectedSessionId, workspacePath));
+        filesBlock.appendChild(button);
+      }
+    }
+    fileInspector.appendChild(filesBlock);
+
+    if (!state.inspectedFilePath) {
+      const empty = document.createElement("div");
+      empty.className = "empty-note";
+      empty.textContent = "Select one of the recent files to view its current content.";
+      fileInspector.appendChild(empty);
+      return;
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "detail-list compact";
+    appendDetail(meta, "File", state.inspectedFilePath);
+    appendDetail(meta, "Size", `${state.inspectedFileSizeBytes} bytes`);
+    appendDetail(meta, "Status", state.inspectedFileTruncated ? "truncated" : "full");
+    fileInspector.appendChild(meta);
+
+    const content = document.createElement("pre");
+    content.className = "output file-output";
+    content.textContent = state.inspectedFileContent;
+    fileInspector.appendChild(content);
+  }
+
   async function disconnectClient(client) {
     try {
       await fetchJson(`/host/clients/${client.clientId}/disconnect`, { method: "POST" });
@@ -286,7 +402,11 @@
       }
     });
 
-    actions.append(attachButton, stopButton);
+    const filesButton = document.createElement("button");
+    filesButton.textContent = "Files";
+    filesButton.addEventListener("click", () => loadSessionFiles(session));
+
+    actions.append(attachButton, filesButton, stopButton);
 
     const clientsBlock = document.createElement("div");
     clientsBlock.className = "client-block";
@@ -430,6 +550,7 @@
   function renderDashboard() {
     renderSessions();
     renderClients();
+    renderFileInspector();
   }
 
   function closeOverviewSocket() {

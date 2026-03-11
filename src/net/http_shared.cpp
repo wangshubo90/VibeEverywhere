@@ -19,6 +19,8 @@ namespace {
 
 namespace json = boost::json;
 
+auto MakeJsonResponse(const HttpRequest& request, http::status status, std::string body) -> HttpResponse;
+
 auto ApplyConfiguredProviderOverride(vibe::service::CreateSessionRequest request,
                                      const vibe::store::HostConfigStore* host_config_store)
     -> vibe::service::CreateSessionRequest {
@@ -110,6 +112,32 @@ auto MakeRandomHexToken(const std::size_t bytes) -> std::string {
     token.push_back(kHexDigits[value & 0x0FU]);
   }
   return token;
+}
+
+auto MakeFileReadErrorResponse(const HttpRequest& request,
+                               const vibe::service::SessionFileReadResult& file_result) -> HttpResponse {
+  switch (file_result.status) {
+    case vibe::service::FileReadStatus::SessionNotFound:
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
+    case vibe::service::FileReadStatus::InvalidPath:
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid file path\"}");
+    case vibe::service::FileReadStatus::WorkspaceUnavailable:
+      return MakeJsonResponse(request, http::status::bad_request,
+                              "{\"error\":\"workspace root unavailable\"}");
+    case vibe::service::FileReadStatus::NotFound:
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"file not found\"}");
+    case vibe::service::FileReadStatus::NotRegularFile:
+      return MakeJsonResponse(request, http::status::bad_request,
+                              "{\"error\":\"path does not reference a regular file\"}");
+    case vibe::service::FileReadStatus::IoError:
+      return MakeJsonResponse(request, http::status::internal_server_error,
+                              "{\"error\":\"failed to read file\"}");
+    case vibe::service::FileReadStatus::Ok:
+      break;
+  }
+
+  return MakeJsonResponse(request, http::status::internal_server_error,
+                          "{\"error\":\"unexpected file read status\"}");
 }
 
 void ApplyCorsHeaders(HttpResponse& response) {
@@ -680,10 +708,12 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   }
 
   const std::string target(request.target());
+  const std::string request_path = target.substr(0, target.find('?'));
   const std::string sessions_prefix = "/sessions/";
-  if (target.rfind(sessions_prefix, 0) == 0) {
-    const std::string remainder = target.substr(sessions_prefix.size());
+  if (request_path.rfind(sessions_prefix, 0) == 0) {
+    const std::string remainder = request_path.substr(sessions_prefix.size());
     const auto snapshot_suffix = std::string("/snapshot");
+    const auto file_suffix = std::string("/file");
     const auto input_suffix = std::string("/input");
     const auto stop_suffix = std::string("/stop");
     const auto tail_marker = std::string("/tail");
@@ -704,6 +734,38 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       return MakeJsonResponse(request, http::status::ok, ToJson(*snapshot));
     }
 
+    if (request.method() == http::verb::get && remainder.size() > file_suffix.size() &&
+        remainder.ends_with(file_suffix)) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+
+      const std::string session_id = remainder.substr(0, remainder.size() - file_suffix.size());
+      const std::string raw_path = ParseQueryValue(target, "path");
+      if (raw_path.empty()) {
+        return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"missing file path\"}");
+      }
+
+      const auto workspace_path = UrlDecode(raw_path);
+      if (!workspace_path.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid file path\"}");
+      }
+
+      const auto file_bytes = ParseFileBytes(target);
+      if (!file_bytes.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid byte limit\"}");
+      }
+
+      const auto file = session_manager.ReadFile(session_id, *workspace_path, *file_bytes);
+      if (file.status != vibe::service::FileReadStatus::Ok) {
+        return MakeFileReadErrorResponse(request, file);
+      }
+
+      return MakeJsonResponse(request, http::status::ok, ToJson(file));
+    }
+
     const std::size_t tail_pos = remainder.find(tail_marker);
     if (tail_pos != std::string::npos) {
       if (const auto auth_response =
@@ -713,7 +775,12 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       }
 
       const std::string session_id = remainder.substr(0, tail_pos);
-      const auto tail = session_manager.GetTail(session_id, ParseTailBytes(target));
+      const auto tail_bytes = ParseTailBytes(target);
+      if (!tail_bytes.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid byte limit\"}");
+      }
+
+      const auto tail = session_manager.GetTail(session_id, *tail_bytes);
       if (!tail.has_value()) {
         return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
       }
