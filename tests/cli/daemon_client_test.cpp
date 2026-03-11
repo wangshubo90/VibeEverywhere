@@ -26,6 +26,19 @@ TEST(DaemonClientTest, ParsesCreatedSessionId) {
   EXPECT_EQ(*session_id, "s_42");
 }
 
+TEST(DaemonClientTest, ParsesSessionList) {
+  const auto sessions = ParseSessionList(
+      R"([{"sessionId":"s_1","title":"one","activityState":"active","status":"Running"},{"sessionId":"s_2","title":"two","activityState":"inactive","status":"Exited"}])");
+
+  ASSERT_EQ(sessions.size(), 2U);
+  EXPECT_EQ(sessions[0].session_id, "s_1");
+  EXPECT_EQ(sessions[0].title, "one");
+  EXPECT_EQ(sessions[0].activity_state, "active");
+  EXPECT_EQ(sessions[0].status, "Running");
+  EXPECT_EQ(sessions[1].session_id, "s_2");
+  EXPECT_EQ(sessions[1].title, "two");
+}
+
 TEST(DaemonClientTest, BuildsControlAndTerminalCommands) {
   const std::string control = BuildControlRequestCommand(vibe::session::ControllerKind::Host);
   EXPECT_NE(control.find("\"type\":\"session.control.request\""), std::string::npos);

@@ -124,6 +124,7 @@ void PrintUsage() {
                " [--remote-cert PATH] [--remote-key PATH]\n"
             << "  vibe-hostd local-pty [command [args...]]\n"
             << "  vibe-hostd session-start [--host HOST] [--port PORT] [title]\n"
+            << "  vibe-hostd list [--host HOST] [--port PORT]\n"
             << "  vibe-hostd session-attach [--host HOST] [--port PORT] <session-id>\n";
 }
 
@@ -312,6 +313,30 @@ auto main(const int argc, char** argv) -> int {
     std::cerr << "session " << *session_id << " created\n";
     return vibe::cli::AttachSession(endpoint, *session_id,
                                     vibe::session::ControllerKind::Host);
+  }
+
+  if (argc >= 2 && std::string(argv[1]) == "list") {
+    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
+    if (arg_index != argc) {
+      std::cerr << "invalid list arguments\n";
+      PrintUsage();
+      return 1;
+    }
+
+    const auto sessions = vibe::cli::ListSessions(endpoint);
+    if (!sessions.has_value()) {
+      std::cerr << "failed to list sessions via daemon at " << endpoint.host << ":"
+                << endpoint.port << '\n';
+      return 1;
+    }
+
+    for (const auto& session : *sessions) {
+      std::cout << session.session_id << '\t'
+                << (session.title.empty() ? "(untitled)" : session.title) << '\t'
+                << (session.activity_state.empty() ? session.status : session.activity_state)
+                << '\n';
+    }
+    return 0;
   }
 
   if (argc >= 3 && std::string(argv[1]) == "session-attach") {

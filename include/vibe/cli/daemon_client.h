@@ -15,10 +15,18 @@ struct DaemonEndpoint {
   std::uint16_t port{18085};
 };
 
+struct ListedSession {
+  std::string session_id;
+  std::string title;
+  std::string activity_state;
+  std::string status;
+};
+
 [[nodiscard]] auto BuildCreateSessionRequestBody(vibe::session::ProviderType provider,
                                                  const std::string& workspace_root,
                                                  const std::string& title) -> std::string;
 [[nodiscard]] auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string>;
+[[nodiscard]] auto ParseSessionList(const std::string& body) -> std::vector<ListedSession>;
 [[nodiscard]] auto BuildControlRequestCommand(vibe::session::ControllerKind controller_kind)
     -> std::string;
 [[nodiscard]] auto BuildReleaseControlCommand() -> std::string;
@@ -29,6 +37,7 @@ struct DaemonEndpoint {
                                  vibe::session::ProviderType provider,
                                  const std::string& workspace_root,
                                  const std::string& title) -> std::optional<std::string>;
+[[nodiscard]] auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>>;
 [[nodiscard]] auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
                                  vibe::session::ControllerKind controller_kind) -> int;
 

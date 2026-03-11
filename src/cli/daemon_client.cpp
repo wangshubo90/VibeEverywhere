@@ -19,6 +19,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <vector>
 #include <thread>
 
 namespace vibe::cli {
@@ -287,6 +288,42 @@ auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string
   return json::value_to<std::string>(*session_id);
 }
 
+auto ParseSessionList(const std::string& body) -> std::vector<ListedSession> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_array()) {
+    return {};
+  }
+
+  std::vector<ListedSession> sessions;
+  for (const auto& value : parsed.as_array()) {
+    if (!value.is_object()) {
+      continue;
+    }
+    const auto& object = value.as_object();
+    const auto session_id = object.if_contains("sessionId");
+    if (session_id == nullptr || !session_id->is_string()) {
+      continue;
+    }
+
+    ListedSession session;
+    session.session_id = json::value_to<std::string>(*session_id);
+    if (const auto title = object.if_contains("title"); title != nullptr && title->is_string()) {
+      session.title = json::value_to<std::string>(*title);
+    }
+    if (const auto activity_state = object.if_contains("activityState");
+        activity_state != nullptr && activity_state->is_string()) {
+      session.activity_state = json::value_to<std::string>(*activity_state);
+    }
+    if (const auto status = object.if_contains("status"); status != nullptr && status->is_string()) {
+      session.status = json::value_to<std::string>(*status);
+    }
+    sessions.push_back(std::move(session));
+  }
+
+  return sessions;
+}
+
 auto BuildControlRequestCommand(const vibe::session::ControllerKind controller_kind) -> std::string {
   json::object object;
   object["type"] = "session.control.request";
@@ -360,6 +397,49 @@ auto CreateSession(const DaemonEndpoint& endpoint, const vibe::session::Provider
   }
 
   return ParseCreatedSessionId(response.body());
+}
+
+auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>> {
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  tcp::socket socket(io_context);
+  boost::system::error_code error_code;
+  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  const auto endpoint_result = asio::connect(socket, results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  http::request<http::string_body> request{http::verb::get, "/sessions", 11};
+  request.set(http::field::host, endpoint.host);
+  request.prepare_payload();
+
+  http::write(socket, request, error_code);
+  if (error_code) {
+    std::cerr << "http write failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  beast::flat_buffer buffer;
+  http::response<http::string_body> response;
+  http::read(socket, buffer, response, error_code);
+  if (error_code) {
+    std::cerr << "http read failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  if (response.result() != http::status::ok) {
+    return std::nullopt;
+  }
+
+  return ParseSessionList(response.body());
 }
 
 auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
