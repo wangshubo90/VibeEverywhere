@@ -393,6 +393,79 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   EXPECT_NE(second_payload.find("\"dataBase64\""), std::string::npos);
 }
 
+TEST_F(HttpServerFixture, WebSocketOverviewEndpointStreamsInventorySnapshots) {
+  const std::string token = EnsureApprovedToken();
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/overview");
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  const std::string first_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(first_payload.find("\"type\":\"sessions.snapshot\""), std::string::npos);
+  buffer.consume(buffer.size());
+
+  const std::string create_response = CreateSession(token);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
+
+  websocket.read(buffer);
+  const std::string second_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(second_payload.find("\"type\":\"sessions.snapshot\""), std::string::npos);
+  EXPECT_NE(second_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
+}
+
+TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsActivityEventForSignalChange) {
+  const std::string token = EnsureApprovedToken();
+  auto create_response =
+      SendRequest(kRemotePort, http::verb::post, "/sessions",
+                  R"({"provider":"codex","workspaceRoot":".","title":"ws-activity","command":["/bin/sh","-c","printf 'first\n'; sleep 1; printf 'second\n'"]})",
+                  token);
+  EXPECT_EQ(create_response.result(), http::status::created);
+  const std::string session_id = ExtractSessionId(create_response.body());
+  ASSERT_FALSE(session_id.empty());
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+  websocket.read(buffer);
+  buffer.consume(buffer.size());
+
+  websocket.read(buffer);
+  const std::string activity_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(activity_payload.find("\"type\":\"session.activity\""), std::string::npos);
+  EXPECT_NE(activity_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
+  EXPECT_NE(activity_payload.find("\"currentSequence\""), std::string::npos);
+
+  buffer.consume(buffer.size());
+  websocket.read(buffer);
+  const std::string output_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_NE(output_payload.find("\"type\":\"terminal.output\""), std::string::npos);
+}
+
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);

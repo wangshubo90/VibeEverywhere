@@ -20,6 +20,15 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
           },
       .current_sequence = 42,
       .recent_terminal_tail = "Running tests...\nDone.\n",
+      .signals =
+          SessionSignals{
+              .last_output_at_unix_ms = 100,
+              .last_activity_at_unix_ms = 110,
+              .current_sequence = 42,
+              .recent_file_change_count = 2,
+              .git_dirty = true,
+              .git_branch = "main",
+          },
       .recent_file_changes = {"src/main.cpp", "tests/session_test.cpp"},
       .git_summary =
           GitSummary{
@@ -35,6 +44,12 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.metadata.status, SessionStatus::Running);
   EXPECT_EQ(snapshot.current_sequence, 42U);
   EXPECT_EQ(snapshot.recent_terminal_tail, "Running tests...\nDone.\n");
+  EXPECT_EQ(snapshot.signals.last_output_at_unix_ms, std::optional<std::int64_t>{100});
+  EXPECT_EQ(snapshot.signals.last_activity_at_unix_ms, std::optional<std::int64_t>{110});
+  EXPECT_EQ(snapshot.signals.current_sequence, 42U);
+  EXPECT_EQ(snapshot.signals.recent_file_change_count, 2U);
+  EXPECT_TRUE(snapshot.signals.git_dirty);
+  EXPECT_EQ(snapshot.signals.git_branch, "main");
   EXPECT_EQ(snapshot.recent_file_changes,
             (std::vector<std::string>{"src/main.cpp", "tests/session_test.cpp"}));
   EXPECT_EQ(snapshot.git_summary.branch, "main");
@@ -58,12 +73,19 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
           },
       .current_sequence = 0,
       .recent_terminal_tail = "",
+      .signals = {},
       .recent_file_changes = {},
       .git_summary = {},
   };
 
   EXPECT_EQ(snapshot.current_sequence, 0U);
   EXPECT_TRUE(snapshot.recent_terminal_tail.empty());
+  EXPECT_FALSE(snapshot.signals.last_output_at_unix_ms.has_value());
+  EXPECT_FALSE(snapshot.signals.last_activity_at_unix_ms.has_value());
+  EXPECT_EQ(snapshot.signals.current_sequence, 0U);
+  EXPECT_EQ(snapshot.signals.recent_file_change_count, 0U);
+  EXPECT_FALSE(snapshot.signals.git_dirty);
+  EXPECT_TRUE(snapshot.signals.git_branch.empty());
   EXPECT_TRUE(snapshot.recent_file_changes.empty());
   EXPECT_TRUE(snapshot.git_summary.branch.empty());
   EXPECT_TRUE(snapshot.git_summary.modified_files.empty());

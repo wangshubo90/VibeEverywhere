@@ -226,5 +226,26 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
   EXPECT_EQ(session_store.removed[1], created->id.value());
 }
 
+TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "output-target",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "printf 'ready\\n'; sleep 1"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  manager.PollAll(100);
+
+  const auto summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
+  EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
+  EXPECT_GT(summary->current_sequence, 0U);
+}
+
 }  // namespace
 }  // namespace vibe::service

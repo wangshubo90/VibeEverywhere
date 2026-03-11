@@ -37,12 +37,21 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .is_active = true,
       .created_at_unix_ms = 100,
       .last_status_at_unix_ms = 200,
+      .last_output_at_unix_ms = 210,
+      .last_activity_at_unix_ms = 220,
+      .current_sequence = 12,
+      .recent_file_change_count = 0,
+      .git_dirty = false,
+      .git_branch = "",
   });
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
+  EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
+  EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
+  EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesOutputSlice) {
@@ -56,6 +65,49 @@ TEST(HttpJsonTest, SerializesOutputSlice) {
   EXPECT_NE(json.find("\"seqEnd\":4"), std::string::npos);
   EXPECT_NE(json.find("\"dataEncoding\":\"base64\""), std::string::npos);
   EXPECT_NE(json.find("\"dataBase64\":\"aGVsbG8K\""), std::string::npos);
+}
+
+TEST(HttpJsonTest, SerializesSnapshotSignals) {
+  const auto session_id = vibe::session::SessionId::TryCreate("snapshot_001");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string json = ToJson(vibe::session::SessionSnapshot{
+      .metadata =
+          vibe::session::SessionMetadata{
+              .id = *session_id,
+              .provider = vibe::session::ProviderType::Codex,
+              .workspace_root = "/tmp/project",
+              .title = "recoverable-session",
+              .status = vibe::session::SessionStatus::Running,
+          },
+      .current_sequence = 42,
+      .recent_terminal_tail = "tail",
+      .signals =
+          vibe::session::SessionSignals{
+              .last_output_at_unix_ms = 100,
+              .last_activity_at_unix_ms = 110,
+              .current_sequence = 42,
+              .recent_file_change_count = 2,
+              .git_dirty = true,
+              .git_branch = "main",
+          },
+      .recent_file_changes = {"src/main.cpp", "tests/session_test.cpp"},
+      .git_summary =
+          vibe::session::GitSummary{
+              .branch = "main",
+              .modified_files = {"src/main.cpp"},
+              .staged_files = {"CMakeLists.txt"},
+              .untracked_files = {"notes.txt"},
+          },
+  });
+
+  EXPECT_NE(json.find("\"signals\""), std::string::npos);
+  EXPECT_NE(json.find("\"lastOutputAtUnixMs\":100"), std::string::npos);
+  EXPECT_NE(json.find("\"lastActivityAtUnixMs\":110"), std::string::npos);
+  EXPECT_NE(json.find("\"currentSequence\":42"), std::string::npos);
+  EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
+  EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
+  EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesTerminalOutputEvent) {
@@ -95,6 +147,12 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .is_active = true,
               .created_at_unix_ms = 100,
               .last_status_at_unix_ms = 200,
+              .last_output_at_unix_ms = 210,
+              .last_activity_at_unix_ms = 220,
+              .current_sequence = 12,
+              .recent_file_change_count = 0,
+              .git_dirty = false,
+              .git_branch = "",
           },
   });
 
@@ -106,6 +164,9 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastStatusAtUnixMs\":200"), std::string::npos);
+  EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
+  EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
+  EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionExitedEvent) {
@@ -117,6 +178,94 @@ TEST(HttpJsonTest, SerializesSessionExitedEvent) {
   EXPECT_NE(json.find("\"type\":\"session.exited\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"status\":\"Exited\""), std::string::npos);
+}
+
+TEST(HttpJsonTest, SerializesSessionActivityEvent) {
+  const auto id = vibe::session::SessionId::TryCreate("s_9");
+  ASSERT_TRUE(id.has_value());
+
+  const std::string json = ToJson(SessionActivityEvent{
+      .summary =
+          vibe::service::SessionSummary{
+              .id = *id,
+              .provider = vibe::session::ProviderType::Codex,
+              .workspace_root = "/tmp/project",
+              .title = "demo",
+              .status = vibe::session::SessionStatus::Running,
+              .controller_client_id = "client-1",
+              .controller_kind = vibe::session::ControllerKind::Remote,
+              .is_recovered = false,
+              .is_active = true,
+              .created_at_unix_ms = 100,
+              .last_status_at_unix_ms = 200,
+              .last_output_at_unix_ms = 210,
+              .last_activity_at_unix_ms = 220,
+              .current_sequence = 12,
+              .recent_file_change_count = 3,
+              .git_dirty = true,
+              .git_branch = "main",
+          },
+  });
+
+  EXPECT_NE(json.find("\"type\":\"session.activity\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
+  EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
+  EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
+  EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
+  EXPECT_NE(json.find("\"recentFileChangeCount\":3"), std::string::npos);
+  EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
+  EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
+}
+
+TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
+  const std::string json = ToJson(SessionInventoryEvent{
+      .sessions =
+          {
+              vibe::service::SessionSummary{
+                  .id = *vibe::session::SessionId::TryCreate("s_1"),
+                  .provider = vibe::session::ProviderType::Codex,
+                  .workspace_root = ".",
+                  .title = "one",
+                  .status = vibe::session::SessionStatus::Running,
+                  .controller_client_id = std::nullopt,
+                  .controller_kind = vibe::session::ControllerKind::Host,
+                  .is_recovered = false,
+                  .is_active = true,
+                  .created_at_unix_ms = std::nullopt,
+                  .last_status_at_unix_ms = std::nullopt,
+                  .last_output_at_unix_ms = std::nullopt,
+                  .last_activity_at_unix_ms = std::nullopt,
+                  .current_sequence = 2,
+                  .recent_file_change_count = 0,
+                  .git_dirty = true,
+                  .git_branch = "main",
+              },
+              vibe::service::SessionSummary{
+                  .id = *vibe::session::SessionId::TryCreate("s_2"),
+                  .provider = vibe::session::ProviderType::Claude,
+                  .workspace_root = "/tmp",
+                  .title = "two",
+                  .status = vibe::session::SessionStatus::Exited,
+                  .controller_client_id = std::nullopt,
+                  .controller_kind = vibe::session::ControllerKind::None,
+                  .is_recovered = true,
+                  .is_active = false,
+                  .created_at_unix_ms = std::nullopt,
+                  .last_status_at_unix_ms = std::nullopt,
+                  .last_output_at_unix_ms = std::nullopt,
+                  .last_activity_at_unix_ms = std::nullopt,
+                  .current_sequence = 4,
+                  .recent_file_change_count = 1,
+                  .git_dirty = false,
+                  .git_branch = "feature",
+              },
+          },
+  });
+
+  EXPECT_NE(json.find("\"type\":\"sessions.snapshot\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(json.find("\"sessionId\":\"s_2\""), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesErrorEvent) {

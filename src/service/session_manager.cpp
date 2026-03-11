@@ -32,6 +32,11 @@ auto NormalizeRecoveredStatus(const vibe::session::SessionStatus status) -> vibe
   return vibe::session::SessionStatus::Exited;
 }
 
+auto IsGitDirty(const vibe::session::GitSummary& summary) -> bool {
+  return !summary.modified_files.empty() || !summary.staged_files.empty() ||
+         !summary.untracked_files.empty();
+}
+
 auto MakeRecoveredTailSlice(const vibe::session::SessionSnapshot& snapshot,
                             const std::size_t max_bytes) -> vibe::session::OutputSlice {
   if (max_bytes == 0 || snapshot.recent_terminal_tail.empty()) {
@@ -135,13 +140,17 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .is_recovered = false,
       .created_at_unix_ms = now_unix_ms,
       .last_status_at_unix_ms = now_unix_ms,
+      .last_output_at_unix_ms = std::nullopt,
+      .last_activity_at_unix_ms = now_unix_ms,
       .last_observed_status = vibe::session::SessionStatus::Created,
+      .last_observed_sequence = 0,
   });
 
   SessionEntry& entry = sessions_.back();
   const bool started = entry.runtime->Start();
   static_cast<void>(started);
   entry.last_observed_status = entry.runtime->record().metadata().status;
+  entry.last_observed_sequence = entry.runtime->record().snapshot().current_sequence;
 
   PersistEntry(entry);
   return BuildSummary(entry);
@@ -174,6 +183,15 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
             },
         .current_sequence = persisted.current_sequence,
         .recent_terminal_tail = persisted.recent_terminal_tail,
+        .signals =
+            vibe::session::SessionSignals{
+                .last_output_at_unix_ms = std::nullopt,
+                .last_activity_at_unix_ms = std::nullopt,
+                .current_sequence = persisted.current_sequence,
+                .recent_file_change_count = 0,
+                .git_dirty = false,
+                .git_branch = "",
+            },
         .recent_file_changes = {},
         .git_summary = {},
     };
@@ -190,7 +208,10 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .is_recovered = true,
         .created_at_unix_ms = std::nullopt,
         .last_status_at_unix_ms = std::nullopt,
+        .last_output_at_unix_ms = std::nullopt,
+        .last_activity_at_unix_ms = std::nullopt,
         .last_observed_status = recovered_status,
+        .last_observed_sequence = persisted.current_sequence,
     });
     loaded_count += 1;
   }
@@ -226,9 +247,27 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
     -> std::optional<vibe::session::SessionSnapshot> {
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
     if (entry->runtime) {
-      return entry->runtime->record().snapshot();
+      auto snapshot = entry->runtime->record().snapshot();
+      snapshot.signals = vibe::session::SessionSignals{
+          .last_output_at_unix_ms = entry->last_output_at_unix_ms,
+          .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
+          .current_sequence = snapshot.current_sequence,
+          .recent_file_change_count = snapshot.recent_file_changes.size(),
+          .git_dirty = IsGitDirty(snapshot.git_summary),
+          .git_branch = snapshot.git_summary.branch,
+      };
+      return snapshot;
     }
-    return entry->recovered_snapshot;
+    auto snapshot = *entry->recovered_snapshot;
+    snapshot.signals = vibe::session::SessionSignals{
+        .last_output_at_unix_ms = entry->last_output_at_unix_ms,
+        .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
+        .current_sequence = snapshot.current_sequence,
+        .recent_file_change_count = snapshot.recent_file_changes.size(),
+        .git_dirty = IsGitDirty(snapshot.git_summary),
+        .git_branch = snapshot.git_summary.branch,
+    };
+    return snapshot;
   }
 
   return std::nullopt;
@@ -303,7 +342,9 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
     if (stopped) {
       const auto current_status = entry->runtime->record().metadata().status;
       if (current_status != entry->last_observed_status) {
-        entry->last_status_at_unix_ms = CurrentUnixTimeMs();
+        const auto now_unix_ms = CurrentUnixTimeMs();
+        entry->last_status_at_unix_ms = now_unix_ms;
+        entry->last_activity_at_unix_ms = now_unix_ms;
         entry->last_observed_status = current_status;
       }
       ResetControllerState(*entry);
@@ -412,6 +453,8 @@ auto SessionManager::Shutdown() -> std::size_t {
       if (previous_status != entry.runtime->record().metadata().status ||
           previous_status == vibe::session::SessionStatus::Running ||
           previous_status == vibe::session::SessionStatus::AwaitingInput) {
+        entry.last_status_at_unix_ms = CurrentUnixTimeMs();
+        entry.last_activity_at_unix_ms = entry.last_status_at_unix_ms;
         shutdown_count += 1;
       }
     }
@@ -440,15 +483,25 @@ void SessionManager::PollAll(const int read_timeout_ms) {
     }
 
     entry.runtime->PollOnce(read_timeout_ms);
+    auto snapshot = entry.runtime->record().snapshot();
+    if (snapshot.current_sequence != entry.last_observed_sequence) {
+      const auto now_unix_ms = CurrentUnixTimeMs();
+      entry.last_observed_sequence = snapshot.current_sequence;
+      entry.last_output_at_unix_ms = now_unix_ms;
+      entry.last_activity_at_unix_ms = now_unix_ms;
+    }
     const auto current_status = entry.runtime->record().metadata().status;
     if (current_status != entry.last_observed_status) {
-      entry.last_status_at_unix_ms = CurrentUnixTimeMs();
+      const auto now_unix_ms = CurrentUnixTimeMs();
+      entry.last_status_at_unix_ms = now_unix_ms;
+      entry.last_activity_at_unix_ms = now_unix_ms;
       entry.last_observed_status = current_status;
     }
     PersistEntry(entry);
 
     if (should_poll_git && entry.git_inspector) {
       entry.runtime->UpdateGitSummary(entry.git_inspector->Inspect());
+      entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
       PersistEntry(entry);
     }
   }
@@ -456,7 +509,8 @@ void SessionManager::PollAll(const int read_timeout_ms) {
 
 auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSummary {
   if (entry.runtime) {
-    const auto& metadata = entry.runtime->record().metadata();
+    const auto snapshot = entry.runtime->record().snapshot();
+    const auto& metadata = snapshot.metadata;
     return SessionSummary{
         .id = metadata.id,
         .provider = metadata.provider,
@@ -469,10 +523,17 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .is_active = IsInteractiveStatus(metadata.status),
         .created_at_unix_ms = entry.created_at_unix_ms,
         .last_status_at_unix_ms = entry.last_status_at_unix_ms,
+        .last_output_at_unix_ms = entry.last_output_at_unix_ms,
+        .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+        .current_sequence = snapshot.current_sequence,
+        .recent_file_change_count = snapshot.recent_file_changes.size(),
+        .git_dirty = IsGitDirty(snapshot.git_summary),
+        .git_branch = snapshot.git_summary.branch,
     };
   }
 
-  const auto& metadata = entry.recovered_snapshot->metadata;
+  const auto& snapshot = *entry.recovered_snapshot;
+  const auto& metadata = snapshot.metadata;
   return SessionSummary{
       .id = metadata.id,
       .provider = metadata.provider,
@@ -485,6 +546,12 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .is_active = IsInteractiveStatus(metadata.status),
       .created_at_unix_ms = entry.created_at_unix_ms,
       .last_status_at_unix_ms = entry.last_status_at_unix_ms,
+      .last_output_at_unix_ms = entry.last_output_at_unix_ms,
+      .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+      .current_sequence = snapshot.current_sequence,
+      .recent_file_change_count = snapshot.recent_file_changes.size(),
+      .git_dirty = IsGitDirty(snapshot.git_summary),
+      .git_branch = snapshot.git_summary.branch,
   };
 }
 

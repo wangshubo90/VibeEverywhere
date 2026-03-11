@@ -36,6 +36,12 @@ struct SessionSummary {
   bool is_active{false};
   std::optional<std::int64_t> created_at_unix_ms;
   std::optional<std::int64_t> last_status_at_unix_ms;
+  std::optional<std::int64_t> last_output_at_unix_ms;
+  std::optional<std::int64_t> last_activity_at_unix_ms;
+  std::uint64_t current_sequence{0};
+  std::size_t recent_file_change_count{0};
+  bool git_dirty{false};
+  std::string git_branch;
 };
 
 class SessionManager {
@@ -78,7 +84,10 @@ class SessionManager {
     bool is_recovered{false};
     std::optional<std::int64_t> created_at_unix_ms;
     std::optional<std::int64_t> last_status_at_unix_ms;
+    std::optional<std::int64_t> last_output_at_unix_ms;
+    std::optional<std::int64_t> last_activity_at_unix_ms;
     vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
+    std::uint64_t last_observed_sequence{0};
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;

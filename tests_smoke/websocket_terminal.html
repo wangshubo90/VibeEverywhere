@@ -33,7 +33,7 @@
     }
 
     main {
-      max-width: 1240px;
+      max-width: 1380px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -49,11 +49,19 @@
       color: var(--muted);
     }
 
-    .grid {
+    .hero-grid {
       display: grid;
-      grid-template-columns: 360px minmax(0, 1fr);
+      grid-template-columns: minmax(0, 430px) minmax(0, 1fr);
       gap: 16px;
       align-items: start;
+    }
+
+    .support-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+      gap: 16px;
+      align-items: start;
+      margin-top: 16px;
     }
 
     .panel {
@@ -68,6 +76,10 @@
     .stack {
       display: grid;
       gap: 12px;
+    }
+
+    .stack.tight {
+      gap: 10px;
     }
 
     .row {
@@ -88,6 +100,14 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
+    }
+
+    .buttons.one {
+      grid-template-columns: 1fr;
+    }
+
+    .buttons.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     label {
@@ -169,6 +189,56 @@
       color: var(--muted);
     }
 
+    .workflow-panel {
+      position: sticky;
+      top: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+    }
+
+    .section-head h2,
+    .section-head h3 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .section-note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .workflow-step {
+      border: 1px solid rgba(216, 208, 194, 0.9);
+      border-radius: 14px;
+      padding: 14px;
+      background: rgba(255, 253, 248, 0.7);
+    }
+
+    .workflow-step.current {
+      border-color: rgba(12, 109, 98, 0.35);
+      box-shadow: inset 0 0 0 1px rgba(12, 109, 98, 0.08);
+    }
+
+    .workflow-step h2 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .workflow-step p {
+      font-size: 13px;
+      line-height: 1.4;
+      margin-bottom: 10px;
+    }
+
     #terminal-shell {
       border-radius: 16px;
       background: linear-gradient(180deg, #20201c, var(--terminal));
@@ -196,7 +266,7 @@
     }
 
     #events, #sessions-list, #pairing-output, #host-output {
-      min-height: 100px;
+      min-height: 84px;
       max-height: 220px;
       overflow: auto;
       border-radius: 12px;
@@ -210,24 +280,66 @@
       background: #201f1b;
       color: #d7d0c2;
       border-color: #34312d;
-      min-height: 180px;
+      min-height: 150px;
     }
 
     #sessions-list {
       background: #f7f3ea;
     }
 
-    .session-item {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(216, 208, 194, 0.8);
-      align-items: start;
+    .sessions-summary {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
     }
 
-    .session-item:last-child {
-      border-bottom: none;
+    .sessions-section {
+      margin-top: 14px;
+    }
+
+    .sessions-section:first-child {
+      margin-top: 0;
+    }
+
+    .sessions-section-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .sessions-card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .session-item {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(216, 208, 194, 0.9);
+      border-radius: 12px;
+      background: rgba(255, 253, 248, 0.85);
+    }
+
+    .session-item-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 10px;
+    }
+
+    .session-item-title {
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .session-item-subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
     }
 
     .session-item button {
@@ -236,20 +348,84 @@
       font-size: 12px;
     }
 
+    .session-item-details {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 12px;
+      font-size: 12px;
+    }
+
+    .session-item-details strong {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 2px;
+    }
+
+    .session-badges {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #faf7f0;
+      font-size: 11px;
+      line-height: 1;
+    }
+
+    .badge.good {
+      background: rgba(12, 109, 98, 0.1);
+      border-color: rgba(12, 109, 98, 0.18);
+    }
+
+    .badge.warn {
+      background: rgba(217, 108, 63, 0.1);
+      border-color: rgba(217, 108, 63, 0.22);
+    }
+
+    .badge.muted {
+      color: var(--muted);
+    }
+
     .hint {
       margin-top: 8px;
       font-size: 12px;
       color: var(--warn);
     }
 
+    .session-item .small {
+      margin-top: 2px;
+    }
+
     @media (max-width: 1000px) {
-      .grid {
+      .hero-grid,
+      .support-grid {
         grid-template-columns: 1fr;
+      }
+
+      .workflow-panel {
+        position: static;
       }
     }
 
     @media (max-width: 720px) {
-      .row, .row.three, .buttons, .statusbar {
+      .row, .row.three, .buttons, .buttons.three, .statusbar {
+        grid-template-columns: 1fr;
+      }
+
+      .session-item-head {
+        flex-direction: column;
+      }
+
+      .session-item-details {
         grid-template-columns: 1fr;
       }
 
@@ -266,115 +442,105 @@
       <p>Minimal but functional browser client for pairing, listing sessions, attaching, requesting control, typing, and resizing.</p>
     </div>
 
-    <div class="grid">
-      <section>
-        <div class="panel stack">
-          <div class="row">
-            <div>
-              <label for="host">Host</label>
-              <input id="host" value="127.0.0.1">
+    <div class="hero-grid">
+      <section class="workflow-panel">
+        <div class="panel stack tight">
+          <div class="section-head">
+            <h2>Remote Workflow</h2>
+            <div class="section-note">Pair, pick a session, connect, request control.</div>
+          </div>
+
+          <div class="workflow-step current">
+            <h2>1. Pair & Host</h2>
+            <p>Connect this browser to the remote listener, refresh host info, and request pairing when needed.</p>
+            <div class="row">
+              <div>
+                <label for="host">Host</label>
+                <input id="host" value="127.0.0.1">
+              </div>
+              <div>
+                <label for="port">Port</label>
+                <input id="port" value="18085">
+              </div>
             </div>
-            <div>
-              <label for="port">Port</label>
-              <input id="port" value="18085">
+            <div class="row one">
+              <div>
+                <label for="token">Bearer Token</label>
+                <input id="token" placeholder="Approved token fills here automatically">
+              </div>
             </div>
-          </div>
-
-          <div class="row one">
-            <div>
-              <label for="token">Bearer Token</label>
-              <input id="token" placeholder="Paste approved token here">
+            <div class="buttons">
+              <button id="refresh-host" class="ghost">Refresh Host</button>
+              <button id="start-pairing" class="ghost">Start Pairing</button>
             </div>
-          </div>
-
-          <div class="buttons">
-            <button id="save-token" class="ghost">Save Token</button>
-            <button id="clear-token" class="ghost">Clear Token</button>
-          </div>
-
-          <div class="buttons">
-            <button id="refresh-host" class="ghost">Refresh Host</button>
-            <button id="start-pairing" class="ghost">Start Pairing</button>
-          </div>
-
-          <div>
-            <label>Host Info</label>
-            <div id="host-output" class="mono">No host info loaded.</div>
-          </div>
-
-          <div>
-            <label>Pairing Request</label>
-            <div id="pairing-output" class="mono">No pairing request started.</div>
-            <div class="hint">Pairing only starts here. Approval still happens in the host-local UI.</div>
-          </div>
-        </div>
-
-        <div class="panel stack">
-          <div class="row">
-            <div>
-              <label for="provider">Provider</label>
-              <select id="provider">
-                <option value="codex">codex</option>
-                <option value="claude">claude</option>
-              </select>
-            </div>
-            <div>
-              <label for="session">Session Id</label>
-              <input id="session" value="s_1">
+            <div class="buttons">
+              <button id="save-token" class="ghost">Save Token</button>
+              <button id="clear-token" class="ghost">Clear Token</button>
             </div>
           </div>
 
-          <div class="row">
-            <div>
-              <label for="title">Session Title</label>
-              <input id="title" value="smoke-session">
+          <div class="workflow-step">
+            <h2>2. Choose Session</h2>
+            <p>Load active sessions, pick one, or create a new one with an optional explicit provider command.</p>
+            <div class="row">
+              <div>
+                <label for="provider">Provider</label>
+                <select id="provider">
+                  <option value="codex">codex</option>
+                  <option value="claude">claude</option>
+                </select>
+              </div>
+              <div>
+                <label for="session">Session Id</label>
+                <input id="session" value="s_1">
+              </div>
             </div>
-            <div>
-              <label for="workspace">Workspace Root</label>
-              <input id="workspace" value=".">
+            <div class="row">
+              <div>
+                <label for="title">Session Title</label>
+                <input id="title" value="smoke-session">
+              </div>
+              <div>
+                <label for="workspace">Workspace Root</label>
+                <input id="workspace" value=".">
+              </div>
+            </div>
+            <div class="row one">
+              <div>
+                <label for="command">Explicit Command (Optional)</label>
+                <input id="command" placeholder='Example: /opt/homebrew/bin/claude --print'>
+              </div>
+            </div>
+            <div class="buttons">
+              <button id="list-sessions" class="ghost">List Sessions</button>
+              <button id="create-session" class="ghost">Create Session</button>
             </div>
           </div>
 
-          <div class="row one">
-            <div>
-              <label for="command">Explicit Command (Optional)</label>
-              <input id="command" placeholder='Example: /opt/homebrew/bin/claude --print'>
+          <div class="workflow-step">
+            <h2>3. Connect & Control</h2>
+            <p>Attach to the selected session, then request control before sending terminal input.</p>
+            <div class="buttons">
+              <button id="connect" class="primary">Connect</button>
+              <button id="disconnect">Disconnect</button>
             </div>
+            <div class="buttons three">
+              <button id="request-control">Request Control</button>
+              <button id="release-control">Release Control</button>
+              <button id="send-resize">Send Resize</button>
+            </div>
+            <div class="buttons one">
+              <button id="stop" class="warning">Stop Session</button>
+            </div>
+
+            <div class="statusbar">
+              <div class="pill"><strong>Connection</strong><div id="connection-state">disconnected</div></div>
+              <div class="pill"><strong>Controller</strong><div id="controller-state">observer</div></div>
+              <div class="pill"><strong>Session</strong><div id="session-state">unknown</div></div>
+            </div>
+
+            <div class="small">Browser terminal input is enabled only while this client believes it holds remote control.</div>
           </div>
-
-          <div class="buttons">
-            <button id="list-sessions" class="ghost">List Sessions</button>
-            <button id="create-session" class="ghost">Create Session</button>
-          </div>
-
-          <div>
-            <label>Active Sessions</label>
-            <div id="sessions-list" class="mono">No sessions loaded.</div>
-          </div>
-        </div>
-
-        <div class="panel stack">
-          <div class="buttons">
-            <button id="connect" class="primary">Connect</button>
-            <button id="disconnect">Disconnect</button>
-            <button id="request-control">Request Control</button>
-            <button id="release-control">Release Control</button>
-            <button id="send-resize">Send Resize</button>
-            <button id="stop" class="warning">Stop Session</button>
-          </div>
-
-          <div class="statusbar">
-            <div class="pill"><strong>Connection</strong><div id="connection-state">disconnected</div></div>
-            <div class="pill"><strong>Controller</strong><div id="controller-state">observer</div></div>
-            <div class="pill"><strong>Session</strong><div id="session-state">unknown</div></div>
-          </div>
-
-          <div class="small">Browser terminal input is enabled only while this client believes it holds remote control.</div>
-        </div>
-
-        <div class="panel">
-          <label>Events</label>
-          <div id="events"></div>
         </div>
       </section>
 
@@ -387,6 +553,39 @@
             </div>
             <div id="terminal"></div>
           </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="support-grid">
+      <section class="panel stack tight">
+        <div class="section-head">
+          <h3>Sessions</h3>
+          <div class="section-note">Select a session here before connecting.</div>
+        </div>
+        <div id="sessions-list" class="mono">No sessions loaded.</div>
+      </section>
+
+      <section class="stack">
+        <div class="panel stack tight">
+          <div class="section-head">
+            <h3>Pairing & Host</h3>
+            <div class="section-note">Approval still happens in the localhost host UI.</div>
+          </div>
+          <div>
+            <label>Host Info</label>
+            <div id="host-output" class="mono">No host info loaded.</div>
+          </div>
+          <div>
+            <label>Pairing Request</label>
+            <div id="pairing-output" class="mono">No pairing request started.</div>
+            <div class="hint">After host approval, this page should claim and store the token automatically.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <label>Events</label>
+          <div id="events"></div>
         </div>
       </section>
     </div>
@@ -461,8 +660,10 @@
     fitAddon.fit();
 
     let ws = null;
+    let overviewWs = null;
     let resizeTimer = null;
     let connectTimeout = null;
+    let overviewConnectTimeout = null;
     let pairingPollTimer = null;
     let connectionState = 'disconnected';
     let sessionState = 'unknown';
@@ -523,6 +724,11 @@
     function websocketUrl() {
       const token = encodeURIComponent(tokenInput.value.trim());
       return `${currentWebSocketProtocol()}//${hostInput.value.trim()}:${portInput.value.trim()}/ws/sessions/${sessionInput.value.trim()}?access_token=${token}`;
+    }
+
+    function overviewWebsocketUrl() {
+      const token = encodeURIComponent(tokenInput.value.trim());
+      return `${currentWebSocketProtocol()}//${hostInput.value.trim()}:${portInput.value.trim()}/ws/overview?access_token=${token}`;
     }
 
     async function fetchJson(path, options = {}) {
@@ -587,6 +793,13 @@
       }
     }
 
+    function clearOverviewConnectTimeout() {
+      if (overviewConnectTimeout !== null) {
+        clearTimeout(overviewConnectTimeout);
+        overviewConnectTimeout = null;
+      }
+    }
+
     function clearPairingPoll() {
       if (pairingPollTimer !== null) {
         clearTimeout(pairingPollTimer);
@@ -603,6 +816,8 @@
         if (payload && payload.token) {
           tokenInput.value = payload.token;
           saveSettings();
+          closeOverviewSocket();
+          connectOverviewSocket();
           renderJson(pairingOutput, {
             pairingId,
             code,
@@ -665,33 +880,154 @@
         return;
       }
 
-      sessionsListEl.innerHTML = '';
-      for (const session of sessions) {
-        const row = document.createElement('div');
-        row.className = 'session-item';
+      function badge(text, tone = '') {
+        const el = document.createElement('span');
+        el.className = `badge ${tone}`.trim();
+        el.textContent = text;
+        return el;
+      }
 
-        const meta = document.createElement('div');
-        meta.className = 'mono';
-        meta.textContent =
-          `${session.sessionId} | ${session.title || '(untitled)'} | ${session.provider} | ${session.status} | ${session.controllerKind}`;
+      function bucketSession(session) {
+        if (session.isRecovered) {
+          return 'recovered';
+        }
+        if (session.isActive) {
+          return 'active';
+        }
+        return 'inactive';
+      }
 
-        const button = document.createElement('button');
-        button.textContent = 'Use';
-        button.addEventListener('click', () => {
+      function detail(label, value) {
+        const cell = document.createElement('div');
+        const key = document.createElement('strong');
+        key.textContent = label;
+        const val = document.createElement('div');
+        val.textContent = value;
+        cell.append(key, val);
+        return cell;
+      }
+
+      function formatTimestamp(value) {
+        if (!value) {
+          return 'n/a';
+        }
+        return new Date(value).toLocaleString();
+      }
+
+      function describeController(kind) {
+        if (kind === 'remote') {
+          return 'Remote controller';
+        }
+        if (kind === 'host') {
+          return 'Host terminal';
+        }
+        return 'Observer only';
+      }
+
+      function renderCard(session) {
+        const card = document.createElement('article');
+        card.className = 'session-item';
+
+        const head = document.createElement('div');
+        head.className = 'session-item-head';
+
+        const titleBlock = document.createElement('div');
+        const title = document.createElement('h4');
+        title.className = 'session-item-title';
+        title.textContent = session.title || '(untitled)';
+        const subtitle = document.createElement('div');
+        subtitle.className = 'session-item-subtitle';
+        subtitle.textContent = `${session.sessionId} · ${session.provider}`;
+        titleBlock.append(title, subtitle);
+
+        const actions = document.createElement('div');
+        const useButton = document.createElement('button');
+        useButton.textContent = 'Use';
+        useButton.addEventListener('click', () => {
           sessionInput.value = session.sessionId;
           saveSettings();
           appendEvent(`selected session ${session.sessionId}`);
         });
+        actions.appendChild(useButton);
 
-        row.append(meta, button);
-        sessionsListEl.appendChild(row);
+        head.append(titleBlock, actions);
+
+        const badges = document.createElement('div');
+        badges.className = 'session-badges';
+        badges.append(
+          badge(session.activityState || 'unknown', session.isActive ? 'good' : session.isRecovered ? 'warn' : 'muted'),
+          badge(session.status || 'unknown', session.status === 'Error' ? 'warn' : ''),
+          badge(describeController(session.controllerKind), session.controllerKind === 'remote' ? 'warn' : 'muted')
+        );
+
+        const details = document.createElement('div');
+        details.className = 'session-item-details';
+        details.append(
+          detail('Workspace', session.workspaceRoot || ''),
+          detail('Last Output', formatTimestamp(session.lastOutputAtUnixMs)),
+          detail('Last Activity', formatTimestamp(session.lastActivityAtUnixMs)),
+          detail('Recent File Changes', String(session.recentFileChangeCount ?? 0)),
+          detail('Git', session.gitDirty ? `dirty (${session.gitBranch || 'unknown'})` : (session.gitBranch || 'clean')),
+          detail('Created', formatTimestamp(session.createdAtUnixMs))
+        );
+
+        card.append(head, badges, details);
+        return card;
       }
+
+      function renderSection(title, subset) {
+        const section = document.createElement('section');
+        section.className = 'sessions-section';
+
+        const heading = document.createElement('div');
+        heading.className = 'sessions-section-title';
+        heading.textContent = `${title} (${subset.length})`;
+        section.appendChild(heading);
+
+        if (subset.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'small';
+          empty.textContent = 'None.';
+          section.appendChild(empty);
+          return section;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'sessions-card-list';
+        for (const session of subset) {
+          list.appendChild(renderCard(session));
+        }
+        section.appendChild(list);
+        return section;
+      }
+
+      const sorted = [...sessions].sort((left, right) =>
+        String(left.sessionId).localeCompare(String(right.sessionId)));
+      const active = sorted.filter((session) => bucketSession(session) === 'active');
+      const recovered = sorted.filter((session) => bucketSession(session) === 'recovered');
+      const inactive = sorted.filter((session) => bucketSession(session) === 'inactive');
+
+      sessionsListEl.innerHTML = '';
+      const summary = document.createElement('div');
+      summary.className = 'sessions-summary';
+      summary.append(
+        badge(`${active.length} active`, active.length > 0 ? 'good' : 'muted'),
+        badge(`${recovered.length} recovered`, recovered.length > 0 ? 'warn' : 'muted'),
+        badge(`${inactive.length} inactive`, inactive.length > 0 ? '' : 'muted')
+      );
+      sessionsListEl.append(
+        summary,
+        renderSection('Active', active),
+        renderSection('Recovered', recovered),
+        renderSection('Inactive / Stopped', inactive)
+      );
     }
 
     async function refreshHost() {
       try {
         const payload = await fetchJson('/host/info');
         renderJson(hostOutput, payload);
+        connectOverviewSocket();
       } catch (error) {
         renderJson(hostOutput, `host info failed: ${String(error)}`);
       }
@@ -724,6 +1060,7 @@
       try {
         const payload = await fetchJson('/sessions');
         renderSessions(payload);
+        connectOverviewSocket();
         appendEvent(`loaded ${Array.isArray(payload) ? payload.length : 0} sessions`);
       } catch (error) {
         sessionsListEl.textContent = `session list failed: ${String(error)}`;
@@ -750,7 +1087,7 @@
           sessionInput.value = payload.sessionId;
           saveSettings();
           appendEvent(`created session ${payload.sessionId}`);
-          await listSessions();
+          connectOverviewSocket();
         }
       } catch (error) {
         appendEvent(`create session failed: ${String(error)}`);
@@ -822,6 +1159,62 @@
       updateButtons();
     }
 
+    function closeOverviewSocket() {
+      clearOverviewConnectTimeout();
+      if (overviewWs) {
+        overviewWs.close();
+        overviewWs = null;
+      }
+    }
+
+    function connectOverviewSocket() {
+      if (!tokenInput.value.trim()) {
+        return;
+      }
+      if (overviewWs &&
+          (overviewWs.readyState === WebSocket.OPEN ||
+           overviewWs.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      overviewWs = new WebSocket(overviewWebsocketUrl());
+      clearOverviewConnectTimeout();
+      overviewConnectTimeout = setTimeout(() => {
+        if (overviewWs && overviewWs.readyState !== WebSocket.OPEN) {
+          appendEvent(`overview websocket timeout (state=${overviewWs.readyState})`);
+          closeOverviewSocket();
+        }
+      }, 5000);
+
+      overviewWs.addEventListener('open', () => {
+        clearOverviewConnectTimeout();
+        appendEvent('overview websocket open');
+      });
+
+      overviewWs.addEventListener('message', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'sessions.snapshot' && Array.isArray(payload.sessions)) {
+            renderSessions(payload.sessions);
+            return;
+          }
+          appendEvent(`overview event: ${payload.type || 'unknown'}`);
+        } catch (error) {
+          appendEvent(`overview parse error: ${String(error)}`);
+        }
+      });
+
+      overviewWs.addEventListener('close', (event) => {
+        clearOverviewConnectTimeout();
+        appendEvent(`overview websocket closed (code=${event.code}, clean=${event.wasClean})`);
+        overviewWs = null;
+      });
+
+      overviewWs.addEventListener('error', () => {
+        appendEvent('overview websocket error');
+      });
+    }
+
     function connect() {
       saveSettings();
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -870,6 +1263,8 @@
               payload.controllerKind === 'host' ? 'host' : 'observer';
             setStates(connectionState, nextController, payload.status || sessionState);
             setInputEnabled(nextController === 'remote');
+          } else if (payload.type === 'session.activity') {
+            appendEvent(`activity: ${payload.activityState || 'unknown'} | seq=${payload.currentSequence ?? 0} | files=${payload.recentFileChangeCount ?? 0} | git=${payload.gitDirty ? 'dirty' : 'clean'}:${payload.gitBranch || '-'}`);
           } else if (payload.type === 'session.exited') {
             setStates(connectionState, controllerState, payload.status || 'Exited');
             setInputEnabled(false);
@@ -911,11 +1306,14 @@
 
     saveTokenBtn.addEventListener('click', () => {
       saveSettings();
+      closeOverviewSocket();
+      connectOverviewSocket();
       appendEvent('token saved locally');
     });
     clearTokenBtn.addEventListener('click', () => {
       tokenInput.value = '';
       saveSettings();
+      closeOverviewSocket();
       appendEvent('token cleared');
     });
     refreshHostBtn.addEventListener('click', refreshHost);
@@ -939,7 +1337,10 @@
       input.addEventListener('change', saveSettings);
     }
 
-    window.addEventListener('beforeunload', closeSocket);
+    window.addEventListener('beforeunload', () => {
+      closeSocket();
+      closeOverviewSocket();
+    });
 
     fitAddon.fit();
     updateTerminalSizeDisplay();

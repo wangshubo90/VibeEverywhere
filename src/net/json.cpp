@@ -101,6 +101,16 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   if (summary.last_status_at_unix_ms.has_value()) {
     object["lastStatusAtUnixMs"] = *summary.last_status_at_unix_ms;
   }
+  if (summary.last_output_at_unix_ms.has_value()) {
+    object["lastOutputAtUnixMs"] = *summary.last_output_at_unix_ms;
+  }
+  if (summary.last_activity_at_unix_ms.has_value()) {
+    object["lastActivityAtUnixMs"] = *summary.last_activity_at_unix_ms;
+  }
+  object["currentSequence"] = summary.current_sequence;
+  object["recentFileChangeCount"] = summary.recent_file_change_count;
+  object["gitDirty"] = summary.git_dirty;
+  object["gitBranch"] = summary.git_branch;
   return json::serialize(object);
 }
 
@@ -128,6 +138,18 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   object["currentSequence"] = snapshot.current_sequence;
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
   object["recentFileChanges"] = json::value_from(snapshot.recent_file_changes);
+  json::object signals;
+  if (snapshot.signals.last_output_at_unix_ms.has_value()) {
+    signals["lastOutputAtUnixMs"] = *snapshot.signals.last_output_at_unix_ms;
+  }
+  if (snapshot.signals.last_activity_at_unix_ms.has_value()) {
+    signals["lastActivityAtUnixMs"] = *snapshot.signals.last_activity_at_unix_ms;
+  }
+  signals["currentSequence"] = snapshot.signals.current_sequence;
+  signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
+  signals["gitDirty"] = snapshot.signals.git_dirty;
+  signals["gitBranch"] = snapshot.signals.git_branch;
+  object["signals"] = std::move(signals);
   object["git"] = std::move(git);
   return json::serialize(object);
 }
@@ -228,6 +250,16 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   if (event.summary.last_status_at_unix_ms.has_value()) {
     object["lastStatusAtUnixMs"] = *event.summary.last_status_at_unix_ms;
   }
+  if (event.summary.last_output_at_unix_ms.has_value()) {
+    object["lastOutputAtUnixMs"] = *event.summary.last_output_at_unix_ms;
+  }
+  if (event.summary.last_activity_at_unix_ms.has_value()) {
+    object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
+  }
+  object["currentSequence"] = event.summary.current_sequence;
+  object["recentFileChangeCount"] = event.summary.recent_file_change_count;
+  object["gitDirty"] = event.summary.git_dirty;
+  object["gitBranch"] = event.summary.git_branch;
   return json::serialize(object);
 }
 
@@ -236,6 +268,36 @@ auto ToJson(const SessionExitedEvent& event) -> std::string {
   object["type"] = "session.exited";
   object["sessionId"] = event.session_id;
   object["status"] = std::string(vibe::session::ToString(event.status));
+  return json::serialize(object);
+}
+
+auto ToJson(const SessionActivityEvent& event) -> std::string {
+  json::object object;
+  object["type"] = "session.activity";
+  object["sessionId"] = event.summary.id.value();
+  object["activityState"] = ToActivityState(event.summary);
+  object["isActive"] = event.summary.is_active;
+  if (event.summary.last_output_at_unix_ms.has_value()) {
+    object["lastOutputAtUnixMs"] = *event.summary.last_output_at_unix_ms;
+  }
+  if (event.summary.last_activity_at_unix_ms.has_value()) {
+    object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
+  }
+  object["currentSequence"] = event.summary.current_sequence;
+  object["recentFileChangeCount"] = event.summary.recent_file_change_count;
+  object["gitDirty"] = event.summary.git_dirty;
+  object["gitBranch"] = event.summary.git_branch;
+  return json::serialize(object);
+}
+
+auto ToJson(const SessionInventoryEvent& event) -> std::string {
+  json::object object;
+  object["type"] = "sessions.snapshot";
+  json::array sessions;
+  for (const auto& summary : event.sessions) {
+    sessions.push_back(json::parse(ToJson(summary)));
+  }
+  object["sessions"] = std::move(sessions);
   return json::serialize(object);
 }
 

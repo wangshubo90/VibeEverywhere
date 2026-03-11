@@ -17,6 +17,8 @@
     sessions: [],
     clients: []
   };
+  let overviewSocket = null;
+  let overviewReconnectTimer = null;
 
   function log(message) {
     const stamp = new Date().toLocaleTimeString();
@@ -257,6 +259,10 @@
     appendDetail(details, "Control", describeController(session));
     appendDetail(details, "Created", formatTimestamp(session.createdAtUnixMs));
     appendDetail(details, "Last state change", formatTimestamp(session.lastStatusAtUnixMs));
+    appendDetail(details, "Last output", formatTimestamp(session.lastOutputAtUnixMs));
+    appendDetail(details, "Last activity", formatTimestamp(session.lastActivityAtUnixMs));
+    appendDetail(details, "Recent file changes", String(session.recentFileChangeCount ?? 0));
+    appendDetail(details, "Git", session.gitDirty ? `dirty (${session.gitBranch || 'unknown'})` : (session.gitBranch || "clean"));
 
     const actions = document.createElement("div");
     actions.className = "inline-actions";
@@ -426,6 +432,72 @@
     renderClients();
   }
 
+  function closeOverviewSocket() {
+    if (overviewReconnectTimer !== null) {
+      clearTimeout(overviewReconnectTimer);
+      overviewReconnectTimer = null;
+    }
+    if (overviewSocket) {
+      overviewSocket.close();
+      overviewSocket = null;
+    }
+  }
+
+  function scheduleOverviewReconnect() {
+    if (overviewReconnectTimer !== null) {
+      return;
+    }
+    overviewReconnectTimer = setTimeout(() => {
+      overviewReconnectTimer = null;
+      connectOverviewSocket();
+    }, 1500);
+  }
+
+  async function handleOverviewSnapshot(payload) {
+    state.sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+    try {
+      state.clients = await fetchJson("/host/clients");
+    } catch (error) {
+      log(`client refresh failed after overview update: ${String(error)}`);
+    }
+    renderDashboard();
+  }
+
+  function connectOverviewSocket() {
+    if (overviewSocket &&
+        (overviewSocket.readyState === WebSocket.OPEN ||
+         overviewSocket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    overviewSocket = new WebSocket(`${protocol}//${window.location.host}/ws/overview`);
+
+    overviewSocket.addEventListener("open", () => {
+      log("overview subscription connected");
+    });
+
+    overviewSocket.addEventListener("message", async (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "sessions.snapshot") {
+          await handleOverviewSnapshot(payload);
+        }
+      } catch (error) {
+        log(`overview update parse failed: ${String(error)}`);
+      }
+    });
+
+    overviewSocket.addEventListener("close", () => {
+      overviewSocket = null;
+      scheduleOverviewReconnect();
+    });
+
+    overviewSocket.addEventListener("error", () => {
+      log("overview subscription error");
+    });
+  }
+
   async function refreshHost() {
     const payload = await fetchJson("/host/info");
     renderJson(hostInfo, payload);
@@ -475,6 +547,7 @@
       state.sessions = sessions;
       state.clients = clients;
       renderDashboard();
+      connectOverviewSocket();
       log("refreshed host admin state");
     } catch (error) {
       log(`refresh failed: ${String(error)}`);
@@ -525,5 +598,6 @@
   document.getElementById("clear-inactive-sessions").addEventListener("click", clearInactiveSessions);
   document.getElementById("refresh-clients").addEventListener("click", refreshClients);
 
+  window.addEventListener("beforeunload", closeOverviewSocket);
   await refreshAll();
 })();

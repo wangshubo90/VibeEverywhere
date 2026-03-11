@@ -48,6 +48,10 @@ auto IsSessionWebSocketTarget(const std::string& target) -> bool {
   return path.rfind("/ws/sessions/", 0) == 0 && path.size() > std::string("/ws/sessions/").size();
 }
 
+auto IsOverviewWebSocketTarget(const std::string& target) -> bool {
+  return StripQueryString(target) == "/ws/overview";
+}
+
 auto ExtractSessionIdFromWebSocketTarget(const std::string& target) -> std::string {
   constexpr auto prefix = "/ws/sessions/";
   if (!IsSessionWebSocketTarget(target)) {
@@ -59,7 +63,7 @@ auto ExtractSessionIdFromWebSocketTarget(const std::string& target) -> std::stri
 }
 
 auto ExtractAccessTokenFromWebSocketTarget(const std::string& target) -> std::string {
-  if (!IsSessionWebSocketTarget(target)) {
+  if (!IsSessionWebSocketTarget(target) && !IsOverviewWebSocketTarget(target)) {
     return "";
   }
 

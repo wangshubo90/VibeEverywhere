@@ -11,6 +11,12 @@ TEST(WebSocketSharedTest, DetectsSessionTarget) {
   EXPECT_FALSE(IsSessionWebSocketTarget("/sessions/s_1"));
 }
 
+TEST(WebSocketSharedTest, DetectsOverviewTarget) {
+  EXPECT_TRUE(IsOverviewWebSocketTarget("/ws/overview"));
+  EXPECT_TRUE(IsOverviewWebSocketTarget("/ws/overview?access_token=abc"));
+  EXPECT_FALSE(IsOverviewWebSocketTarget("/ws/sessions/s_1"));
+}
+
 TEST(WebSocketSharedTest, ExtractsSessionId) {
   EXPECT_EQ(ExtractSessionIdFromWebSocketTarget("/ws/sessions/s_123"), "s_123");
   EXPECT_EQ(ExtractSessionIdFromWebSocketTarget("/ws/sessions/s_123?access_token=abc"), "s_123");
@@ -20,6 +26,7 @@ TEST(WebSocketSharedTest, ExtractsSessionId) {
 TEST(WebSocketSharedTest, ExtractsAccessToken) {
   EXPECT_EQ(ExtractAccessTokenFromWebSocketTarget("/ws/sessions/s_123?access_token=abc123"), "abc123");
   EXPECT_EQ(ExtractAccessTokenFromWebSocketTarget("/ws/sessions/s_123?foo=bar&access_token=xyz"), "xyz");
+  EXPECT_EQ(ExtractAccessTokenFromWebSocketTarget("/ws/overview?access_token=xyz"), "xyz");
   EXPECT_TRUE(ExtractAccessTokenFromWebSocketTarget("/ws/sessions/s_123").empty());
 }
 

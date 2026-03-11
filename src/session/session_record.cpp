@@ -38,6 +38,16 @@ auto SessionRecord::snapshot() const -> SessionSnapshot {
       .metadata = metadata_,
       .current_sequence = current_sequence_,
       .recent_terminal_tail = recent_terminal_tail_,
+      .signals =
+          SessionSignals{
+              .last_output_at_unix_ms = std::nullopt,
+              .last_activity_at_unix_ms = std::nullopt,
+              .current_sequence = current_sequence_,
+              .recent_file_change_count = recent_file_changes_.size(),
+              .git_dirty = !git_summary_.modified_files.empty() || !git_summary_.staged_files.empty() ||
+                           !git_summary_.untracked_files.empty(),
+              .git_branch = git_summary_.branch,
+          },
       .recent_file_changes = recent_file_changes_,
       .git_summary = git_summary_,
   };
