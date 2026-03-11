@@ -789,6 +789,14 @@ function closeSocket() {
   updateButtons();
 }
 
+function closeSocketPreservingEndedState() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close(1000, "session-ended");
+    return;
+  }
+  closeSocket();
+}
+
 function closeOverviewSocket() {
   clearOverviewConnectTimeout();
   if (overviewWs) {
@@ -924,6 +932,8 @@ function connect() {
           state.selectedSession = updated;
           renderSelectedSession();
         }
+        appendEvent("session ended; disconnecting terminal");
+        closeSocketPreservingEndedState();
       } else if (payload.type === "error") {
         appendEvent(`server error: ${payload.code} | ${payload.message}`);
       } else {

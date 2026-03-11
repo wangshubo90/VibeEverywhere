@@ -47,6 +47,14 @@ function setStatus(message) {
   updateButtons();
 }
 
+function closeSessionSocket() {
+  if (!ws) {
+    updateButtons();
+    return;
+  }
+  ws.close(1000, 'session-ended');
+}
+
 function updateTerminalSize() {
   terminalSizeEl.textContent = `${terminal.cols} x ${terminal.rows}`;
 }
@@ -157,10 +165,13 @@ function connect() {
     }
 
     if (payload.type === 'session.exited') {
+      sessionStatus = payload.status || 'Exited';
       setStatus(`exited (${payload.status})`);
       hasControl = false;
       requestedControl = false;
       updateButtons();
+      log('session ended; disconnecting terminal');
+      closeSessionSocket();
       return;
     }
 
@@ -178,11 +189,16 @@ function connect() {
   });
 
   ws.addEventListener('close', () => {
-    setStatus('disconnected');
+    if (sessionStatus === 'Exited' || sessionStatus === 'Error') {
+      setStatus(`ended (${sessionStatus})`);
+    } else {
+      setStatus('disconnected');
+    }
     hasControl = false;
     requestedControl = false;
     log('websocket closed');
     updateButtons();
+    ws = null;
   });
 
   ws.addEventListener('error', () => {
