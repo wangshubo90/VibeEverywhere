@@ -600,6 +600,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
         entry->controller_kind == vibe::session::ControllerKind::None) {
       entry->controller_client_id = client_id;
       entry->controller_kind = controller_kind;
+      entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
       return true;
     }
 
@@ -607,6 +608,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
         controller_kind == vibe::session::ControllerKind::Host) {
       entry->controller_client_id = client_id;
       entry->controller_kind = controller_kind;
+      entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
       return true;
     }
 
@@ -632,6 +634,7 @@ auto SessionManager::ReleaseControl(const std::string& session_id, const std::st
 
     entry->controller_client_id.reset();
     entry->controller_kind = vibe::session::ControllerKind::Host;
+    entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
     return true;
   }
 

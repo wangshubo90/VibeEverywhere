@@ -1,5 +1,6 @@
 #include "vibe/net/http_shared.h"
 
+#include <algorithm>
 #include <boost/json.hpp>
 
 #include <filesystem>
@@ -138,6 +139,38 @@ auto MakeFileReadErrorResponse(const HttpRequest& request,
 
   return MakeJsonResponse(request, http::status::internal_server_error,
                           "{\"error\":\"unexpected file read status\"}");
+}
+
+auto AttachClientCounts(std::vector<vibe::service::SessionSummary> summaries,
+                        const vibe::net::HostAdmin* host_admin)
+    -> std::vector<vibe::service::SessionSummary> {
+  if (host_admin == nullptr) {
+    return summaries;
+  }
+
+  const auto clients = host_admin->ListAttachedClients();
+  for (auto& summary : summaries) {
+    summary.attached_client_count = static_cast<std::size_t>(std::count_if(
+        clients.begin(), clients.end(), [&summary](const vibe::net::AttachedClientInfo& client) {
+          return client.session_id == summary.id.value();
+        }));
+  }
+  return summaries;
+}
+
+auto AttachClientCount(std::optional<vibe::service::SessionSummary> summary,
+                       const vibe::net::HostAdmin* host_admin)
+    -> std::optional<vibe::service::SessionSummary> {
+  if (!summary.has_value() || host_admin == nullptr) {
+    return summary;
+  }
+
+  const auto clients = host_admin->ListAttachedClients();
+  summary->attached_client_count = static_cast<std::size_t>(std::count_if(
+      clients.begin(), clients.end(), [&summary](const vibe::net::AttachedClientInfo& client) {
+        return client.session_id == summary->id.value();
+      }));
+  return summary;
 }
 
 void ApplyCorsHeaders(HttpResponse& response) {
@@ -606,7 +639,8 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
     }
-    return MakeJsonResponse(request, http::status::ok, ToJson(session_manager.ListSessions()));
+    return MakeJsonResponse(request, http::status::ok,
+                            ToJson(AttachClientCounts(session_manager.ListSessions(), context.host_admin)));
   }
 
   if (request.method() == http::verb::get && request.target() == "/host/clients") {
@@ -646,7 +680,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       if (!session_manager.StopSession(session_id)) {
         return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
       }
-      const auto summary = session_manager.GetSession(session_id);
+      const auto summary = AttachClientCount(session_manager.GetSession(session_id), context.host_admin);
       return MakeJsonResponse(request, http::status::ok,
                               summary.has_value() ? ToJson(*summary) : "{\"status\":\"stopped\"}");
     }
@@ -681,7 +715,8 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       return *auth_response;
     }
 
-    return MakeJsonResponse(request, http::status::ok, ToJson(session_manager.ListSessions()));
+    return MakeJsonResponse(request, http::status::ok,
+                            ToJson(AttachClientCounts(session_manager.ListSessions(), context.host_admin)));
   }
 
   if (request.method() == http::verb::post && request.target() == "/sessions") {

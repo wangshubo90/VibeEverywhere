@@ -140,6 +140,23 @@ auto ToActivityStateLabel(const vibe::service::SessionSummary& summary) -> const
   return vibe::session::ToString(summary.supervision_state).data();
 }
 
+auto AttachClientCounts(std::vector<vibe::service::SessionSummary> summaries,
+                        const WebSocketRegistry& websocket_registry)
+    -> std::vector<vibe::service::SessionSummary> {
+  for (auto& summary : summaries) {
+    const auto it = websocket_registry.find(summary.id.value());
+    if (it == websocket_registry.end()) {
+      summary.attached_client_count = 0;
+      continue;
+    }
+
+    summary.attached_client_count = static_cast<std::size_t>(
+        std::count_if(it->second.begin(), it->second.end(),
+                      [](const std::weak_ptr<WebSocketSessionBase>& entry) { return !entry.expired(); }));
+  }
+  return summaries;
+}
+
 auto ExtractBearerToken(const HttpRequest& request) -> std::string {
   const auto it = request.base().find(http::field::authorization);
   if (it == request.base().end()) {
@@ -210,12 +227,14 @@ class OverviewWebSocketSession final : public WebSocketSessionBase,
   OverviewWebSocketSession(Stream&& stream, vibe::service::SessionManager& session_manager,
                            const vibe::auth::Authorizer& authorizer,
                            std::shared_ptr<OverviewWebSocketRegistry> websocket_registry,
+                           std::shared_ptr<WebSocketRegistry> session_websocket_registry,
                            const std::string& client_address, const bool is_local_request,
                            const ListenerRole listener_role)
       : websocket_(std::forward<Stream>(stream)),
         session_manager_(session_manager),
         authorizer_(authorizer),
         websocket_registry_(std::move(websocket_registry)),
+        session_websocket_registry_(std::move(session_websocket_registry)),
         client_address_(client_address),
         is_local_request_(is_local_request),
         listener_role_(listener_role) {}
@@ -297,7 +316,7 @@ class OverviewWebSocketSession final : public WebSocketSessionBase,
   };
 
   void QueueInventorySnapshot() {
-    const auto summaries = session_manager_.ListSessions();
+    const auto summaries = AttachClientCounts(session_manager_.ListSessions(), *session_websocket_registry_);
     const std::string payload = ToJson(SessionInventoryEvent{.sessions = summaries});
     if (last_inventory_payload_.has_value() && *last_inventory_payload_ == payload) {
       return;
@@ -345,6 +364,7 @@ class OverviewWebSocketSession final : public WebSocketSessionBase,
   vibe::service::SessionManager& session_manager_;
   const vibe::auth::Authorizer& authorizer_;
   std::shared_ptr<OverviewWebSocketRegistry> websocket_registry_;
+  std::shared_ptr<WebSocketRegistry> session_websocket_registry_;
   beast::flat_buffer read_buffer_;
   std::deque<PendingFrame> pending_frames_;
   std::string target_;
@@ -919,7 +939,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
             const auto endpoint = self->RemoteEndpoint();
             std::make_shared<OverviewWebSocketSession<Stream>>(
                 std::move(self->stream_), self->session_manager_, self->authorizer_,
-                self->overview_websocket_registry_, endpoint.address().to_string(),
+                self->overview_websocket_registry_, self->websocket_registry_,
+                endpoint.address().to_string(),
                 endpoint.address().is_loopback(), self->listener_role_)
                 ->Start(std::move(self->request_));
             return;

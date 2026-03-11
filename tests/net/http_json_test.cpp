@@ -41,6 +41,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .last_output_at_unix_ms = 210,
       .last_activity_at_unix_ms = 220,
       .current_sequence = 12,
+      .attached_client_count = 1,
       .recent_file_change_count = 0,
       .git_dirty = false,
       .git_branch = "",
@@ -57,6 +58,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
+  EXPECT_NE(json.find("\"attachedClientCount\":1"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesOutputSlice) {
@@ -186,6 +188,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .last_output_at_unix_ms = 210,
               .last_activity_at_unix_ms = 220,
               .current_sequence = 12,
+              .attached_client_count = 1,
               .recent_file_change_count = 0,
               .git_dirty = false,
               .git_branch = "",
@@ -207,6 +210,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
+  EXPECT_NE(json.find("\"attachedClientCount\":1"), std::string::npos);
 }
 
 TEST(HttpJsonTest, SerializesSessionExitedEvent) {
@@ -242,6 +246,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .last_output_at_unix_ms = 210,
               .last_activity_at_unix_ms = 220,
               .current_sequence = 12,
+              .attached_client_count = 2,
               .recent_file_change_count = 3,
               .git_dirty = true,
               .git_branch = "main",
@@ -258,6 +263,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
+  EXPECT_NE(json.find("\"attachedClientCount\":2"), std::string::npos);
   EXPECT_NE(json.find("\"recentFileChangeCount\":3"), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
   EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);

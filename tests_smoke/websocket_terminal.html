@@ -964,6 +964,7 @@
         details.className = 'session-item-details';
         details.append(
           detail('Workspace', session.workspaceRoot || ''),
+          detail('Clients', String(session.attachedClientCount ?? 0)),
           detail('Last Output', formatTimestamp(session.lastOutputAtUnixMs)),
           detail('Last Activity', formatTimestamp(session.lastActivityAtUnixMs)),
           detail('Recent File Changes', String(session.recentFileChangeCount ?? 0)),

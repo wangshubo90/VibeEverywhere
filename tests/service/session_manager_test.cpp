@@ -308,6 +308,43 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   EXPECT_GT(summary->current_sequence, 0U);
 }
 
+TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "control-activity",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  const auto initial_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(initial_summary.has_value());
+  ASSERT_TRUE(initial_summary->last_activity_at_unix_ms.has_value());
+  const auto activity_before = *initial_summary->last_activity_at_unix_ms;
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(manager.RequestControl(created->id.value(), "remote-1",
+                                     vibe::session::ControllerKind::Remote));
+
+  const auto requested_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(requested_summary.has_value());
+  ASSERT_TRUE(requested_summary->last_activity_at_unix_ms.has_value());
+  EXPECT_GT(*requested_summary->last_activity_at_unix_ms, activity_before);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(manager.ReleaseControl(created->id.value(), "remote-1"));
+
+  const auto released_summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(released_summary.has_value());
+  ASSERT_TRUE(released_summary->last_activity_at_unix_ms.has_value());
+  EXPECT_GT(*released_summary->last_activity_at_unix_ms, *requested_summary->last_activity_at_unix_ms);
+
+  EXPECT_EQ(manager.Shutdown(), 1U);
+}
+
 TEST_F(GitSessionManagerTest, GitPollDoesNotAdvanceActivityWithoutGitStateChange) {
   FakeSessionStore session_store;
   SessionManager manager(&session_store);

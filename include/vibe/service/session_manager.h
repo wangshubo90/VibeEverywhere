@@ -43,6 +43,7 @@ struct SessionSummary {
   std::optional<std::int64_t> last_output_at_unix_ms;
   std::optional<std::int64_t> last_activity_at_unix_ms;
   std::uint64_t current_sequence{0};
+  std::size_t attached_client_count{0};
   std::size_t recent_file_change_count{0};
   bool git_dirty{false};
   std::string git_branch;

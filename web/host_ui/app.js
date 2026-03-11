@@ -365,7 +365,7 @@
     badges.append(
       makeBadge(session.activityState, session.isActive ? "good" : session.isRecovered ? "warn" : "muted"),
       makeBadge(session.status, session.status === "Error" ? "danger" : "neutral"),
-      makeBadge(`${sessionClients.length} client${sessionClients.length === 1 ? "" : "s"}`)
+      makeBadge(`${session.attachedClientCount ?? sessionClients.length} client${(session.attachedClientCount ?? sessionClients.length) === 1 ? "" : "s"}`)
     );
     header.append(titleBlock, badges);
 
@@ -374,7 +374,7 @@
     appendDetail(details, "Workspace", session.workspaceRoot);
     appendDetail(details, "Control", describeController(session));
     appendDetail(details, "Created", formatTimestamp(session.createdAtUnixMs));
-    appendDetail(details, "Last state change", formatTimestamp(session.lastStatusAtUnixMs));
+    appendDetail(details, "Last lifecycle change", formatTimestamp(session.lastStatusAtUnixMs));
     appendDetail(details, "Last output", formatTimestamp(session.lastOutputAtUnixMs));
     appendDetail(details, "Last activity", formatTimestamp(session.lastActivityAtUnixMs));
     appendDetail(details, "Recent file changes", String(session.recentFileChangeCount ?? 0));
@@ -420,7 +420,9 @@
       empty.className = "empty-note";
       empty.textContent = session.isRecovered
         ? "Recovered record only. No live clients can still be attached."
-        : "No clients are currently attached.";
+        : (session.attachedClientCount ?? 0) > 0
+          ? "Refreshing attached client details..."
+          : "No clients are currently attached.";
       clientsBlock.appendChild(empty);
     } else {
       const list = document.createElement("div");

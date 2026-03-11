@@ -97,6 +97,7 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
     object["lastActivityAtUnixMs"] = *summary.last_activity_at_unix_ms;
   }
   object["currentSequence"] = summary.current_sequence;
+  object["attachedClientCount"] = summary.attached_client_count;
   object["recentFileChangeCount"] = summary.recent_file_change_count;
   object["gitDirty"] = summary.git_dirty;
   object["gitBranch"] = summary.git_branch;
@@ -267,6 +268,7 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
     object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
   }
   object["currentSequence"] = event.summary.current_sequence;
+  object["attachedClientCount"] = event.summary.attached_client_count;
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
   object["gitDirty"] = event.summary.git_dirty;
   object["gitBranch"] = event.summary.git_branch;
@@ -298,6 +300,7 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
     object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
   }
   object["currentSequence"] = event.summary.current_sequence;
+  object["attachedClientCount"] = event.summary.attached_client_count;
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
   object["gitDirty"] = event.summary.git_dirty;
   object["gitBranch"] = event.summary.git_branch;
