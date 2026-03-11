@@ -1,6 +1,7 @@
 (async () => {
   const hostInfo = document.getElementById("host-info");
   const pendingList = document.getElementById("pending-list");
+  const pendingActions = document.getElementById("pending-actions");
   const approveResult = document.getElementById("approve-result");
   const displayName = document.getElementById("display-name");
   const adminHost = document.getElementById("admin-host");
@@ -35,6 +36,58 @@
 
   function renderJson(element, payload) {
     element.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  async function approvePairing(pairingId, code) {
+    try {
+      const payload = await fetchJson("/pairing/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairingId, code })
+      });
+      renderJson(approveResult, payload);
+      log(`approved pairing for ${payload.deviceId}`);
+      await refreshAll();
+    } catch (error) {
+      approveResult.textContent = String(error);
+      log(`approve failed: ${String(error)}`);
+    }
+  }
+
+  function renderPendingPairings(pairings) {
+    pendingActions.innerHTML = "";
+    if (!Array.isArray(pairings) || pairings.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty-note";
+      empty.textContent = "No pending pairings.";
+      pendingActions.appendChild(empty);
+      return;
+    }
+
+    for (const pairing of pairings) {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const title = document.createElement("h3");
+      title.textContent = pairing.deviceName || pairing.pairingId;
+
+      const meta = document.createElement("div");
+      meta.className = "detail-list compact";
+      appendDetail(meta, "Pairing", pairing.pairingId || "n/a");
+      appendDetail(meta, "Type", pairing.deviceType || "unknown");
+      appendDetail(meta, "Code", pairing.code || "n/a");
+      appendDetail(meta, "Requested", formatTimestamp(pairing.requestedAtUnixMs));
+
+      const actions = document.createElement("div");
+      actions.className = "inline-actions";
+      const button = document.createElement("button");
+      button.textContent = "Approve";
+      button.addEventListener("click", () => approvePairing(pairing.pairingId, pairing.code));
+      actions.appendChild(button);
+
+      card.append(title, meta, actions);
+      pendingActions.appendChild(card);
+    }
   }
 
   function parseCommand(text) {
@@ -386,7 +439,9 @@
   }
 
   async function refreshPairings() {
-    renderJson(pendingList, await fetchJson("/pairing/pending"));
+    const payload = await fetchJson("/pairing/pending");
+    renderPendingPairings(payload);
+    renderJson(pendingList, payload);
   }
 
   async function refreshSessions() {
@@ -460,22 +515,8 @@
 
   document.getElementById("approve-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    try {
-      const payload = await fetchJson("/pairing/approve", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          pairingId: document.getElementById("pairing-id").value,
-          code: document.getElementById("pairing-code").value
-        })
-      });
-      renderJson(approveResult, payload);
-      log(`approved pairing for ${payload.deviceId}`);
-      await refreshAll();
-    } catch (error) {
-      approveResult.textContent = String(error);
-      log(`approve failed: ${String(error)}`);
-    }
+    await approvePairing(document.getElementById("pairing-id").value,
+                         document.getElementById("pairing-code").value);
   });
 
   document.getElementById("refresh-all").addEventListener("click", refreshAll);

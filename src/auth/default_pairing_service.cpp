@@ -185,10 +185,25 @@ auto DefaultPairingService::ApprovePairing(const std::string& pairing_id, const 
     return std::nullopt;
   }
 
+  approved_claims_[pairing_id] = ApprovedClaim{
+      .code = code,
+      .record = record,
+  };
   return record;
 }
 
+auto DefaultPairingService::ClaimApprovedPairing(const std::string& pairing_id, const std::string& code)
+    -> std::optional<PairingRecord> {
+  const auto it = approved_claims_.find(pairing_id);
+  if (it == approved_claims_.end() || it->second.code != code) {
+    return std::nullopt;
+  }
+
+  return it->second.record;
+}
+
 auto DefaultPairingService::RejectPairing(const std::string& pairing_id) -> bool {
+  approved_claims_.erase(pairing_id);
   return pairing_store_.RemovePendingPairing(pairing_id);
 }
 

@@ -255,6 +255,28 @@ auto HandlePairingApprove(const HttpRequest& request, const HttpRouteContext& co
   return MakeJsonResponse(request, http::status::ok, ToJson(*pairing_record));
 }
 
+auto HandlePairingClaim(const HttpRequest& request, const HttpRouteContext& context) -> HttpResponse {
+  if (context.pairing_service == nullptr) {
+    return MakeJsonResponse(request, http::status::service_unavailable,
+                            "{\"error\":\"pairing service unavailable\"}");
+  }
+
+  const auto parsed_request = ParsePairingClaimRequest(request.body());
+  if (!parsed_request.has_value()) {
+    return MakeJsonResponse(request, http::status::bad_request,
+                            "{\"error\":\"invalid pairing claim request\"}");
+  }
+
+  const auto pairing_record =
+      context.pairing_service->ClaimApprovedPairing(parsed_request->pairing_id, parsed_request->code);
+  if (!pairing_record.has_value()) {
+    return MakeJsonResponse(request, http::status::accepted,
+                            "{\"status\":\"pending\"}");
+  }
+
+  return MakeJsonResponse(request, http::status::ok, ToJson(*pairing_record));
+}
+
 auto HandleHostConfig(const HttpRequest& request, const HttpRouteContext& context) -> HttpResponse {
   if (const auto auth_response =
           RequireLocalAuthorization(request, context, vibe::auth::AuthorizationAction::ConfigureHost);
@@ -527,6 +549,10 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
 
   if (request.method() == http::verb::post && request.target() == "/pairing/approve") {
     return HandlePairingApprove(request, context);
+  }
+
+  if (request.method() == http::verb::post && request.target() == "/pairing/claim") {
+    return HandlePairingClaim(request, context);
   }
 
   if (request.method() == http::verb::post && request.target() == "/host/config") {

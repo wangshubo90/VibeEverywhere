@@ -81,13 +81,22 @@ class FakePairingService final : public vibe::auth::PairingService {
     }
 
     pending_pairings.clear();
-    return vibe::auth::PairingRecord{
+    approved_record = vibe::auth::PairingRecord{
         .device_id = vibe::auth::DeviceId{.value = "d_1"},
         .device_name = "browser",
         .device_type = vibe::auth::DeviceType::Browser,
         .bearer_token = "good-token",
         .approved_at_unix_ms = 2,
     };
+    return approved_record;
+  }
+
+  [[nodiscard]] auto ClaimApprovedPairing(const std::string& pairing_id, const std::string& code)
+      -> std::optional<vibe::auth::PairingRecord> override {
+    if (pairing_id != "p_1" || code != "123456") {
+      return std::nullopt;
+    }
+    return approved_record;
   }
 
   [[nodiscard]] auto RejectPairing(const std::string& pairing_id) -> bool override {
@@ -96,6 +105,7 @@ class FakePairingService final : public vibe::auth::PairingService {
   }
 
   mutable std::vector<vibe::auth::PairingRequest> pending_pairings;
+  std::optional<vibe::auth::PairingRecord> approved_record;
 };
 
 class FakePairingStore final : public vibe::store::PairingStore {
@@ -595,6 +605,19 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(approve_response.result(), http::status::ok);
   EXPECT_NE(approve_response.body().find("\"token\":\"good-token\""), std::string::npos);
+
+  HttpRequest claim_request;
+  claim_request.method(http::verb::post);
+  claim_request.target("/pairing/claim");
+  claim_request.version(11);
+  claim_request.body() = R"({"pairingId":"p_1","code":"123456"})";
+  claim_request.prepare_payload();
+
+  const HttpResponse claim_response =
+      HandleRequest(claim_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
+  EXPECT_EQ(claim_response.result(), http::status::ok);
+  EXPECT_NE(claim_response.body().find("\"token\":\"good-token\""), std::string::npos);
 }
 
 TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {

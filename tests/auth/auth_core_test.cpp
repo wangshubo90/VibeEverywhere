@@ -135,6 +135,10 @@ TEST_F(AuthCoreTest, ApprovesPairingAndAuthenticatesIssuedBearerToken) {
   ASSERT_TRUE(auth_result.device_id.has_value());
   EXPECT_EQ(auth_result.device_id->value, "d_123");
   EXPECT_TRUE(auth_result.reason.empty());
+
+  const auto claimed = pairing_service.ClaimApprovedPairing("p_123", "481923");
+  ASSERT_TRUE(claimed.has_value());
+  EXPECT_EQ(claimed->bearer_token, "token_abc");
 }
 
 TEST_F(AuthCoreTest, RejectsPendingPairingRequest) {
@@ -152,6 +156,7 @@ TEST_F(AuthCoreTest, RejectsApprovalForMismatchedCodeAndLeavesPendingRequest) {
   EXPECT_FALSE(record.has_value());
   ASSERT_EQ(pairing_service.ListPendingPairings().size(), 1U);
   EXPECT_TRUE(pairing_store.approved_pairings.empty());
+  EXPECT_FALSE(pairing_service.ClaimApprovedPairing("p_123", "000000").has_value());
 }
 
 TEST_F(AuthCoreTest, FailsPairingStartWhenStoreCannotPersistPendingRequest) {
