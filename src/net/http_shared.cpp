@@ -83,8 +83,8 @@ auto LoadHostUiAsset(const std::string_view relative_path) -> std::optional<std:
 auto LoadRemoteUiAsset(const std::string_view relative_path) -> std::optional<std::string> {
   const auto cwd = std::filesystem::current_path();
   const std::vector<std::filesystem::path> candidates = {
-      cwd / "web" / "remote_ui" / relative_path,
-      cwd.parent_path() / "web" / "remote_ui" / relative_path,
+      cwd / "web" / "remote_client" / relative_path,
+      cwd.parent_path() / "web" / "remote_client" / relative_path,
       cwd / "tests_smoke" / "websocket_terminal.html",
       cwd.parent_path() / "tests_smoke" / "websocket_terminal.html",
   };
@@ -490,6 +490,30 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
                               "{\"error\":\"remote ui asset missing\"}");
     }
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/remote/app.js") {
+    if (context.listener_role != ListenerRole::RemoteClient) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
+    const auto asset = LoadRemoteUiAsset("app.js");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"remote ui asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/remote/app.css") {
+    if (context.listener_role != ListenerRole::RemoteClient) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
+    const auto asset = LoadRemoteUiAsset("app.css");
+    if (!asset.has_value()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"remote ui asset missing\"}");
+    }
+    return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
   }
 
   const std::string target_string = std::string(request.target());

@@ -807,7 +807,31 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
                       ListenerRole::RemoteClient));
   EXPECT_EQ(response.result(), http::status::ok);
   EXPECT_EQ(response[http::field::content_type], "text/html; charset=utf-8");
-  EXPECT_NE(response.body().find("Smoke Client"), std::string::npos);
+  EXPECT_NE(response.body().find("Remote Client"), std::string::npos);
+
+  HttpRequest stylesheet_request;
+  stylesheet_request.method(http::verb::get);
+  stylesheet_request.target("/remote/app.css");
+  stylesheet_request.version(11);
+  const HttpResponse stylesheet_response = HandleRequest(
+      stylesheet_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(stylesheet_response.result(), http::status::ok);
+  EXPECT_EQ(stylesheet_response[http::field::content_type], "text/css; charset=utf-8");
+  EXPECT_NE(stylesheet_response.body().find(".terminal-shell"), std::string::npos);
+
+  HttpRequest script_request;
+  script_request.method(http::verb::get);
+  script_request.target("/remote/app.js");
+  script_request.version(11);
+  const HttpResponse script_response = HandleRequest(
+      script_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(script_response.result(), http::status::ok);
+  EXPECT_EQ(script_response[http::field::content_type], "application/javascript; charset=utf-8");
+  EXPECT_NE(script_response.body().find("loadSelectedSnapshot"), std::string::npos);
 }
 
 TEST(HttpSharedTest, ServesHostManagementRoutes) {
