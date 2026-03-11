@@ -12,7 +12,14 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
 #include <util.h>
+#elif defined(__linux__)
+#include <pty.h>
+#else
+#error "PosixPtyProcess is only supported on macOS and Linux"
+#endif
 
 #include <array>
 #include <optional>

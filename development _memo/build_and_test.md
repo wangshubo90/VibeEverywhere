@@ -10,6 +10,12 @@ This document defines the standard build and test workflow for VibeEverywhere.
 - Preferred compiler: Clang/LLVM
 - Optional support language: Python for tooling, fixtures, or local test harnesses
 
+Current host platform target:
+
+- macOS and Linux only
+- PTY/session runtime paths should compile on both through explicit platform seams
+- Linux-specific PTY libraries should be linked in CMake rather than assumed transitively
+
 ## Configure
 
 Use an out-of-source build directory:
@@ -81,9 +87,17 @@ Before a change is considered ready:
 
 - project configures cleanly with CMake + Ninja
 - project builds under Clang
+- platform-facing assumptions remain explicit enough to review
 - all relevant automated tests pass
 - full `ctest` run passes locally
 - any design-impacting change updates the corresponding markdown under [development _memo](/Users/shubow/dev/VibeEverywhere/development%20_memo)
+
+Platform guardrails for this repo:
+
+- do not widen platform work into Windows unless a separate task requires it
+- keep PTY/process runtime mechanics behind interfaces or factories
+- prefer compile-safe fallbacks or explicit unsupported paths over hidden platform assumptions
+- describe Linux support only for seams that actually build or run today
 
 ## Python Usage Guidance
 

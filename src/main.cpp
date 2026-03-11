@@ -13,7 +13,7 @@
 #include "vibe/net/http_server.h"
 #include "vibe/net/local_auth.h"
 #include "vibe/session/launch_spec.h"
-#include "vibe/session/posix_pty_process.h"
+#include "vibe/session/pty_process_factory.h"
 #include "vibe/session/session_record.h"
 #include "vibe/session/session_runtime.h"
 #include "vibe/session/session_types.h"
@@ -39,7 +39,6 @@ auto MakeLocalSessionMetadata() -> vibe::session::SessionMetadata {
 auto RunLocalPty(const std::vector<std::string>& command) -> int {
   using vibe::session::LaunchSpec;
   using vibe::session::OutputSlice;
-  using vibe::session::PosixPtyProcess;
   using vibe::session::ProviderType;
   using vibe::session::SessionRecord;
   using vibe::session::SessionRuntime;
@@ -57,8 +56,16 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
       .terminal_size = TerminalSize{.columns = 120, .rows = 40},
   };
 
-  PosixPtyProcess process;
-  SessionRuntime runtime(SessionRecord(metadata), launch_spec, process, 64U * 1024U);
+  const vibe::session::PtyPlatformSupport platform_support =
+      vibe::session::DetectPtyPlatformSupport();
+  auto process = vibe::session::CreatePlatformPtyProcess();
+  if (!platform_support.supports_native_pty || process == nullptr) {
+    std::cerr << "local-pty is unavailable on " << platform_support.platform_name << ": "
+              << platform_support.detail << "\n";
+    return 1;
+  }
+
+  SessionRuntime runtime(SessionRecord(metadata), launch_spec, *process, 64U * 1024U);
   if (!runtime.Start()) {
     std::cerr << "failed to start local PTY session\n";
     return 1;

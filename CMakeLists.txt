@@ -32,6 +32,10 @@ target_link_libraries(vibe_core
     vibe_warnings
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(vibe_core PUBLIC util)
+endif()
+
 add_executable(vibe-hostd
   src/main.cpp
 )

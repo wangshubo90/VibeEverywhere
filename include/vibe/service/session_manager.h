@@ -1,15 +1,17 @@
 #ifndef VIBE_SERVICE_SESSION_MANAGER_H
 #define VIBE_SERVICE_SESSION_MANAGER_H
 
-#include <memory>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "vibe/service/git_inspector.h"
 #include "vibe/session/launch_spec.h"
-#include "vibe/session/posix_pty_process.h"
+#include "vibe/session/pty_process.h"
+#include "vibe/session/pty_process_factory.h"
 #include "vibe/session/session_runtime.h"
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
@@ -46,7 +48,11 @@ struct SessionSummary {
 
 class SessionManager {
  public:
-  explicit SessionManager(vibe::store::SessionStore* session_store = nullptr);
+  using PtyProcessFactory = std::function<std::unique_ptr<vibe::session::IPtyProcess>()>;
+
+  explicit SessionManager(vibe::store::SessionStore* session_store = nullptr,
+                          PtyProcessFactory pty_process_factory =
+                              vibe::session::CreatePlatformPtyProcess);
 
   [[nodiscard]] auto CreateSession(const CreateSessionRequest& request)
       -> std::optional<SessionSummary>;
@@ -75,7 +81,7 @@ class SessionManager {
  private:
   struct SessionEntry {
     vibe::session::SessionId id;
-    std::unique_ptr<vibe::session::PosixPtyProcess> process;
+    std::unique_ptr<vibe::session::IPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
     std::unique_ptr<vibe::service::GitInspector> git_inspector;
     std::optional<vibe::session::SessionSnapshot> recovered_snapshot;
@@ -98,6 +104,7 @@ class SessionManager {
   [[nodiscard]] auto FindEntry(const std::string& session_id) const -> const SessionEntry*;
 
   vibe::store::SessionStore* session_store_{nullptr};
+  PtyProcessFactory pty_process_factory_;
   std::vector<SessionEntry> sessions_;
   int poll_count_{0};
 };

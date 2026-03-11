@@ -9,6 +9,17 @@ This project currently provides:
 
 ## Build
 
+Supported host platforms today:
+
+- macOS
+- Linux
+
+Current platform boundary:
+
+- session execution and `local-pty` use a platform-selected `IPtyProcess` factory
+- macOS and Linux both route through the current POSIX `forkpty` backend
+- file watching, process-tree inspection, and resource monitoring remain planned seams rather than completed platform integrations
+
 ```bash
 cmake -S . -B build -G Ninja \
   -DCMAKE_C_COMPILER=clang \
@@ -16,6 +27,11 @@ cmake -S . -B build -G Ninja \
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+Linux build note:
+
+- the PTY runtime uses `<pty.h>` and links `libutil` through CMake on Linux
+- if your distro splits PTY development headers from the base toolchain, install the corresponding libc/pty development package before configuring
 
 ## Start The Daemon
 
@@ -191,6 +207,10 @@ The smoke client parses that into argv and sends it as an explicit session comma
 - The daemon now uses two listeners by default:
 - host admin on `127.0.0.1:18085`
 - remote client/API on `0.0.0.0:18086`
+- macOS and Linux are the only intended runtime targets right now.
+- The current PTY/session path is shared across macOS and Linux through a POSIX backend selected by a factory seam.
+- Linux readiness is currently strongest for configure/build/test and PTY session lifecycle behavior.
+- File watching, process-tree inspection, and resource monitoring are not implemented yet on either platform.
 - Sessions are still selected by `sessionId`, not by port.
 - A session can outlive any particular client attachment.
 - Stopping a session stops the real host-side PTY process.

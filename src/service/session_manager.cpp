@@ -90,8 +90,10 @@ auto ParseSessionSequenceNumber(const std::string& session_id) -> std::optional<
 
 }  // namespace
 
-SessionManager::SessionManager(vibe::store::SessionStore* session_store)
-    : session_store_(session_store) {}
+SessionManager::SessionManager(vibe::store::SessionStore* session_store,
+                               PtyProcessFactory pty_process_factory)
+    : session_store_(session_store),
+      pty_process_factory_(std::move(pty_process_factory)) {}
 
 auto SessionManager::CreateSession(const CreateSessionRequest& request)
     -> std::optional<SessionSummary> {
@@ -123,7 +125,11 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   const vibe::session::LaunchSpec launch_spec =
       vibe::session::BuildLaunchSpec(metadata, launch_provider_config);
 
-  auto process = std::make_unique<vibe::session::PosixPtyProcess>();
+  auto process = pty_process_factory_ ? pty_process_factory_() : nullptr;
+  if (process == nullptr) {
+    return std::nullopt;
+  }
+
   auto runtime = std::make_unique<vibe::session::SessionRuntime>(
       vibe::session::SessionRecord(metadata), launch_spec, *process);
   auto git_inspector = std::make_unique<vibe::service::GitInspector>(request.workspace_root);

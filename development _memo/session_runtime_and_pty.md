@@ -57,6 +57,13 @@ Define an interface along these lines:
 
 Keep the abstraction responsible only for PTY/process mechanics. Session policy belongs one layer above.
 
+Current implementation note:
+
+- macOS and Linux currently share a POSIX `forkpty` backend
+- selection happens through a factory seam that returns `IPtyProcess`
+- `SessionManager` and CLI entrypoints should depend on the interface or factory, not a concrete POSIX class
+- platform-specific headers and link requirements belong in the backend implementation or CMake
+
 ## Launch Specification
 
 Each provider launch should be explicit:

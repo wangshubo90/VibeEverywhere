@@ -167,6 +167,21 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
   EXPECT_EQ(sessions[3].id.value(), "s_11");
 }
 
+TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
+  SessionManager manager(nullptr, []() -> std::unique_ptr<vibe::session::IPtyProcess> {
+    return nullptr;
+  });
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "missing-pty",
+      .command_argv = std::nullopt,
+  });
+
+  EXPECT_FALSE(created.has_value());
+}
+
 TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsExitedState) {
   FakeSessionStore session_store;
   SessionManager manager(&session_store);
