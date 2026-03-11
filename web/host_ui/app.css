@@ -21,10 +21,10 @@ body {
   color: var(--ink);
 }
 
-main {
+.shell {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 22px;
 }
 
 .panel {
@@ -38,9 +38,27 @@ main {
 .hero {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: end;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.hero-copy {
+  max-width: 760px;
+}
+
+.hero-actions {
+  display: grid;
   gap: 12px;
-  margin-bottom: 16px;
+  justify-items: end;
+}
+
+.eyebrow {
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 h1, h2 {
@@ -55,12 +73,12 @@ p {
 .layout {
   display: grid;
   grid-template-columns: 360px minmax(0, 1fr);
-  gap: 16px;
+  gap: 18px;
 }
 
 .column {
   display: grid;
-  gap: 16px;
+  gap: 18px;
   align-content: start;
 }
 
@@ -71,7 +89,7 @@ p {
 .section-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: start;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -246,6 +264,10 @@ button.ghost {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.host-status-grid {
+  margin-bottom: 12px;
+}
+
 .detail-list div {
   display: grid;
   gap: 4px;
@@ -330,6 +352,19 @@ button.ghost {
   gap: 10px;
 }
 
+.raw-output {
+  display: grid;
+  gap: 10px;
+}
+
+.raw-output summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .event-log {
   min-height: 180px;
 }
@@ -342,6 +377,10 @@ button.ghost {
   .hero {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .hero-actions {
+    justify-items: stretch;
   }
 
   .session-head,

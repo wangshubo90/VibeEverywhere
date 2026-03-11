@@ -1,5 +1,7 @@
 (async () => {
   const hostInfo = document.getElementById("host-info");
+  const hostOverview = document.getElementById("host-overview");
+  const hostStatusGrid = document.getElementById("host-status-grid");
   const pendingList = document.getElementById("pending-list");
   const pendingActions = document.getElementById("pending-actions");
   const approveResult = document.getElementById("approve-result");
@@ -13,6 +15,7 @@
   const sessionsList = document.getElementById("sessions-list");
   const fileInspector = document.getElementById("file-inspector");
   const clientsList = document.getElementById("clients-list");
+  const clientsSummary = document.getElementById("clients-summary");
   const events = document.getElementById("events");
   const state = {
     sessions: [],
@@ -508,6 +511,12 @@
 
   function renderClients() {
     if (!Array.isArray(state.clients) || state.clients.length === 0) {
+      clientsSummary.innerHTML = "";
+      clientsSummary.append(
+        makeBadge("0 controllers", "muted"),
+        makeBadge("0 remote", "muted"),
+        makeBadge("0 local", "muted")
+      );
       clientsList.textContent = "No attached clients.";
       return;
     }
@@ -519,6 +528,15 @@
       ));
 
     clientsList.innerHTML = "";
+    const controllers = clients.filter((client) => client.hasControl).length;
+    const local = clients.filter((client) => client.isLocal).length;
+    const remote = clients.length - local;
+    clientsSummary.innerHTML = "";
+    clientsSummary.append(
+      makeBadge(`${controllers} controller${controllers === 1 ? "" : "s"}`, controllers > 0 ? "warn" : "muted"),
+      makeBadge(`${remote} remote`, remote > 0 ? "neutral" : "muted"),
+      makeBadge(`${local} local`, local > 0 ? "good" : "muted")
+    );
     for (const client of clients) {
       const card = document.createElement("div");
       card.className = "card";
@@ -624,6 +642,21 @@
   async function refreshHost() {
     const payload = await fetchJson("/host/info");
     renderJson(hostInfo, payload);
+    hostOverview.innerHTML = "";
+    hostOverview.append(
+      makeBadge(payload.displayName || payload.hostId || "Host", "good"),
+      makeBadge(payload.pairingMode || "approval", "neutral"),
+      makeBadge(payload.tls?.enabled ? "remote tls on" : "remote tls off",
+                payload.tls?.enabled ? "good" : "muted")
+    );
+    hostStatusGrid.innerHTML = "";
+    appendDetail(hostStatusGrid, "Display name", payload.displayName || "n/a");
+    appendDetail(hostStatusGrid, "Admin", `${payload.adminHost || "n/a"}:${payload.adminPort || "n/a"}`);
+    appendDetail(hostStatusGrid, "Remote", `${payload.remoteHost || "n/a"}:${payload.remotePort || "n/a"}`);
+    appendDetail(hostStatusGrid, "Pairing", payload.pairingMode || "approval");
+    appendDetail(hostStatusGrid, "TLS", payload.tls?.enabled ? "enabled" : "disabled");
+    appendDetail(hostStatusGrid, "Codex override", formatCommand(payload.providerCommands?.codex) || "default");
+    appendDetail(hostStatusGrid, "Claude override", formatCommand(payload.providerCommands?.claude) || "default");
     displayName.value = payload.displayName || "";
     adminHost.value = payload.adminHost || "";
     adminPort.value = payload.adminPort || "";
