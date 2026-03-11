@@ -122,6 +122,10 @@ void SessionRuntime::UpdateGitSummary(GitSummary git_summary) {
   record_.SetGitSummary(std::move(git_summary));
 }
 
+void SessionRuntime::UpdateRecentFileChanges(std::vector<std::string> recent_file_changes) {
+  record_.SetRecentFileChanges(std::move(recent_file_changes));
+}
+
 void SessionRuntime::PollOnce(const int read_timeout_ms) {
   if (!pid_.has_value()) {
     return;

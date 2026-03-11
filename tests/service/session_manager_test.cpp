@@ -6,6 +6,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "vibe/service/session_manager.h"
@@ -520,6 +521,58 @@ TEST(SessionManagerTest, ReadFileMarksTruncatedResponses) {
   EXPECT_TRUE(file.truncated);
   EXPECT_EQ(file.content, "abcd");
 
+  std::filesystem::remove_all(temp_root);
+}
+
+TEST(SessionManagerTest, PollAllTracksRecentWorkspaceFileChangesForLiveSession) {
+  const auto temp_root =
+      std::filesystem::temp_directory_path() /
+      ("vibe-session-live-file-watch-" +
+       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(temp_root / "src");
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "int main() { return 0; }\n";
+  }
+
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = temp_root.string(),
+      .title = "file-watch",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  for (int index = 0; index < 20; ++index) {
+    manager.PollAll(0);
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  {
+    std::ofstream file(temp_root / "src" / "main.cpp");
+    file << "int main() { return 1; }\n";
+  }
+  {
+    std::ofstream file(temp_root / "notes.txt");
+    file << "notes\n";
+  }
+
+  for (int index = 0; index < 20; ++index) {
+    manager.PollAll(0);
+  }
+
+  const auto snapshot = manager.GetSnapshot(created->id.value());
+  ASSERT_TRUE(snapshot.has_value());
+  EXPECT_EQ(snapshot->recent_file_changes, (std::vector<std::string>{"notes.txt", "src/main.cpp"}));
+  EXPECT_EQ(snapshot->signals.recent_file_change_count, 2U);
+
+  const auto summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->recent_file_change_count, 2U);
+
+  EXPECT_EQ(manager.Shutdown(), 1U);
   std::filesystem::remove_all(temp_root);
 }
 

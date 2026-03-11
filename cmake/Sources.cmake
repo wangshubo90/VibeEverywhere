@@ -11,6 +11,7 @@ set(VIBE_CORE_SOURCES
   src/store/file_stores.cpp
   src/service/git_inspector.cpp
   src/service/session_manager.cpp
+  src/service/workspace_file_watcher.cpp
   src/session/launch_spec.cpp
   src/session/posix_pty_process.cpp
   src/session/pty_process_factory.cpp
@@ -34,6 +35,7 @@ set(VIBE_TEST_SOURCES
   tests/store/file_stores_test.cpp
   tests/service/git_inspector_test.cpp
   tests/service/session_manager_test.cpp
+  tests/service/workspace_file_watcher_test.cpp
   tests/session/launch_spec_test.cpp
   tests/session/posix_pty_process_test.cpp
   tests/session/pty_process_factory_test.cpp

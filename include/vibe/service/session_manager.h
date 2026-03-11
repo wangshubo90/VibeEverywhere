@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "vibe/service/git_inspector.h"
+#include "vibe/service/workspace_file_watcher.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/pty_process.h"
 #include "vibe/session/pty_process_factory.h"
@@ -113,6 +114,7 @@ class SessionManager {
     std::unique_ptr<vibe::session::IPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
     std::unique_ptr<vibe::service::GitInspector> git_inspector;
+    std::unique_ptr<vibe::service::WorkspaceFileWatcher> file_watcher;
     std::optional<vibe::session::SessionSnapshot> recovered_snapshot;
     std::optional<std::string> controller_client_id;
     vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
