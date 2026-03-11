@@ -25,6 +25,9 @@
             <h2>Host Config</h2>
           </div>
           <pre id="host-info" class="output">loading...</pre>
+          <div class="actions">
+            <a id="download-cert" href="/host/tls/certificate">Download Remote TLS Certificate</a>
+          </div>
           <form id="config-form" class="stack">
             <label>
               <span>Display Name</span>
@@ -83,7 +86,10 @@
         <section class="panel">
           <div class="section-head">
             <h2>Sessions</h2>
-            <button id="refresh-sessions" class="ghost">Refresh</button>
+            <div class="actions">
+              <button id="clear-inactive-sessions" class="ghost">Clear Inactive</button>
+              <button id="refresh-sessions" class="ghost">Refresh</button>
+            </div>
           </div>
           <div id="sessions-list" class="list"></div>
         </section>

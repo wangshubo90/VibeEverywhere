@@ -175,12 +175,11 @@ TEST(InterfaceContractTest, PairingAndStoreSeamsSupportBasicUsage) {
   EXPECT_TRUE(pairing_store.UpsertApprovedPairing(*pairing_record));
   EXPECT_EQ(pairing_store.LoadApprovedPairings().size(), 1U);
 
-  const auto host_identity = vibe::store::HostIdentity{
-      .host_id = "host_1",
-      .display_name = "Dev Host",
-      .certificate_pem_path = "/tmp/cert.pem",
-      .private_key_pem_path = "/tmp/key.pem",
-  };
+  auto host_identity = vibe::store::MakeDefaultHostIdentity();
+  host_identity.host_id = "host_1";
+  host_identity.display_name = "Dev Host";
+  host_identity.certificate_pem_path = "/tmp/cert.pem";
+  host_identity.private_key_pem_path = "/tmp/key.pem";
   EXPECT_TRUE(host_config_store.SaveHostIdentity(host_identity));
   EXPECT_EQ(host_config_store.LoadHostIdentity(), std::optional<vibe::store::HostIdentity>{host_identity});
 }

@@ -346,6 +346,47 @@ auto HandleLocalBrowserToken(const HttpRequest& request, const HttpRouteContext&
   return MakeJsonResponse(request, http::status::ok, ToJson(record));
 }
 
+auto HandleHostTlsCertificate(const HttpRequest& request, const HttpRouteContext& context) -> HttpResponse {
+  if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+    return *auth_response;
+  }
+
+  if (context.host_config_store == nullptr) {
+    return MakeJsonResponse(request, http::status::service_unavailable,
+                            "{\"error\":\"host config unavailable\"}");
+  }
+
+  std::string certificate_path = context.remote_tls_certificate_path;
+  if (certificate_path.empty()) {
+    const auto host_identity = context.host_config_store->LoadHostIdentity();
+    if (host_identity.has_value()) {
+      certificate_path = host_identity->certificate_pem_path;
+    }
+  }
+
+  if (certificate_path.empty()) {
+    return MakeJsonResponse(request, http::status::not_found,
+                            "{\"error\":\"tls certificate not configured\"}");
+  }
+
+  const auto certificate = ReadFile(certificate_path);
+  if (!certificate.has_value()) {
+    return MakeJsonResponse(request, http::status::not_found,
+                            "{\"error\":\"tls certificate file not found\"}");
+  }
+
+  HttpResponse response;
+  response.version(request.version());
+  response.keep_alive(false);
+  response.result(http::status::ok);
+  response.set(http::field::content_type, "application/x-pem-file");
+  response.set(http::field::content_disposition, "attachment; filename=\"vibeeverywhere-remote-cert.pem\"");
+  ApplyCorsHeaders(response);
+  response.body() = *certificate;
+  response.prepare_payload();
+  return response;
+}
+
 }  // namespace
 
 auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& session_manager,
@@ -492,6 +533,10 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return HandleHostConfig(request, context);
   }
 
+  if (request.method() == http::verb::get && request.target() == "/host/tls/certificate") {
+    return HandleHostTlsCertificate(request, context);
+  }
+
   if (request.method() == http::verb::get && request.target() == "/host/info") {
     const auto host_identity =
         context.host_config_store != nullptr ? context.host_config_store->LoadHostIdentity() : std::nullopt;
@@ -522,6 +567,16 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
   }
 
   if (request.method() == http::verb::post) {
+    if (request.target() == "/host/sessions/clear-inactive") {
+      if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+        return *auth_response;
+      }
+
+      const auto removed_count = session_manager.ClearInactiveSessions();
+      return MakeJsonResponse(request, http::status::ok,
+                              "{\"removedCount\":" + std::to_string(removed_count) + "}");
+    }
+
     constexpr std::string_view host_sessions_prefix = "/host/sessions/";
     constexpr std::string_view stop_suffix = "/stop";
     const std::string target = std::string(request.target());
