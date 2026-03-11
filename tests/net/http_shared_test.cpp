@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
 #include <optional>
 #include <vector>
 
@@ -201,6 +203,7 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
       .host_admin = host_admin,
       .client_address = "127.0.0.1",
       .is_local_request = true,
+      .remote_tls_certificate_path = "",
       .listener_role = listener_role,
   };
 }
@@ -677,6 +680,22 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(stop_response.result(), http::status::ok);
   EXPECT_NE(stop_response.body().find("\"status\":\"Exited\""), std::string::npos);
+
+  HttpRequest clear_request;
+  clear_request.method(http::verb::post);
+  clear_request.target("/host/sessions/clear-inactive");
+  clear_request.version(11);
+  const HttpResponse clear_response =
+      HandleRequest(clear_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(clear_response.result(), http::status::ok);
+  EXPECT_NE(clear_response.body().find("\"removedCount\":1"), std::string::npos);
+
+  const HttpResponse sessions_after_clear =
+      HandleRequest(sessions_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(sessions_after_clear.result(), http::status::ok);
+  EXPECT_EQ(sessions_after_clear.body(), "[]");
 }
 
 TEST(HttpSharedTest, SavesExpandedHostConfig) {
@@ -709,6 +728,37 @@ TEST(HttpSharedTest, SavesExpandedHostConfig) {
   EXPECT_EQ(host_config_store.identity->claude_command.executable, "/opt/bin/claude");
 }
 
+TEST(HttpSharedTest, ServesLocalTlsCertificateDownload) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  const auto certificate_path =
+      std::filesystem::temp_directory_path() / "vibe-http-shared-test-cert.pem";
+  {
+    std::ofstream output(certificate_path);
+    ASSERT_TRUE(output.is_open());
+    output << "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n";
+  }
+
+  host_config_store.identity->certificate_pem_path = certificate_path.string();
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/host/tls/certificate");
+  request.version(11);
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_EQ(response[http::field::content_type], "application/x-pem-file");
+  EXPECT_NE(response.body().find("BEGIN CERTIFICATE"), std::string::npos);
+
+  std::filesystem::remove(certificate_path);
+}
+
 TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;
@@ -720,6 +770,7 @@ TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
       .host_config_store = &host_config_store,
       .client_address = "10.0.0.8",
       .is_local_request = false,
+      .remote_tls_certificate_path = "",
       .listener_role = ListenerRole::RemoteClient,
   };
 
