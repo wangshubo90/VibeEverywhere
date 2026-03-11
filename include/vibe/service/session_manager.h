@@ -57,6 +57,7 @@ class SessionManager {
   [[nodiscard]] auto ResizeSession(const std::string& session_id,
                                    vibe::session::TerminalSize terminal_size) -> bool;
   [[nodiscard]] auto StopSession(const std::string& session_id) -> bool;
+  [[nodiscard]] auto ClearInactiveSessions() -> std::size_t;
   [[nodiscard]] auto RequestControl(const std::string& session_id,
                                     const std::string& client_id,
                                     vibe::session::ControllerKind controller_kind) -> bool;

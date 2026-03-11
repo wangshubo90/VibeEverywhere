@@ -315,6 +315,29 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
   return false;
 }
 
+auto SessionManager::ClearInactiveSessions() -> std::size_t {
+  std::size_t removed_count = 0;
+
+  auto it = sessions_.begin();
+  while (it != sessions_.end()) {
+    const SessionSummary summary = BuildSummary(*it);
+    if (summary.is_active) {
+      ++it;
+      continue;
+    }
+
+    if (session_store_ != nullptr) {
+      const bool removed = session_store_->RemoveSessionRecord(summary.id.value());
+      static_cast<void>(removed);
+    }
+
+    it = sessions_.erase(it);
+    removed_count += 1;
+  }
+
+  return removed_count;
+}
+
 auto SessionManager::RequestControl(const std::string& session_id, const std::string& client_id,
                                     const vibe::session::ControllerKind controller_kind) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {

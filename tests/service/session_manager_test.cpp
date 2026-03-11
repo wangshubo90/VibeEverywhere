@@ -20,12 +20,14 @@ class FakeSessionStore final : public vibe::store::SessionStore {
     return true;
   }
 
-  [[nodiscard]] auto RemoveSessionRecord(const std::string& /*session_id*/) -> bool override {
+  [[nodiscard]] auto RemoveSessionRecord(const std::string& session_id) -> bool override {
+    removed.push_back(session_id);
     return true;
   }
 
   std::vector<vibe::store::PersistedSessionRecord> sessions;
   mutable std::vector<vibe::store::PersistedSessionRecord> upserted;
+  mutable std::vector<std::string> removed;
 };
 
 auto FindLastPersistedRecord(const FakeSessionStore& session_store, const std::string& session_id)
@@ -190,6 +192,38 @@ TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsE
   const auto persisted = FindLastPersistedRecord(session_store, created->id.value());
   ASSERT_TRUE(persisted.has_value());
   EXPECT_EQ(persisted->status, vibe::session::SessionStatus::Exited);
+}
+
+TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) {
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_2",
+      .provider = vibe::session::ProviderType::Claude,
+      .workspace_root = "/tmp/recovered",
+      .title = "recovered-session",
+      .status = vibe::session::SessionStatus::Exited,
+      .current_sequence = 7,
+      .recent_terminal_tail = "restored tail",
+  });
+
+  SessionManager manager(&session_store);
+  EXPECT_EQ(manager.LoadPersistedSessions(), 1U);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "clear-target",
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  EXPECT_TRUE(manager.StopSession(created->id.value()));
+
+  EXPECT_EQ(manager.ClearInactiveSessions(), 2U);
+  EXPECT_TRUE(manager.ListSessions().empty());
+  EXPECT_EQ(session_store.removed.size(), 2U);
+  EXPECT_EQ(session_store.removed[0], "s_2");
+  EXPECT_EQ(session_store.removed[1], created->id.value());
 }
 
 }  // namespace

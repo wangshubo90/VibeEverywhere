@@ -394,6 +394,16 @@
     renderDashboard();
   }
 
+  async function clearInactiveSessions() {
+    try {
+      const payload = await fetchJson("/host/sessions/clear-inactive", { method: "POST" });
+      log(`cleared ${payload.removedCount ?? 0} inactive session(s)`);
+      await refreshSessions();
+    } catch (error) {
+      log(`clear inactive failed: ${String(error)}`);
+    }
+  }
+
   async function refreshClients() {
     state.clients = await fetchJson("/host/clients");
     renderDashboard();
@@ -471,6 +481,7 @@
   document.getElementById("refresh-all").addEventListener("click", refreshAll);
   document.getElementById("refresh-pairings").addEventListener("click", refreshPairings);
   document.getElementById("refresh-sessions").addEventListener("click", refreshSessions);
+  document.getElementById("clear-inactive-sessions").addEventListener("click", clearInactiveSessions);
   document.getElementById("refresh-clients").addEventListener("click", refreshClients);
 
   await refreshAll();
