@@ -17,6 +17,9 @@ This folder contains initiative documents and the implementation-ready design se
 11. [client_api_ios.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/client_api_ios.md)
 12. [ios_client_mvp.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_mvp.md)
 13. [ios_client_architecture.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_architecture.md)
+14. [frontend_strategy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/frontend_strategy.md)
+15. [host_ui_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_v1.md)
+16. [remote_web_client_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_web_client_v1.md)
 
 ## Purpose of Each Document
 
@@ -33,3 +36,6 @@ This folder contains initiative documents and the implementation-ready design se
 - `client_api_ios.md`: iOS-facing REST and WebSocket contract
 - `ios_client_mvp.md`: first Swift/iPhone client milestone scope
 - `ios_client_architecture.md`: practical SwiftUI/network/terminal architecture notes
+- `frontend_strategy.md`: v1 decision for host UI and remote web client structure
+- `host_ui_v1.md`: frozen host admin UI v1 scope and layout
+- `remote_web_client_v1.md`: frozen remote web client v1 scope and layout

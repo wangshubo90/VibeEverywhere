@@ -15,6 +15,7 @@ This repository is implementing `vibe-hostd`, a local-network session runtime an
 - Product and initiative docs live in [development _memo](/Users/shubow/dev/VibeEverywhere/development%20_memo).
 - Start with [development _memo/implementation_plan.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/implementation_plan.md).
 - MVP acceptance flows are defined in [development _memo/mvp_checklist.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/mvp_checklist.md).
+- Web frontend direction is defined in [development _memo/frontend_strategy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/frontend_strategy.md), [development _memo/host_ui_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_v1.md), and [development _memo/remote_web_client_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_web_client_v1.md).
 - iOS client API and scope are defined in [development _memo/client_api_ios.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/client_api_ios.md), [development _memo/ios_client_mvp.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_mvp.md), and [development _memo/ios_client_architecture.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_architecture.md).
 - Build and test workflow is defined in [development _memo/build_and_test.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/build_and_test.md).
 - TDD expectations are defined in [development _memo/tdd_policy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/tdd_policy.md).
