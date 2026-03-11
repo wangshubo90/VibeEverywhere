@@ -65,14 +65,33 @@ Acceptance:
 - clients can see recent activity state clearly enough to distinguish active, waiting, idle, and ended sessions
 - session summaries remain usable even when no terminal is currently attached
 
-### 8. Minimum Supervision Signals
+### 8. Truthful Session Inventory
+
+Acceptance:
+
+- session list and overview subscription stay accurate without manual refresh
+- attached-client counts and controller state are operationally trustworthy
+- `lastActivity` and `lastStateChange` reflect meaningful changes rather than internal polling noise
+- inactive or ended sessions can be cleared without losing active supervision state
+
+### 9. Minimum Supervision Signals
 
 Acceptance:
 
 - the architecture exposes a place for future `SessionPhase`
 - clients receive at least coarse attention-oriented state without parsing raw PTY output themselves
 - waiting-for-input and ended-session conditions are easy to surface in clients
-### 9. Lightweight Recovery
+
+### 10. File and Git Inspection
+
+Acceptance:
+
+- recent file changes are backed by real file-watcher data
+- session summaries can surface coarse file/git hints
+- clients can inspect changed files and git state in read-only mode
+- file inspection remains safely scoped to the session workspace root
+
+### 11. Lightweight Recovery
 
 Acceptance:
 
@@ -80,7 +99,7 @@ Acceptance:
 - recent terminal tail for persisted records is still accessible
 - the system does not pretend that pre-restart live PTY processes survived
 
-### 10. Minimum Access Control
+### 12. Minimum Access Control
 
 Acceptance:
 
@@ -96,14 +115,14 @@ Acceptance:
 - arbitrary attach to unrelated local terminals
 - polished native mobile clients
 - advanced multi-controller arbitration beyond one controller plus observers
-- comprehensive file watching and rich git visualization
+- rich git authoring or file editing workflows
 - deep provider-specific `SessionPhase` tuning
 - full timeline/history analytics
 
 ## Recommended Next Build Order
 
-1. stabilize runtime observability and supervision-oriented session summaries
-2. finish and harden host/remote control and attach flows
-3. add minimum viable pairing/auth with local host approval UI
-4. add lightweight persisted session metadata and terminal tail recovery
+1. implement real file watching and expose truthful recent-file session state
+2. tighten session inventory truthfulness and overview subscriptions
+3. add conservative attention/watch signals on top of `SessionSignals`
+4. expose read-only file/git inspection cleanly in host and remote web clients
 5. keep the web clients thin until runtime/event shape stabilizes

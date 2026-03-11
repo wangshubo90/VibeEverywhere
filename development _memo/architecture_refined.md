@@ -44,6 +44,7 @@ Responsibilities:
 - coordinate SessionRuntime, SnapshotStore, FileWatcher, GitInspector, and future ProcessInspector / ResourceMonitor components
 - manage return-of-control behavior when the active controller yields or disconnects
 - aggregate low-level runtime signals into session-observable state
+- keep session inventory fields truthful enough for host and remote supervision views
 
 ### SessionInference
 
@@ -53,6 +54,7 @@ Responsibilities:
 - infer higher-level supervisory state
 - expose a coarse `SessionPhase` plus attention-oriented flags
 - remain provider-agnostic by default
+- avoid treating raw terminal activity alone as the whole product signal
 
 `SessionPhase` should be supported by the architecture now, but not overfit too early. The first implementation should keep the phase model coarse and tunable because some detection logic may vary by provider and prompt style.
 
@@ -85,6 +87,7 @@ Responsibilities:
 - enforce slow-client degradation rules
 - isolate client backpressure from PTY reading
 - broadcast controller changes to observers
+- support both per-session streams and host-wide inventory subscriptions
 
 ### SnapshotStore
 
@@ -101,6 +104,8 @@ Responsibilities:
 - observe workspace file changes
 - aggregate noisy change bursts
 - produce normalized file-change events
+- maintain a recent changed-file set suitable for session summaries and snapshots
+- feed both supervision signals and read-only client inspection surfaces
 
 ### ProcessInspector
 
@@ -123,6 +128,7 @@ Responsibilities:
 
 - sample repository status periodically or on demand
 - emit summarized git state
+- provide stable dirty/clean and file-count semantics for session inventory views
 
 ### AuthManager
 
@@ -256,6 +262,8 @@ The runtime should keep two distinct state layers:
 - resource signals
 - coarse `SessionPhase`
 - attention flags such as waiting-input, idle-too-long, or long-task
+
+The first supervision implementation should bias toward truthful, inspectable fields over ambitious inference. File-change counts, git-dirty transitions, attached-client counts, and meaningful activity timestamps are more important than a deep phase taxonomy in the near term.
 
 Clients should not need to infer these from raw signals themselves.
 

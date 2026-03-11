@@ -57,6 +57,8 @@ ctest --test-dir build --output-on-failure
 - Preserve the invariant: one session PTY, many views, one controller.
 - Bias new work toward runtime observability, supervision events, and session-state quality before investing in larger frontend rewrites.
 - Keep `SessionPhase` support extensible but conservative; do not hard-code provider-specific heuristics too early.
+- Treat file watching and git inspection as both observability inputs and read-only client data surfaces.
+- Prioritize truthful inventory data and watch flows over deeper terminal/client polish.
 
 ## Expected Early Project Layout
 

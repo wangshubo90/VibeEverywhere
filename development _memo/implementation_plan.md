@@ -14,10 +14,11 @@ Build `vibe-hostd`, a host daemon that acts as a session runtime and supervision
 4. REST and WebSocket surfaces for session interaction
 5. Multi-client control semantics
 6. Runtime observability signals
-7. Coarse supervision state and event generation
-8. Pairing/auth foundations
-9. Lightweight recovery and persisted metadata
-10. Thin operational web clients
+7. Workspace file and git observability
+8. Coarse supervision state and event generation
+9. Pairing/auth foundations
+10. Lightweight recovery and persisted metadata
+11. Thin operational web clients
 
 ## Recommended Initial Stack
 
@@ -129,17 +130,23 @@ Deliverables:
 - git state inspection
 - process-tree observation seam
 - event aggregation and throttling
+- read-only inspection data model for clients
 
 Acceptance criteria:
 
 - file and git updates are visible through session APIs
+- recent file changes are based on real watcher data, not placeholders
+- session inventory can surface coarse file/git hints without loading full detail
 - high-frequency changes do not flood clients uncontrollably
 
 ## Phase 7: Session Inference and Supervision
 
 Deliverables:
 
-- coarse `SessionPhase` model
+- conservative supervision state
+- `SessionSignals`-driven attention heuristics
+- host-wide inventory subscription events
+- optional coarse `SessionPhase` seam
 - phase inference seam fed by PTY/filesystem/process/resource signals
 - attention-oriented session events
 - watch-oriented state surfaces for clients
@@ -150,6 +157,7 @@ Acceptance criteria:
 - waiting-for-input, idle, active-output, and file-activity signals are surfaced cleanly
 - clients can consume high-level supervision state without re-inferring it locally
 - detection remains tunable and conservative
+ - session inventory can stay live via subscription rather than manual refresh
 ## Phase 8: Security and Pairing
 
 Deliverables:
@@ -193,6 +201,8 @@ Acceptance criteria:
 - Freeze module interfaces before parallel work starts when a phase spans auth, persistence, and network changes.
 - Treat `SessionPhase` as an extensibility seam, not a prematurely rigid taxonomy.
 - Prefer improving runtime signal quality before investing in large frontend rewrites.
+- Treat file watching and git inspection as both observability inputs and read-only client data surfaces.
+- Keep client-facing file and git features read-only until supervision flows are stable.
 
 ## Immediate Next Docs to Consult
 
