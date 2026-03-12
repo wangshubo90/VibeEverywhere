@@ -22,6 +22,10 @@ auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
 }
 
 constexpr std::int64_t kRecentOutputWindowMs = 5'000;
+constexpr std::int64_t kWorkspaceChangedAttentionMs = 30'000;
+constexpr std::int64_t kGitChangedAttentionMs = 30'000;
+constexpr std::int64_t kControllerChangedAttentionMs = 20'000;
+constexpr std::int64_t kExitedAttentionMs = 120'000;
 
 auto CurrentUnixTimeMs() -> std::int64_t {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -125,6 +129,81 @@ auto ContainsParentTraversal(const std::filesystem::path& path) -> bool {
   });
 }
 
+struct AttentionInference {
+  vibe::session::AttentionState state{vibe::session::AttentionState::None};
+  vibe::session::AttentionReason reason{vibe::session::AttentionReason::None};
+  std::optional<std::int64_t> since_unix_ms;
+};
+
+auto IsWithinWindow(const std::optional<std::int64_t> timestamp_unix_ms,
+                    const std::int64_t now_unix_ms,
+                    const std::int64_t window_ms) -> bool {
+  return timestamp_unix_ms.has_value() && now_unix_ms >= *timestamp_unix_ms &&
+         now_unix_ms - *timestamp_unix_ms <= window_ms;
+}
+
+auto InferAttention(const vibe::session::SessionStatus status,
+                    const std::optional<std::int64_t> last_status_at_unix_ms,
+                    const std::optional<std::int64_t> last_file_change_at_unix_ms,
+                    const std::optional<std::int64_t> last_git_change_at_unix_ms,
+                    const std::optional<std::int64_t> last_controller_change_at_unix_ms,
+                    const std::int64_t now_unix_ms) -> AttentionInference {
+  using vibe::session::AttentionReason;
+  using vibe::session::AttentionState;
+  using vibe::session::SessionStatus;
+
+  if (status == SessionStatus::Error) {
+    return AttentionInference{
+        .state = AttentionState::Intervention,
+        .reason = AttentionReason::SessionError,
+        .since_unix_ms = last_status_at_unix_ms,
+    };
+  }
+
+  if (status == SessionStatus::AwaitingInput) {
+    return AttentionInference{
+        .state = AttentionState::ActionRequired,
+        .reason = AttentionReason::AwaitingInput,
+        .since_unix_ms = last_status_at_unix_ms,
+    };
+  }
+
+  if (IsWithinWindow(last_file_change_at_unix_ms, now_unix_ms, kWorkspaceChangedAttentionMs)) {
+    return AttentionInference{
+        .state = AttentionState::Info,
+        .reason = AttentionReason::WorkspaceChanged,
+        .since_unix_ms = last_file_change_at_unix_ms,
+    };
+  }
+
+  if (IsWithinWindow(last_git_change_at_unix_ms, now_unix_ms, kGitChangedAttentionMs)) {
+    return AttentionInference{
+        .state = AttentionState::Info,
+        .reason = AttentionReason::GitStateChanged,
+        .since_unix_ms = last_git_change_at_unix_ms,
+    };
+  }
+
+  if (IsWithinWindow(last_controller_change_at_unix_ms, now_unix_ms, kControllerChangedAttentionMs)) {
+    return AttentionInference{
+        .state = AttentionState::Info,
+        .reason = AttentionReason::ControllerChanged,
+        .since_unix_ms = last_controller_change_at_unix_ms,
+    };
+  }
+
+  if (status == SessionStatus::Exited &&
+      IsWithinWindow(last_status_at_unix_ms, now_unix_ms, kExitedAttentionMs)) {
+    return AttentionInference{
+        .state = AttentionState::Info,
+        .reason = AttentionReason::SessionExitedCleanly,
+        .since_unix_ms = last_status_at_unix_ms,
+    };
+  }
+
+  return {};
+}
+
 }  // namespace
 
 SessionManager::SessionManager(vibe::store::SessionStore* session_store,
@@ -204,6 +283,9 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .last_status_at_unix_ms = now_unix_ms,
       .last_output_at_unix_ms = std::nullopt,
       .last_activity_at_unix_ms = now_unix_ms,
+      .last_file_change_at_unix_ms = std::nullopt,
+      .last_git_change_at_unix_ms = std::nullopt,
+      .last_controller_change_at_unix_ms = std::nullopt,
       .last_observed_status = vibe::session::SessionStatus::Created,
       .last_observed_sequence = 0,
   });
@@ -250,8 +332,14 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
             vibe::session::SessionSignals{
                 .last_output_at_unix_ms = std::nullopt,
                 .last_activity_at_unix_ms = std::nullopt,
+                .last_file_change_at_unix_ms = std::nullopt,
+                .last_git_change_at_unix_ms = std::nullopt,
+                .last_controller_change_at_unix_ms = std::nullopt,
+                .attention_since_unix_ms = std::nullopt,
                 .current_sequence = persisted.current_sequence,
                 .recent_file_change_count = 0,
+                .attention_state = vibe::session::AttentionState::None,
+                .attention_reason = vibe::session::AttentionReason::None,
                 .git_dirty = false,
                 .git_branch = "",
             },
@@ -274,6 +362,9 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .last_status_at_unix_ms = std::nullopt,
         .last_output_at_unix_ms = std::nullopt,
         .last_activity_at_unix_ms = std::nullopt,
+        .last_file_change_at_unix_ms = std::nullopt,
+        .last_git_change_at_unix_ms = std::nullopt,
+        .last_controller_change_at_unix_ms = std::nullopt,
         .last_observed_status = recovered_status,
         .last_observed_sequence = persisted.current_sequence,
     });
@@ -313,13 +404,23 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
   if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
     if (entry->runtime) {
       auto snapshot = entry->runtime->record().snapshot();
+      const auto attention = InferAttention(snapshot.metadata.status, entry->last_status_at_unix_ms,
+                                            entry->last_file_change_at_unix_ms,
+                                            entry->last_git_change_at_unix_ms,
+                                            entry->last_controller_change_at_unix_ms, now_unix_ms);
       snapshot.signals = vibe::session::SessionSignals{
           .last_output_at_unix_ms = entry->last_output_at_unix_ms,
           .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
+          .last_file_change_at_unix_ms = entry->last_file_change_at_unix_ms,
+          .last_git_change_at_unix_ms = entry->last_git_change_at_unix_ms,
+          .last_controller_change_at_unix_ms = entry->last_controller_change_at_unix_ms,
+          .attention_since_unix_ms = attention.since_unix_ms,
           .current_sequence = snapshot.current_sequence,
           .recent_file_change_count = snapshot.recent_file_changes.size(),
           .supervision_state =
               InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
+          .attention_state = attention.state,
+          .attention_reason = attention.reason,
           .git_dirty = IsGitDirty(snapshot.git_summary),
           .git_branch = snapshot.git_summary.branch,
           .git_modified_count = GitModifiedCount(snapshot.git_summary),
@@ -329,13 +430,23 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
       return snapshot;
     }
     auto snapshot = *entry->recovered_snapshot;
+    const auto attention = InferAttention(snapshot.metadata.status, entry->last_status_at_unix_ms,
+                                          entry->last_file_change_at_unix_ms,
+                                          entry->last_git_change_at_unix_ms,
+                                          entry->last_controller_change_at_unix_ms, now_unix_ms);
     snapshot.signals = vibe::session::SessionSignals{
         .last_output_at_unix_ms = entry->last_output_at_unix_ms,
         .last_activity_at_unix_ms = entry->last_activity_at_unix_ms,
+        .last_file_change_at_unix_ms = entry->last_file_change_at_unix_ms,
+        .last_git_change_at_unix_ms = entry->last_git_change_at_unix_ms,
+        .last_controller_change_at_unix_ms = entry->last_controller_change_at_unix_ms,
+        .attention_since_unix_ms = attention.since_unix_ms,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .supervision_state =
             InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
+        .attention_state = attention.state,
+        .attention_reason = attention.reason,
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
@@ -603,6 +714,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
       entry->controller_client_id = client_id;
       entry->controller_kind = controller_kind;
       entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
+      entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
       return true;
     }
 
@@ -611,6 +723,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
       entry->controller_client_id = client_id;
       entry->controller_kind = controller_kind;
       entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
+      entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
       return true;
     }
 
@@ -637,6 +750,7 @@ auto SessionManager::ReleaseControl(const std::string& session_id, const std::st
     entry->controller_client_id.reset();
     entry->controller_kind = vibe::session::ControllerKind::Host;
     entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
+    entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
     return true;
   }
 
@@ -719,6 +833,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
       if (git_summary != snapshot.git_summary) {
         entry.runtime->UpdateGitSummary(git_summary);
         entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
+        entry.last_git_change_at_unix_ms = entry.last_activity_at_unix_ms;
         PersistEntry(entry);
       }
     }
@@ -728,6 +843,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
       if (!changed_files.empty()) {
         entry.runtime->UpdateRecentFileChanges(changed_files);
         entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
+        entry.last_file_change_at_unix_ms = entry.last_activity_at_unix_ms;
         PersistEntry(entry);
       }
     }
@@ -736,6 +852,11 @@ void SessionManager::PollAll(const int read_timeout_ms) {
 
 auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSummary {
   const auto now_unix_ms = CurrentUnixTimeMs();
+  const auto attention = InferAttention(entry.runtime ? entry.runtime->record().metadata().status
+                                                      : entry.recovered_snapshot->metadata.status,
+                                        entry.last_status_at_unix_ms, entry.last_file_change_at_unix_ms,
+                                        entry.last_git_change_at_unix_ms,
+                                        entry.last_controller_change_at_unix_ms, now_unix_ms);
   if (entry.runtime) {
     const auto snapshot = entry.runtime->record().snapshot();
     const auto& metadata = snapshot.metadata;
@@ -752,10 +873,16 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .is_active = IsInteractiveStatus(metadata.status),
         .supervision_state =
             InferSupervisionState(metadata.status, entry.last_output_at_unix_ms, now_unix_ms),
+        .attention_state = attention.state,
+        .attention_reason = attention.reason,
         .created_at_unix_ms = entry.created_at_unix_ms,
         .last_status_at_unix_ms = entry.last_status_at_unix_ms,
         .last_output_at_unix_ms = entry.last_output_at_unix_ms,
         .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+        .last_file_change_at_unix_ms = entry.last_file_change_at_unix_ms,
+        .last_git_change_at_unix_ms = entry.last_git_change_at_unix_ms,
+        .last_controller_change_at_unix_ms = entry.last_controller_change_at_unix_ms,
+        .attention_since_unix_ms = attention.since_unix_ms,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .git_dirty = IsGitDirty(snapshot.git_summary),
@@ -780,10 +907,16 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .is_recovered = entry.is_recovered,
       .is_active = IsInteractiveStatus(metadata.status),
       .supervision_state = InferSupervisionState(metadata.status, entry.last_output_at_unix_ms, now_unix_ms),
+      .attention_state = attention.state,
+      .attention_reason = attention.reason,
       .created_at_unix_ms = entry.created_at_unix_ms,
       .last_status_at_unix_ms = entry.last_status_at_unix_ms,
       .last_output_at_unix_ms = entry.last_output_at_unix_ms,
       .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+      .last_file_change_at_unix_ms = entry.last_file_change_at_unix_ms,
+      .last_git_change_at_unix_ms = entry.last_git_change_at_unix_ms,
+      .last_controller_change_at_unix_ms = entry.last_controller_change_at_unix_ms,
+      .attention_since_unix_ms = attention.since_unix_ms,
       .current_sequence = snapshot.current_sequence,
       .recent_file_change_count = snapshot.recent_file_changes.size(),
       .git_dirty = IsGitDirty(snapshot.git_summary),

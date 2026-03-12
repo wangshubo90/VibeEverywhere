@@ -198,6 +198,25 @@
     return !isArchivedRecord(session) && session.status !== "Exited" && session.status !== "Error";
   }
 
+  function describeAttention(session) {
+    switch (session.attentionReason) {
+      case "awaiting_input":
+        return { label: "needs input", tone: "warn" };
+      case "session_error":
+        return { label: "needs review", tone: "danger" };
+      case "workspace_changed":
+        return { label: "workspace changed", tone: "good" };
+      case "git_state_changed":
+        return { label: "git changed", tone: "good" };
+      case "controller_changed":
+        return { label: "controller changed", tone: "muted" };
+      case "session_exited_cleanly":
+        return { label: "ended", tone: "muted" };
+      default:
+        return { label: "", tone: "muted" };
+    }
+  }
+
   function makeBadge(label, tone = "neutral") {
     const badge = document.createElement("span");
     badge.className = `badge ${tone}`;
@@ -372,10 +391,12 @@
 
     const badges = document.createElement("div");
     badges.className = "badge-row";
+    const attention = describeAttention(session);
     badges.append(
       makeBadge(session.status, session.status === "Error" ? "danger" : "neutral"),
       makeBadge(isArchivedRecord(session) ? "archived record" : session.isActive ? "live" : "ended",
                 isArchivedRecord(session) ? "warn" : session.isActive ? "good" : "muted"),
+      ...(attention.label ? [makeBadge(attention.label, attention.tone)] : []),
       makeBadge(`${session.attachedClientCount ?? sessionClients.length} client${(session.attachedClientCount ?? sessionClients.length) === 1 ? "" : "s"}`)
     );
     header.append(titleBlock, badges);

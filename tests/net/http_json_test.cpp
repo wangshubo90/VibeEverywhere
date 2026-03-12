@@ -37,10 +37,16 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .is_recovered = false,
       .is_active = true,
       .supervision_state = vibe::session::SupervisionState::Active,
+      .attention_state = vibe::session::AttentionState::Info,
+      .attention_reason = vibe::session::AttentionReason::WorkspaceChanged,
       .created_at_unix_ms = 100,
       .last_status_at_unix_ms = 200,
       .last_output_at_unix_ms = 210,
       .last_activity_at_unix_ms = 220,
+      .last_file_change_at_unix_ms = 220,
+      .last_git_change_at_unix_ms = std::nullopt,
+      .last_controller_change_at_unix_ms = std::nullopt,
+      .attention_since_unix_ms = 220,
       .current_sequence = 12,
       .attached_client_count = 1,
       .recent_file_change_count = 0,
@@ -55,6 +61,8 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   EXPECT_NE(json.find("\"conversationId\":\"conv_hash_1\""), std::string::npos);
   EXPECT_NE(json.find("\"archivedRecord\":false"), std::string::npos);
   EXPECT_NE(json.find("\"inventoryState\":\"live\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionReason\":\"workspace_changed\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
@@ -114,9 +122,15 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
           vibe::session::SessionSignals{
               .last_output_at_unix_ms = 100,
               .last_activity_at_unix_ms = 110,
+              .last_file_change_at_unix_ms = 110,
+              .last_git_change_at_unix_ms = 111,
+              .last_controller_change_at_unix_ms = 112,
+              .attention_since_unix_ms = 110,
               .current_sequence = 42,
               .recent_file_change_count = 2,
               .supervision_state = vibe::session::SupervisionState::Active,
+              .attention_state = vibe::session::AttentionState::Info,
+              .attention_reason = vibe::session::AttentionReason::WorkspaceChanged,
               .git_dirty = true,
               .git_branch = "main",
               .git_modified_count = 1,
@@ -142,6 +156,8 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   EXPECT_NE(json.find("\"currentSequence\":42"), std::string::npos);
   EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionReason\":\"workspace_changed\""), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
   EXPECT_NE(json.find("\"gitBranch\":\"main\""), std::string::npos);
   EXPECT_NE(json.find("\"gitModifiedCount\":1"), std::string::npos);
@@ -189,10 +205,16 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .is_recovered = false,
               .is_active = true,
               .supervision_state = vibe::session::SupervisionState::Active,
+              .attention_state = vibe::session::AttentionState::Info,
+              .attention_reason = vibe::session::AttentionReason::ControllerChanged,
               .created_at_unix_ms = 100,
               .last_status_at_unix_ms = 200,
               .last_output_at_unix_ms = 210,
               .last_activity_at_unix_ms = 220,
+              .last_file_change_at_unix_ms = std::nullopt,
+              .last_git_change_at_unix_ms = std::nullopt,
+              .last_controller_change_at_unix_ms = 220,
+              .attention_since_unix_ms = 220,
               .current_sequence = 12,
               .attached_client_count = 1,
               .recent_file_change_count = 0,
@@ -211,6 +233,8 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"controllerKind\":\"remote\""), std::string::npos);
   EXPECT_NE(json.find("\"archivedRecord\":false"), std::string::npos);
   EXPECT_NE(json.find("\"inventoryState\":\"live\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionReason\":\"controller_changed\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
@@ -250,10 +274,16 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .is_recovered = false,
               .is_active = true,
               .supervision_state = vibe::session::SupervisionState::Active,
+              .attention_state = vibe::session::AttentionState::Info,
+              .attention_reason = vibe::session::AttentionReason::GitStateChanged,
               .created_at_unix_ms = 100,
               .last_status_at_unix_ms = 200,
               .last_output_at_unix_ms = 210,
               .last_activity_at_unix_ms = 220,
+              .last_file_change_at_unix_ms = std::nullopt,
+              .last_git_change_at_unix_ms = 220,
+              .last_controller_change_at_unix_ms = std::nullopt,
+              .attention_since_unix_ms = 220,
               .current_sequence = 12,
               .attached_client_count = 2,
               .recent_file_change_count = 3,
@@ -269,6 +299,8 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
+  EXPECT_NE(json.find("\"attentionReason\":\"git_state_changed\""), std::string::npos);
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":210"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":220"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":12"), std::string::npos);
@@ -297,10 +329,16 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .is_recovered = false,
                   .is_active = true,
                   .supervision_state = vibe::session::SupervisionState::Active,
+                  .attention_state = vibe::session::AttentionState::None,
+                  .attention_reason = vibe::session::AttentionReason::None,
                   .created_at_unix_ms = std::nullopt,
                   .last_status_at_unix_ms = std::nullopt,
                   .last_output_at_unix_ms = std::nullopt,
                   .last_activity_at_unix_ms = std::nullopt,
+                  .last_file_change_at_unix_ms = std::nullopt,
+                  .last_git_change_at_unix_ms = std::nullopt,
+                  .last_controller_change_at_unix_ms = std::nullopt,
+                  .attention_since_unix_ms = std::nullopt,
                   .current_sequence = 2,
                   .recent_file_change_count = 0,
                   .git_dirty = true,
@@ -318,10 +356,16 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .is_recovered = true,
                   .is_active = false,
                   .supervision_state = vibe::session::SupervisionState::Stopped,
+                  .attention_state = vibe::session::AttentionState::None,
+                  .attention_reason = vibe::session::AttentionReason::None,
                   .created_at_unix_ms = std::nullopt,
                   .last_status_at_unix_ms = std::nullopt,
                   .last_output_at_unix_ms = std::nullopt,
                   .last_activity_at_unix_ms = std::nullopt,
+                  .last_file_change_at_unix_ms = std::nullopt,
+                  .last_git_change_at_unix_ms = std::nullopt,
+                  .last_controller_change_at_unix_ms = std::nullopt,
+                  .attention_since_unix_ms = std::nullopt,
                   .current_sequence = 4,
                   .recent_file_change_count = 1,
                   .git_dirty = false,

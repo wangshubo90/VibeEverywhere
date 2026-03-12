@@ -145,6 +145,8 @@ Deliverables:
 
 - conservative supervision state
 - `SessionSignals`-driven attention heuristics
+- explicit separation between lifecycle and attention
+- `attentionState`, `attentionReason`, and `attentionSince`
 - host-wide inventory subscription events
 - optional coarse `SessionPhase` seam
 - phase inference seam fed by PTY/filesystem/process/resource signals
@@ -154,10 +156,12 @@ Deliverables:
 Acceptance criteria:
 
 - architecture supports `SessionPhase` without locking into provider-specific rules too early
-- waiting-for-input, idle, active-output, and file-activity signals are surfaced cleanly
+- waiting-for-input, clean exit, and file/git/controller changes can drive conservative attention states
+- info-level attention decays automatically rather than sticking forever
+- intervention rules remain conservative and time-aware
 - clients can consume high-level supervision state without re-inferring it locally
 - detection remains tunable and conservative
- - session inventory can stay live via subscription rather than manual refresh
+- session inventory can stay live via subscription rather than manual refresh
 ## Phase 8: Security and Pairing
 
 Deliverables:
@@ -200,6 +204,7 @@ Acceptance criteria:
 - Treat the host terminal and remote clients as the same class of daemon-attached session participants.
 - Freeze module interfaces before parallel work starts when a phase spans auth, persistence, and network changes.
 - Treat `SessionPhase` as an extensibility seam, not a prematurely rigid taxonomy.
+- Treat attention as the first production supervisory layer; keep it separate from process lifecycle.
 - Prefer improving runtime signal quality before investing in large frontend rewrites.
 - Treat file watching and git inspection as both observability inputs and read-only client data surfaces.
 - Keep client-facing file and git features read-only until supervision flows are stable.
@@ -207,6 +212,7 @@ Acceptance criteria:
 ## Immediate Next Docs to Consult
 
 - [architecture_refined.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/architecture_refined.md)
+- [session_attention_inference_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/session_attention_inference_v1.md)
 - [session_runtime_and_pty.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/session_runtime_and_pty.md)
 - [api_and_event_schema.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/api_and_event_schema.md)
 - [implementation_milestones.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/implementation_milestones.md)

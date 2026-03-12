@@ -25,8 +25,14 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
           SessionSignals{
               .last_output_at_unix_ms = 100,
               .last_activity_at_unix_ms = 110,
+              .last_file_change_at_unix_ms = 110,
+              .last_git_change_at_unix_ms = 111,
+              .last_controller_change_at_unix_ms = 112,
+              .attention_since_unix_ms = 110,
               .current_sequence = 42,
               .recent_file_change_count = 2,
+              .attention_state = AttentionState::Info,
+              .attention_reason = AttentionReason::WorkspaceChanged,
               .git_dirty = true,
               .git_branch = "main",
               .git_modified_count = 1,
@@ -53,9 +59,15 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.recent_terminal_tail, "Running tests...\nDone.\n");
   EXPECT_EQ(snapshot.signals.last_output_at_unix_ms, std::optional<std::int64_t>{100});
   EXPECT_EQ(snapshot.signals.last_activity_at_unix_ms, std::optional<std::int64_t>{110});
+  EXPECT_EQ(snapshot.signals.last_file_change_at_unix_ms, std::optional<std::int64_t>{110});
+  EXPECT_EQ(snapshot.signals.last_git_change_at_unix_ms, std::optional<std::int64_t>{111});
+  EXPECT_EQ(snapshot.signals.last_controller_change_at_unix_ms, std::optional<std::int64_t>{112});
+  EXPECT_EQ(snapshot.signals.attention_since_unix_ms, std::optional<std::int64_t>{110});
   EXPECT_EQ(snapshot.signals.current_sequence, 42U);
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 2U);
   EXPECT_EQ(snapshot.signals.supervision_state, SupervisionState::Quiet);
+  EXPECT_EQ(snapshot.signals.attention_state, AttentionState::Info);
+  EXPECT_EQ(snapshot.signals.attention_reason, AttentionReason::WorkspaceChanged);
   EXPECT_TRUE(snapshot.signals.git_dirty);
   EXPECT_EQ(snapshot.signals.git_branch, "main");
   EXPECT_EQ(snapshot.signals.git_modified_count, 1U);
@@ -97,9 +109,15 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
   EXPECT_TRUE(snapshot.recent_terminal_tail.empty());
   EXPECT_FALSE(snapshot.signals.last_output_at_unix_ms.has_value());
   EXPECT_FALSE(snapshot.signals.last_activity_at_unix_ms.has_value());
+  EXPECT_FALSE(snapshot.signals.last_file_change_at_unix_ms.has_value());
+  EXPECT_FALSE(snapshot.signals.last_git_change_at_unix_ms.has_value());
+  EXPECT_FALSE(snapshot.signals.last_controller_change_at_unix_ms.has_value());
+  EXPECT_FALSE(snapshot.signals.attention_since_unix_ms.has_value());
   EXPECT_EQ(snapshot.signals.current_sequence, 0U);
   EXPECT_EQ(snapshot.signals.recent_file_change_count, 0U);
   EXPECT_EQ(snapshot.signals.supervision_state, SupervisionState::Quiet);
+  EXPECT_EQ(snapshot.signals.attention_state, AttentionState::None);
+  EXPECT_EQ(snapshot.signals.attention_reason, AttentionReason::None);
   EXPECT_FALSE(snapshot.signals.git_dirty);
   EXPECT_TRUE(snapshot.signals.git_branch.empty());
   EXPECT_EQ(snapshot.signals.git_modified_count, 0U);

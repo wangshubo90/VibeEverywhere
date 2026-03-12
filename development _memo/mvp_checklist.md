@@ -80,6 +80,8 @@ Acceptance:
 
 - the architecture exposes a place for future `SessionPhase`
 - clients receive at least coarse attention-oriented state without parsing raw PTY output themselves
+- attention is modeled separately from lifecycle status
+- `awaiting_input` is surfaced as a first-class attention condition
 - waiting-for-input and ended-session conditions are easy to surface in clients
 
 ### 10. File and Git Inspection

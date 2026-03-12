@@ -52,11 +52,15 @@ Responsibilities:
 
 - consume PTY, filesystem, process, and resource signals
 - infer higher-level supervisory state
-- expose a coarse `SessionPhase` plus attention-oriented flags
+- derive attention state separately from process lifecycle
+- expose `attentionState`, `attentionReason`, and later `attentionSince`
+- expose a coarse `SessionPhase` only as a future seam
 - remain provider-agnostic by default
 - avoid treating raw terminal activity alone as the whole product signal
 
 `SessionPhase` should be supported by the architecture now, but not overfit too early. The first implementation should keep the phase model coarse and tunable because some detection logic may vary by provider and prompt style.
+
+Attention should be the first production supervisory layer before deep phase inference. It should be conservative, time-aware, and based primarily on structured signals such as lifecycle, output/activity timestamps, file changes, git transitions, and controller changes.
 
 ### SessionRuntime
 
@@ -258,6 +262,8 @@ The runtime should keep two distinct state layers:
 2. Supervisory state
 - recent filesystem activity
 - PTY output rate
+- attention level and reason
+- attention decay/cooldown timestamps
 - child-process activity
 - resource signals
 - coarse `SessionPhase`

@@ -345,6 +345,10 @@ TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
   ASSERT_TRUE(requested_summary.has_value());
   ASSERT_TRUE(requested_summary->last_activity_at_unix_ms.has_value());
   EXPECT_GT(*requested_summary->last_activity_at_unix_ms, activity_before);
+  EXPECT_EQ(requested_summary->attention_state, vibe::session::AttentionState::Info);
+  EXPECT_EQ(requested_summary->attention_reason, vibe::session::AttentionReason::ControllerChanged);
+  EXPECT_TRUE(requested_summary->last_controller_change_at_unix_ms.has_value());
+  EXPECT_EQ(requested_summary->attention_since_unix_ms, requested_summary->last_controller_change_at_unix_ms);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(5));
   ASSERT_TRUE(manager.ReleaseControl(created->id.value(), "remote-1"));
@@ -417,6 +421,9 @@ TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndS
   EXPECT_EQ(dirty_summary->git_modified_count, 1U);
   EXPECT_EQ(dirty_summary->git_staged_count, 0U);
   EXPECT_EQ(dirty_summary->git_untracked_count, 1U);
+  EXPECT_EQ(dirty_summary->attention_state, vibe::session::AttentionState::Info);
+  EXPECT_EQ(dirty_summary->attention_reason, vibe::session::AttentionReason::WorkspaceChanged);
+  EXPECT_TRUE(dirty_summary->last_git_change_at_unix_ms.has_value());
   ASSERT_TRUE(dirty_summary->last_activity_at_unix_ms.has_value());
   EXPECT_GT(*dirty_summary->last_activity_at_unix_ms, *clean_summary->last_activity_at_unix_ms);
 
@@ -466,6 +473,29 @@ TEST(SessionManagerTest, InfersActiveQuietAndStoppedSupervisionStatesConservativ
   EXPECT_EQ(InferSupervisionState(SessionStatus::Starting, std::nullopt, 8'000), SupervisionState::Quiet);
   EXPECT_EQ(InferSupervisionState(SessionStatus::Exited, 1'000, 1'001), SupervisionState::Stopped);
   EXPECT_EQ(InferSupervisionState(SessionStatus::Error, std::nullopt, 1'001), SupervisionState::Stopped);
+}
+
+TEST(SessionManagerTest, StopSetsShortLivedExitedAttention) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "exit-attention",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  ASSERT_TRUE(manager.StopSession(created->id.value()));
+
+  const auto summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+  EXPECT_EQ(summary->attention_state, vibe::session::AttentionState::Info);
+  EXPECT_EQ(summary->attention_reason, vibe::session::AttentionReason::SessionExitedCleanly);
+  EXPECT_EQ(summary->attention_since_unix_ms, summary->last_status_at_unix_ms);
 }
 
 TEST(SessionManagerTest, ReadFileReturnsContentWithinRecoveredWorkspaceRoot) {
@@ -622,10 +652,16 @@ TEST(SessionManagerTest, PollAllTracksRecentWorkspaceFileChangesForLiveSession) 
   ASSERT_TRUE(snapshot.has_value());
   EXPECT_EQ(snapshot->recent_file_changes, (std::vector<std::string>{"notes.txt", "src/main.cpp"}));
   EXPECT_EQ(snapshot->signals.recent_file_change_count, 2U);
+  EXPECT_EQ(snapshot->signals.attention_state, vibe::session::AttentionState::Info);
+  EXPECT_EQ(snapshot->signals.attention_reason, vibe::session::AttentionReason::WorkspaceChanged);
+  EXPECT_TRUE(snapshot->signals.last_file_change_at_unix_ms.has_value());
+  EXPECT_EQ(snapshot->signals.attention_since_unix_ms, snapshot->signals.last_file_change_at_unix_ms);
 
   const auto summary = manager.GetSession(created->id.value());
   ASSERT_TRUE(summary.has_value());
   EXPECT_EQ(summary->recent_file_change_count, 2U);
+  EXPECT_EQ(summary->attention_state, vibe::session::AttentionState::Info);
+  EXPECT_EQ(summary->attention_reason, vibe::session::AttentionReason::WorkspaceChanged);
 
   EXPECT_EQ(manager.Shutdown(), 1U);
   std::filesystem::remove_all(temp_root);

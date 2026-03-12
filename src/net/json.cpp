@@ -29,6 +29,14 @@ auto ToActivityState(const vibe::service::SessionSummary& summary) -> const char
   return vibe::session::ToString(summary.supervision_state).data();
 }
 
+auto ToAttentionState(const vibe::service::SessionSummary& summary) -> const char* {
+  return vibe::session::ToString(summary.attention_state).data();
+}
+
+auto ToAttentionReason(const vibe::service::SessionSummary& summary) -> const char* {
+  return vibe::session::ToString(summary.attention_reason).data();
+}
+
 auto ToInventoryState(const vibe::service::SessionSummary& summary) -> const char* {
   if (summary.is_active) {
     return "live";
@@ -99,6 +107,8 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["inventoryState"] = ToInventoryState(summary);
   object["activityState"] = ToActivityState(summary);
   object["supervisionState"] = std::string(vibe::session::ToString(summary.supervision_state));
+  object["attentionState"] = ToAttentionState(summary);
+  object["attentionReason"] = ToAttentionReason(summary);
   if (summary.created_at_unix_ms.has_value()) {
     object["createdAtUnixMs"] = *summary.created_at_unix_ms;
   }
@@ -110,6 +120,18 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   }
   if (summary.last_activity_at_unix_ms.has_value()) {
     object["lastActivityAtUnixMs"] = *summary.last_activity_at_unix_ms;
+  }
+  if (summary.last_file_change_at_unix_ms.has_value()) {
+    object["lastFileChangeAtUnixMs"] = *summary.last_file_change_at_unix_ms;
+  }
+  if (summary.last_git_change_at_unix_ms.has_value()) {
+    object["lastGitChangeAtUnixMs"] = *summary.last_git_change_at_unix_ms;
+  }
+  if (summary.last_controller_change_at_unix_ms.has_value()) {
+    object["lastControllerChangeAtUnixMs"] = *summary.last_controller_change_at_unix_ms;
+  }
+  if (summary.attention_since_unix_ms.has_value()) {
+    object["attentionSinceUnixMs"] = *summary.attention_since_unix_ms;
   }
   object["currentSequence"] = summary.current_sequence;
   object["attachedClientCount"] = summary.attached_client_count;
@@ -169,9 +191,23 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   if (snapshot.signals.last_activity_at_unix_ms.has_value()) {
     signals["lastActivityAtUnixMs"] = *snapshot.signals.last_activity_at_unix_ms;
   }
+  if (snapshot.signals.last_file_change_at_unix_ms.has_value()) {
+    signals["lastFileChangeAtUnixMs"] = *snapshot.signals.last_file_change_at_unix_ms;
+  }
+  if (snapshot.signals.last_git_change_at_unix_ms.has_value()) {
+    signals["lastGitChangeAtUnixMs"] = *snapshot.signals.last_git_change_at_unix_ms;
+  }
+  if (snapshot.signals.last_controller_change_at_unix_ms.has_value()) {
+    signals["lastControllerChangeAtUnixMs"] = *snapshot.signals.last_controller_change_at_unix_ms;
+  }
+  if (snapshot.signals.attention_since_unix_ms.has_value()) {
+    signals["attentionSinceUnixMs"] = *snapshot.signals.attention_since_unix_ms;
+  }
   signals["currentSequence"] = snapshot.signals.current_sequence;
   signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
   signals["supervisionState"] = std::string(vibe::session::ToString(snapshot.signals.supervision_state));
+  signals["attentionState"] = std::string(vibe::session::ToString(snapshot.signals.attention_state));
+  signals["attentionReason"] = std::string(vibe::session::ToString(snapshot.signals.attention_reason));
   signals["gitDirty"] = snapshot.signals.git_dirty;
   signals["gitBranch"] = snapshot.signals.git_branch;
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
@@ -279,6 +315,8 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["inventoryState"] = ToInventoryState(event.summary);
   object["activityState"] = ToActivityState(event.summary);
   object["supervisionState"] = std::string(vibe::session::ToString(event.summary.supervision_state));
+  object["attentionState"] = ToAttentionState(event.summary);
+  object["attentionReason"] = ToAttentionReason(event.summary);
   if (event.summary.created_at_unix_ms.has_value()) {
     object["createdAtUnixMs"] = *event.summary.created_at_unix_ms;
   }
@@ -290,6 +328,18 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   }
   if (event.summary.last_activity_at_unix_ms.has_value()) {
     object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
+  }
+  if (event.summary.last_file_change_at_unix_ms.has_value()) {
+    object["lastFileChangeAtUnixMs"] = *event.summary.last_file_change_at_unix_ms;
+  }
+  if (event.summary.last_git_change_at_unix_ms.has_value()) {
+    object["lastGitChangeAtUnixMs"] = *event.summary.last_git_change_at_unix_ms;
+  }
+  if (event.summary.last_controller_change_at_unix_ms.has_value()) {
+    object["lastControllerChangeAtUnixMs"] = *event.summary.last_controller_change_at_unix_ms;
+  }
+  if (event.summary.attention_since_unix_ms.has_value()) {
+    object["attentionSinceUnixMs"] = *event.summary.attention_since_unix_ms;
   }
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;
@@ -317,11 +367,25 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   object["activityState"] = ToActivityState(event.summary);
   object["isActive"] = event.summary.is_active;
   object["supervisionState"] = std::string(vibe::session::ToString(event.summary.supervision_state));
+  object["attentionState"] = ToAttentionState(event.summary);
+  object["attentionReason"] = ToAttentionReason(event.summary);
   if (event.summary.last_output_at_unix_ms.has_value()) {
     object["lastOutputAtUnixMs"] = *event.summary.last_output_at_unix_ms;
   }
   if (event.summary.last_activity_at_unix_ms.has_value()) {
     object["lastActivityAtUnixMs"] = *event.summary.last_activity_at_unix_ms;
+  }
+  if (event.summary.last_file_change_at_unix_ms.has_value()) {
+    object["lastFileChangeAtUnixMs"] = *event.summary.last_file_change_at_unix_ms;
+  }
+  if (event.summary.last_git_change_at_unix_ms.has_value()) {
+    object["lastGitChangeAtUnixMs"] = *event.summary.last_git_change_at_unix_ms;
+  }
+  if (event.summary.last_controller_change_at_unix_ms.has_value()) {
+    object["lastControllerChangeAtUnixMs"] = *event.summary.last_controller_change_at_unix_ms;
+  }
+  if (event.summary.attention_since_unix_ms.has_value()) {
+    object["attentionSinceUnixMs"] = *event.summary.attention_since_unix_ms;
   }
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;

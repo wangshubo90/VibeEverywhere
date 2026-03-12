@@ -114,6 +114,32 @@ function attentionSummary(session, snapshot = state.selectedSnapshot) {
   if (!session) {
     return { label: "No session selected", tone: "muted", detail: "Pick a session from the inventory." };
   }
+  if (session.attentionState === "action_required") {
+    return { label: "Needs input", tone: "warn", detail: "The session is waiting for human input." };
+  }
+  if (session.attentionState === "intervention") {
+    return {
+      label: session.attentionReason === "session_error" ? "Needs review" : "Intervention",
+      tone: "warn",
+      detail: session.attentionReason === "session_error"
+        ? "Session exited with an error."
+        : "The runtime marked this session for intervention."
+    };
+  }
+  if (session.attentionState === "info") {
+    switch (session.attentionReason) {
+      case "workspace_changed":
+        return { label: "Workspace changed", tone: "good", detail: "Recent file changes are available to inspect." };
+      case "git_state_changed":
+        return { label: "Git changed", tone: "good", detail: "Repository state changed recently." };
+      case "controller_changed":
+        return { label: "Controller changed", tone: "muted", detail: "Control was taken or released recently." };
+      case "session_exited_cleanly":
+        return { label: "Ended", tone: "muted", detail: "The session exited cleanly." };
+      default:
+        break;
+    }
+  }
   if (session.status === "Error") {
     return { label: "Needs review", tone: "warn", detail: "Session exited with an error." };
   }
@@ -1020,9 +1046,15 @@ function connect() {
           updated.archivedRecord = payload.archivedRecord ?? updated.archivedRecord;
           updated.inventoryState = payload.inventoryState || updated.inventoryState;
           updated.supervisionState = payload.supervisionState || updated.supervisionState;
+          updated.attentionState = payload.attentionState || updated.attentionState;
+          updated.attentionReason = payload.attentionReason || updated.attentionReason;
           updated.lastStatusAtUnixMs = payload.lastStatusAtUnixMs ?? updated.lastStatusAtUnixMs;
           updated.lastOutputAtUnixMs = payload.lastOutputAtUnixMs ?? updated.lastOutputAtUnixMs;
           updated.lastActivityAtUnixMs = payload.lastActivityAtUnixMs ?? updated.lastActivityAtUnixMs;
+          updated.lastFileChangeAtUnixMs = payload.lastFileChangeAtUnixMs ?? updated.lastFileChangeAtUnixMs;
+          updated.lastGitChangeAtUnixMs = payload.lastGitChangeAtUnixMs ?? updated.lastGitChangeAtUnixMs;
+          updated.lastControllerChangeAtUnixMs = payload.lastControllerChangeAtUnixMs ?? updated.lastControllerChangeAtUnixMs;
+          updated.attentionSinceUnixMs = payload.attentionSinceUnixMs ?? updated.attentionSinceUnixMs;
           updated.currentSequence = payload.currentSequence ?? updated.currentSequence;
           updated.recentFileChangeCount = payload.recentFileChangeCount ?? updated.recentFileChangeCount;
           updated.gitDirty = payload.gitDirty ?? updated.gitDirty;
@@ -1038,8 +1070,14 @@ function connect() {
         if (updated) {
           updated.isActive = payload.isActive ?? updated.isActive;
           updated.supervisionState = payload.supervisionState || updated.supervisionState;
+          updated.attentionState = payload.attentionState || updated.attentionState;
+          updated.attentionReason = payload.attentionReason || updated.attentionReason;
           updated.lastOutputAtUnixMs = payload.lastOutputAtUnixMs ?? updated.lastOutputAtUnixMs;
           updated.lastActivityAtUnixMs = payload.lastActivityAtUnixMs ?? updated.lastActivityAtUnixMs;
+          updated.lastFileChangeAtUnixMs = payload.lastFileChangeAtUnixMs ?? updated.lastFileChangeAtUnixMs;
+          updated.lastGitChangeAtUnixMs = payload.lastGitChangeAtUnixMs ?? updated.lastGitChangeAtUnixMs;
+          updated.lastControllerChangeAtUnixMs = payload.lastControllerChangeAtUnixMs ?? updated.lastControllerChangeAtUnixMs;
+          updated.attentionSinceUnixMs = payload.attentionSinceUnixMs ?? updated.attentionSinceUnixMs;
           updated.currentSequence = payload.currentSequence ?? updated.currentSequence;
           updated.recentFileChangeCount = payload.recentFileChangeCount ?? updated.recentFileChangeCount;
           updated.gitDirty = payload.gitDirty ?? updated.gitDirty;

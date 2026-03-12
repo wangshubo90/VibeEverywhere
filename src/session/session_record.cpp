@@ -42,8 +42,14 @@ auto SessionRecord::snapshot() const -> SessionSnapshot {
           SessionSignals{
               .last_output_at_unix_ms = std::nullopt,
               .last_activity_at_unix_ms = std::nullopt,
+              .last_file_change_at_unix_ms = std::nullopt,
+              .last_git_change_at_unix_ms = std::nullopt,
+              .last_controller_change_at_unix_ms = std::nullopt,
+              .attention_since_unix_ms = std::nullopt,
               .current_sequence = current_sequence_,
               .recent_file_change_count = recent_file_changes_.size(),
+              .attention_state = AttentionState::None,
+              .attention_reason = AttentionReason::None,
               .git_dirty = !git_summary_.modified_files.empty() || !git_summary_.staged_files.empty() ||
                            !git_summary_.untracked_files.empty(),
               .git_branch = git_summary_.branch,

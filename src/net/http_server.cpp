@@ -536,16 +536,24 @@ class WebSocketSession final : public WebSocketSessionBase,
 
     const bool activity_changed =
         !last_activity_state_.has_value() || *last_activity_state_ != std::string(ToActivityStateLabel(*summary)) ||
+        !last_attention_state_.has_value() ||
+        *last_attention_state_ != std::string(vibe::session::ToString(summary->attention_state)) ||
+        !last_attention_reason_.has_value() ||
+        *last_attention_reason_ != std::string(vibe::session::ToString(summary->attention_reason)) ||
         last_output_at_unix_ms_ != summary->last_output_at_unix_ms ||
         last_activity_at_unix_ms_ != summary->last_activity_at_unix_ms ||
+        last_attention_since_unix_ms_ != summary->attention_since_unix_ms ||
         last_current_sequence_ != summary->current_sequence ||
         last_recent_file_change_count_ != summary->recent_file_change_count ||
         last_git_dirty_ != summary->git_dirty ||
         last_git_branch_ != summary->git_branch;
     if (activity_changed) {
       last_activity_state_ = std::string(ToActivityStateLabel(*summary));
+      last_attention_state_ = std::string(vibe::session::ToString(summary->attention_state));
+      last_attention_reason_ = std::string(vibe::session::ToString(summary->attention_reason));
       last_output_at_unix_ms_ = summary->last_output_at_unix_ms;
       last_activity_at_unix_ms_ = summary->last_activity_at_unix_ms;
+      last_attention_since_unix_ms_ = summary->attention_since_unix_ms;
       last_current_sequence_ = summary->current_sequence;
       last_recent_file_change_count_ = summary->recent_file_change_count;
       last_git_dirty_ = summary->git_dirty;
@@ -705,8 +713,11 @@ class WebSocketSession final : public WebSocketSessionBase,
   std::optional<std::string> last_controller_client_id_;
   vibe::session::ControllerKind last_controller_kind_{vibe::session::ControllerKind::None};
   std::optional<std::string> last_activity_state_;
+  std::optional<std::string> last_attention_state_;
+  std::optional<std::string> last_attention_reason_;
   std::optional<std::int64_t> last_output_at_unix_ms_;
   std::optional<std::int64_t> last_activity_at_unix_ms_;
+  std::optional<std::int64_t> last_attention_since_unix_ms_;
   std::uint64_t last_current_sequence_{0};
   std::size_t last_recent_file_change_count_{0};
   bool last_git_dirty_{false};
