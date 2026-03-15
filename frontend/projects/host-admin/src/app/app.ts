@@ -73,6 +73,8 @@ interface CreateSessionDraft {
   command: string;
 }
 
+type HostViewTab = 'setup' | 'authentication' | 'sessions' | 'activity';
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -82,6 +84,7 @@ interface CreateSessionDraft {
 })
 export class App implements OnInit, OnDestroy {
   readonly apiBase = this.detectApiBase();
+  activeViewTab: HostViewTab = 'setup';
 
   hostInfo: HostInfoResponse | null = null;
   hostConfig: HostConfigDraft = {
@@ -115,6 +118,7 @@ export class App implements OnInit, OnDestroy {
   protected readonly attentionTone = attentionTone;
 
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPendingPairingCount = 0;
 
   async ngOnInit(): Promise<void> {
     this.createSessionDraft.workspaceRoot = this.defaultWorkspaceRoot();
@@ -148,6 +152,7 @@ export class App implements OnInit, OnDestroy {
         ...pairing,
         requestedLabel: this.formatRelative(pairing.requestedAtUnixMs),
       }));
+      this.maybeFocusAuthenticationTab(this.pendingPairings.length);
       this.trustedDevices = trustedDevices.map((device) => ({
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -180,6 +185,7 @@ export class App implements OnInit, OnDestroy {
         ...pairing,
         requestedLabel: this.formatRelative(pairing.requestedAtUnixMs),
       }));
+      this.maybeFocusAuthenticationTab(this.pendingPairings.length);
       this.trustedDevices = trustedDevices.map((device) => ({
         deviceId: device.deviceId,
         deviceName: device.deviceName,
@@ -361,6 +367,10 @@ export class App implements OnInit, OnDestroy {
     return session.lifecycleStatus !== 'Exited' && session.lifecycleStatus !== 'Error';
   }
 
+  selectViewTab(tab: HostViewTab): void {
+    this.activeViewTab = tab;
+  }
+
   private detectApiBase(): string {
     if (typeof window === 'undefined') {
       return 'http://127.0.0.1:18085';
@@ -455,6 +465,13 @@ export class App implements OnInit, OnDestroy {
     this.pendingPairings.sort((left, right) => left.pairingId.localeCompare(right.pairingId));
     this.trustedDevices.sort((left, right) => left.deviceName.localeCompare(right.deviceName));
     this.clients.sort((left, right) => left.sessionId.localeCompare(right.sessionId, undefined, { numeric: true }));
+  }
+
+  private maybeFocusAuthenticationTab(nextPendingCount: number): void {
+    if (nextPendingCount > 0 && nextPendingCount > this.lastPendingPairingCount) {
+      this.activeViewTab = 'authentication';
+    }
+    this.lastPendingPairingCount = nextPendingCount;
   }
 
   private formatRelative(unixMs?: number): string {

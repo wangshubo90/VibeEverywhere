@@ -4,8 +4,7 @@
       <p class="eyebrow">Host Admin</p>
       <h1>VibeEverywhere host control room</h1>
       <p class="lede">
-        Localhost-only admin surface for pairing, trusted devices, host config, session creation,
-        and runtime management.
+        Localhost-only admin surface for setup, authentication, session management, and operator activity.
       </p>
     </div>
     <div class="hero-card">
@@ -25,10 +24,6 @@
         <span>Attached clients</span>
         <strong>{{ clients.length }}</strong>
       </div>
-      <div class="hero-stat">
-        <span>API base</span>
-        <strong>{{ apiBase || 'same-origin' }}</strong>
-      </div>
       <div class="button-pair">
         <button type="button" class="ghost" (click)="refreshAll()">
           {{ loading ? 'Refreshing…' : 'Refresh now' }}
@@ -37,264 +32,287 @@
     </div>
   </header>
 
+  <section class="tabbar">
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'setup'" (click)="selectViewTab('setup')">
+      Setup
+    </button>
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'authentication'" (click)="selectViewTab('authentication')">
+      Authentication
+      @if (pendingPairings.length > 0) {
+        <span class="tab-count">{{ pendingPairings.length }}</span>
+      }
+    </button>
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'sessions'" (click)="selectViewTab('sessions')">
+      Sessions
+    </button>
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'activity'" (click)="selectViewTab('activity')">
+      Activity
+    </button>
+  </section>
+
   <section class="grid">
-    <article class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Setup</p>
-          <h2>Host info and config</h2>
+    @if (activeViewTab === 'setup') {
+      <article class="panel wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Setup</p>
+            <h2>Host info and config</h2>
+          </div>
+          <button type="button" (click)="saveConfig()">
+            {{ savingConfig ? 'Saving…' : 'Save config' }}
+          </button>
         </div>
-        <button type="button" (click)="saveConfig()">
-          {{ savingConfig ? 'Saving…' : 'Save config' }}
-        </button>
-      </div>
-      <form class="stack-list" (submit)="$event.preventDefault(); saveConfig()">
-        <div class="form-grid">
-          <label class="field">
-            <span>Display name</span>
-            <input [(ngModel)]="hostConfig.displayName" name="displayName" />
-          </label>
-          <label class="field">
-            <span>Admin host</span>
-            <input [(ngModel)]="hostConfig.adminHost" name="adminHost" />
-          </label>
-          <label class="field">
-            <span>Admin port</span>
-            <input [(ngModel)]="hostConfig.adminPort" name="adminPort" type="number" />
-          </label>
-          <label class="field">
-            <span>Remote host</span>
-            <input [(ngModel)]="hostConfig.remoteHost" name="remoteHost" />
-          </label>
-          <label class="field">
-            <span>Remote port</span>
-            <input [(ngModel)]="hostConfig.remotePort" name="remotePort" type="number" />
-          </label>
-          <label class="field">
-            <span>TLS</span>
-            <input [value]="hostInfo?.tls?.mode || 'disabled'" disabled />
-          </label>
-          <label class="field wide-field">
-            <span>Codex command override</span>
-            <input [(ngModel)]="hostConfig.codexCommand" name="codexCommand" placeholder="/opt/bin/codex --fast" />
-          </label>
-          <label class="field wide-field">
-            <span>Claude command override</span>
-            <input [(ngModel)]="hostConfig.claudeCommand" name="claudeCommand" placeholder="/opt/bin/claude --print" />
-          </label>
+        <form class="stack-list" (submit)="$event.preventDefault(); saveConfig()">
+          <div class="form-grid">
+            <label class="field">
+              <span>Display name</span>
+              <input [(ngModel)]="hostConfig.displayName" name="displayName" />
+            </label>
+            <label class="field">
+              <span>Admin host</span>
+              <input [(ngModel)]="hostConfig.adminHost" name="adminHost" />
+            </label>
+            <label class="field">
+              <span>Admin port</span>
+              <input [(ngModel)]="hostConfig.adminPort" name="adminPort" type="number" />
+            </label>
+            <label class="field">
+              <span>Remote host</span>
+              <input [(ngModel)]="hostConfig.remoteHost" name="remoteHost" />
+            </label>
+            <label class="field">
+              <span>Remote port</span>
+              <input [(ngModel)]="hostConfig.remotePort" name="remotePort" type="number" />
+            </label>
+            <label class="field">
+              <span>TLS</span>
+              <input [value]="hostInfo?.tls?.mode || 'disabled'" disabled />
+            </label>
+            <label class="field wide-field">
+              <span>Codex command override</span>
+              <input [(ngModel)]="hostConfig.codexCommand" name="codexCommand" placeholder="/opt/bin/codex --fast" />
+            </label>
+            <label class="field wide-field">
+              <span>Claude command override</span>
+              <input [(ngModel)]="hostConfig.claudeCommand" name="claudeCommand" placeholder="/opt/bin/claude --print" />
+            </label>
+          </div>
+        </form>
+        <div class="action-row">
+          <button type="button" class="ghost" (click)="downloadRemoteCertificate()">Download remote cert</button>
+          <button type="button" class="ghost" (click)="copyHostInfo()">Copy host info</button>
         </div>
-      </form>
-      <div class="action-row">
-        <button type="button" class="ghost" (click)="downloadRemoteCertificate()">Download remote cert</button>
-        <button type="button" class="ghost" (click)="copyHostInfo()">Copy host info</button>
-      </div>
-    </article>
+      </article>
+    }
 
-    <article class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Create</p>
-          <h2>Start a daemon-managed session</h2>
-        </div>
-        <button type="button" (click)="createSession()">
-          {{ creatingSession ? 'Creating…' : 'Create session' }}
-        </button>
-      </div>
-      <form class="stack-list" (submit)="$event.preventDefault(); createSession()">
-        <div class="form-grid">
-          <label class="field">
-            <span>Provider</span>
-            <select [(ngModel)]="createSessionDraft.provider" name="provider">
-              <option value="codex">codex</option>
-              <option value="claude">claude</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Title</span>
-            <input [(ngModel)]="createSessionDraft.title" name="title" />
-          </label>
-          <label class="field wide-field">
-            <span>Workspace root</span>
-            <input [(ngModel)]="createSessionDraft.workspaceRoot" name="workspaceRoot" />
-          </label>
-          <label class="field wide-field">
-            <span>Conversation hash (optional)</span>
-            <input [(ngModel)]="createSessionDraft.conversationId" name="conversationId" />
-          </label>
-          <label class="field wide-field">
-            <span>Explicit command override (optional)</span>
-            <input [(ngModel)]="createSessionDraft.command" name="command" placeholder="/bin/sh -lc codex" />
-          </label>
-        </div>
-      </form>
-    </article>
-
-    <article class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Pairing</p>
-          <h2>Pending requests</h2>
-        </div>
-      </div>
-      @if (pendingPairings.length === 0) {
-        <p class="empty-note">No pending requests.</p>
-      } @else {
-        <div class="stack-list">
-          @for (pairing of pendingPairings; track pairing.pairingId) {
-            <div class="row-card">
-              <div>
-                <strong>{{ pairing.deviceName }}</strong>
-                <p>{{ pairing.deviceType }} · code {{ pairing.code }} · {{ pairing.requestedLabel }}</p>
-              </div>
-              <button type="button" (click)="approvePairing(pairing)">Approve</button>
+    @if (activeViewTab === 'authentication') {
+      <article class="panel auth-column wide">
+        <section class="auth-section">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Authentication</p>
+              <h2>Pairing</h2>
             </div>
-          }
-        </div>
-      }
-    </article>
-
-    <article class="panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Trust</p>
-          <h2>Trusted devices</h2>
-        </div>
-      </div>
-      @if (trustedDevices.length === 0) {
-        <p class="empty-note">No trusted devices.</p>
-      } @else {
-        <div class="stack-list">
-          @for (device of trustedDevices; track device.deviceId) {
-            <div class="row-card">
-              <div>
-                <strong>{{ device.deviceName }}</strong>
-                <p>{{ device.deviceType }} · approved {{ device.tokenAgeLabel }}</p>
-              </div>
-              <div class="button-pair">
-                <button type="button" class="ghost" (click)="revokeTrustedDevice(device.deviceId, 'expire')">
-                  Expire token
-                </button>
-                <button type="button" class="danger" (click)="revokeTrustedDevice(device.deviceId, 'remove')">
-                  Remove
-                </button>
-              </div>
-            </div>
-          }
-        </div>
-      }
-    </article>
-
-    <article class="panel wide">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Clients</p>
-          <h2>Attached clients</h2>
-        </div>
-      </div>
-      @if (clients.length === 0) {
-        <p class="empty-note">No attached clients.</p>
-      } @else {
-        <div class="stack-list">
-          @for (client of clients; track client.clientId) {
-            <div class="client-row">
-              <div>
-                <strong>{{ client.clientId }}</strong>
-                <p>
-                  {{ client.sessionId }} · {{ client.sessionTitle || '(untitled)' }} ·
-                  {{ clientRole(client) }}
-                </p>
-                <p class="subtle">
-                  {{ client.clientAddress }} · {{ client.isLocal ? 'local' : 'remote' }} ·
-                  connected {{ client.connectedAtUnixMs ? client.connectedAtUnixMs : 'n/a' }}
-                </p>
-              </div>
-              <button type="button" class="ghost" (click)="disconnectClient(client.clientId)">
-                Disconnect
-              </button>
-            </div>
-          }
-        </div>
-      }
-    </article>
-
-    <article class="panel wide">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Sessions</p>
-          <h2>Session inventory and management</h2>
-        </div>
-        <div class="button-pair">
-          <button type="button" class="ghost" (click)="clearEndedArchived()">Clear ended/archived</button>
-        </div>
-      </div>
-      @if (sessions.length === 0) {
-        <p class="empty-note">No sessions yet.</p>
-      } @else {
-        <div class="stack-list">
-          @for (session of sessions; track session.sessionId) {
-            <article class="session-card">
-              <div class="session-head">
-                <div>
-                  <h3>{{ session.title }}</h3>
-                  <p>{{ session.sessionId }} · {{ session.provider }} · {{ session.conversationLabel }}</p>
-                </div>
-                <div class="badge-row">
-                  <span class="badge neutral">{{ session.lifecycleStatus }}</span>
-                  <span class="badge" [class.good]="inventoryTone(session.inventoryState) === 'good'"
-                    [class.warn]="inventoryTone(session.inventoryState) === 'warn'"
-                    [class.muted]="inventoryTone(session.inventoryState) === 'muted'">
-                    {{ session.inventoryState }}
-                  </span>
-                  <span class="badge" [class.good]="attentionTone(session.attentionState) === 'good'"
-                    [class.warn]="attentionTone(session.attentionState) === 'warn'"
-                    [class.danger]="attentionTone(session.attentionState) === 'danger'"
-                    [class.muted]="attentionTone(session.attentionState) === 'muted'">
-                    {{ session.attentionReason }}
-                  </span>
-                </div>
-              </div>
-              <div class="meta-grid compact">
-                <div class="meta-cell"><span>Controller</span><strong>{{ session.controllerKind }}</strong></div>
-                <div class="meta-cell"><span>Clients</span><strong>{{ session.attachedClientCount }}</strong></div>
-                <div class="meta-cell"><span>Last activity</span><strong>{{ session.lastActivityLabel }}</strong></div>
-                <div class="meta-cell"><span>Last output</span><strong>{{ session.lastOutputLabel }}</strong></div>
-                <div class="meta-cell"><span>Recent files</span><strong>{{ session.recentFileChangeCount }}</strong></div>
-                <div class="meta-cell"><span>Git</span><strong>{{ session.gitLabel }}</strong></div>
-              </div>
-
-              @if (sessionClients(session.sessionId).length > 0) {
-                <div class="client-strip">
-                  @for (client of sessionClients(session.sessionId); track client.clientId) {
-                    <span class="mini-chip">{{ client.clientId }} · {{ clientRole(client) }}</span>
-                  }
+          </div>
+          @if (pendingPairings.length === 0) {
+            <p class="empty-note">No pending requests.</p>
+          } @else {
+            <div class="stack-list">
+              @for (pairing of pendingPairings; track pairing.pairingId) {
+                <div class="row-card">
+                  <div>
+                    <strong>{{ pairing.deviceName }}</strong>
+                    <p>{{ pairing.deviceType }} · code {{ pairing.code }} · {{ pairing.requestedLabel }}</p>
+                  </div>
+                  <button type="button" (click)="approvePairing(pairing)">Approve</button>
                 </div>
               }
-
-              <div class="action-row">
-                <button type="button" class="ghost" (click)="copySessionId(session.sessionId)">Copy session id</button>
-                <button type="button" class="ghost" (click)="copyCliCommand(session.sessionId)">Copy CLI command</button>
-                <button type="button" class="danger" [disabled]="!canStop(session)" (click)="stopSession(session.sessionId)">
-                  Stop
-                </button>
-              </div>
-            </article>
+            </div>
           }
-        </div>
-      }
-    </article>
+        </section>
 
-    <article class="panel wide">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Activity</p>
-          <h2>Control room log</h2>
+        <section class="auth-section">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Authentication</p>
+              <h2>Trusted devices</h2>
+            </div>
+          </div>
+          @if (trustedDevices.length === 0) {
+            <p class="empty-note">No trusted devices.</p>
+          } @else {
+            <div class="stack-list">
+              @for (device of trustedDevices; track device.deviceId) {
+                <div class="row-card">
+                  <div>
+                    <strong>{{ device.deviceName }}</strong>
+                    <p>{{ device.deviceType }} · approved {{ device.tokenAgeLabel }}</p>
+                  </div>
+                  <div class="button-pair">
+                    <button type="button" class="ghost" (click)="revokeTrustedDevice(device.deviceId, 'expire')">
+                      Expire token
+                    </button>
+                    <button type="button" class="danger" (click)="revokeTrustedDevice(device.deviceId, 'remove')">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </section>
+
+        <section class="auth-section">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Authentication</p>
+              <h2>Clients</h2>
+            </div>
+          </div>
+          @if (clients.length === 0) {
+            <p class="empty-note">No attached clients.</p>
+          } @else {
+            <div class="stack-list">
+              @for (client of clients; track client.clientId) {
+                <div class="client-row">
+                  <div>
+                    <strong>{{ client.clientId }}</strong>
+                    <p>{{ client.sessionId }} · {{ client.sessionTitle || '(untitled)' }} · {{ clientRole(client) }}</p>
+                    <p class="subtle">
+                      {{ client.clientAddress }} · {{ client.isLocal ? 'local' : 'remote' }} ·
+                      connected {{ client.connectedAtUnixMs ? client.connectedAtUnixMs : 'n/a' }}
+                    </p>
+                  </div>
+                  <button type="button" class="ghost" (click)="disconnectClient(client.clientId)">Disconnect</button>
+                </div>
+              }
+            </div>
+          }
+        </section>
+      </article>
+    }
+
+    @if (activeViewTab === 'sessions') {
+      <article class="panel wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Sessions</p>
+            <h2>Create session</h2>
+          </div>
+          <button type="button" (click)="createSession()">
+            {{ creatingSession ? 'Creating…' : 'Create session' }}
+          </button>
         </div>
-      </div>
-      @if (logs.length === 0) {
-        <p class="empty-note">No activity yet.</p>
-      } @else {
-        <pre class="event-log">{{ logs.join('\n') }}</pre>
-      }
-    </article>
+        <form class="stack-list" (submit)="$event.preventDefault(); createSession()">
+          <div class="form-grid">
+            <label class="field">
+              <span>Provider</span>
+              <select [(ngModel)]="createSessionDraft.provider" name="provider">
+                <option value="codex">codex</option>
+                <option value="claude">claude</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Title</span>
+              <input [(ngModel)]="createSessionDraft.title" name="title" />
+            </label>
+            <label class="field wide-field">
+              <span>Workspace root</span>
+              <input [(ngModel)]="createSessionDraft.workspaceRoot" name="workspaceRoot" />
+            </label>
+            <label class="field wide-field">
+              <span>Conversation hash (optional)</span>
+              <input [(ngModel)]="createSessionDraft.conversationId" name="conversationId" />
+            </label>
+            <label class="field wide-field">
+              <span>Explicit command override (optional)</span>
+              <input [(ngModel)]="createSessionDraft.command" name="command" placeholder="/bin/sh -lc codex" />
+            </label>
+          </div>
+        </form>
+      </article>
+
+      <article class="panel wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Sessions</p>
+            <h2>Session inventory and management</h2>
+          </div>
+          <div class="button-pair">
+            <button type="button" class="ghost" (click)="clearEndedArchived()">Clear ended/archived</button>
+          </div>
+        </div>
+        @if (sessions.length === 0) {
+          <p class="empty-note">No sessions yet.</p>
+        } @else {
+          <div class="stack-list">
+            @for (session of sessions; track session.sessionId) {
+              <article class="session-card">
+                <div class="session-head">
+                  <div>
+                    <h3>{{ session.title }}</h3>
+                    <p>{{ session.sessionId }} · {{ session.provider }} · {{ session.conversationLabel }}</p>
+                  </div>
+                  <div class="badge-row">
+                    <span class="badge neutral">{{ session.lifecycleStatus }}</span>
+                    <span class="badge" [class.good]="inventoryTone(session.inventoryState) === 'good'"
+                      [class.warn]="inventoryTone(session.inventoryState) === 'warn'"
+                      [class.muted]="inventoryTone(session.inventoryState) === 'muted'">
+                      {{ session.inventoryState }}
+                    </span>
+                    <span class="badge" [class.good]="attentionTone(session.attentionState) === 'good'"
+                      [class.warn]="attentionTone(session.attentionState) === 'warn'"
+                      [class.danger]="attentionTone(session.attentionState) === 'danger'"
+                      [class.muted]="attentionTone(session.attentionState) === 'muted'">
+                      {{ session.attentionReason }}
+                    </span>
+                  </div>
+                </div>
+                <div class="meta-grid compact">
+                  <div class="meta-cell"><span>Controller</span><strong>{{ session.controllerKind }}</strong></div>
+                  <div class="meta-cell"><span>Clients</span><strong>{{ session.attachedClientCount }}</strong></div>
+                  <div class="meta-cell"><span>Last activity</span><strong>{{ session.lastActivityLabel }}</strong></div>
+                  <div class="meta-cell"><span>Last output</span><strong>{{ session.lastOutputLabel }}</strong></div>
+                  <div class="meta-cell"><span>Recent files</span><strong>{{ session.recentFileChangeCount }}</strong></div>
+                  <div class="meta-cell"><span>Git</span><strong>{{ session.gitLabel }}</strong></div>
+                </div>
+
+                @if (sessionClients(session.sessionId).length > 0) {
+                  <div class="client-strip">
+                    @for (client of sessionClients(session.sessionId); track client.clientId) {
+                      <span class="mini-chip">{{ client.clientId }} · {{ clientRole(client) }}</span>
+                    }
+                  </div>
+                }
+
+                <div class="action-row">
+                  <button type="button" class="ghost" (click)="copySessionId(session.sessionId)">Copy session id</button>
+                  <button type="button" class="ghost" (click)="copyCliCommand(session.sessionId)">Copy CLI command</button>
+                  <button type="button" class="danger" [disabled]="!canStop(session)" (click)="stopSession(session.sessionId)">
+                    Stop
+                  </button>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      </article>
+    }
+
+    @if (activeViewTab === 'activity') {
+      <article class="panel wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Activity</p>
+            <h2>Control room log</h2>
+          </div>
+        </div>
+        @if (logs.length === 0) {
+          <p class="empty-note">No activity yet.</p>
+        } @else {
+          <pre class="event-log tall-log">{{ logs.join('\n') }}</pre>
+        }
+      </article>
+    }
   </section>
 </main>

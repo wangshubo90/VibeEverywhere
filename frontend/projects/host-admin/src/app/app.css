@@ -18,6 +18,14 @@
   max-width: 1200px;
 }
 
+.tabbar {
+  display: flex;
+  gap: 10px;
+  margin: 0 auto 20px;
+  max-width: 1200px;
+  overflow-x: auto;
+}
+
 .hero {
   align-items: start;
   display: grid;
@@ -99,6 +107,16 @@ h1 {
 
 .wide {
   grid-column: 1 / -1;
+}
+
+.auth-column {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-section {
+  display: grid;
+  gap: 12px;
 }
 
 .panel-head,
@@ -230,6 +248,11 @@ h1 {
   white-space: pre-wrap;
 }
 
+.tall-log {
+  max-height: 65vh;
+  min-height: 420px;
+}
+
 .badge-row {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -270,6 +293,25 @@ button {
   font: inherit;
   font-weight: 600;
   padding: 10px 14px;
+}
+
+.tab-pill {
+  background: rgba(216, 227, 239, 0.08);
+  color: #e3ebf1;
+  white-space: nowrap;
+}
+
+.tab-pill.active {
+  background: #d8e3ef;
+  color: #11202d;
+}
+
+.tab-count {
+  background: rgba(183, 82, 82, 0.28);
+  border-radius: 999px;
+  color: #ffe9e9;
+  margin-left: 8px;
+  padding: 2px 8px;
 }
 
 button.ghost {

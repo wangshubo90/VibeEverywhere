@@ -88,7 +88,8 @@
               "buildTarget": "host-admin:build:production"
             },
             "development": {
-              "buildTarget": "host-admin:build:development"
+              "buildTarget": "host-admin:build:development",
+              "port": 4200
             }
           },
           "defaultConfiguration": "development"
@@ -198,7 +199,8 @@
               "buildTarget": "remote-client:build:production"
             },
             "development": {
-              "buildTarget": "remote-client:build:development"
+              "buildTarget": "remote-client:build:development",
+              "port": 4201
             }
           },
           "defaultConfiguration": "development"

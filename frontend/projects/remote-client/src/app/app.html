@@ -4,15 +4,15 @@
       <p class="eyebrow">Remote Client</p>
       <h1>Supervise sessions without leaving the page</h1>
       <p class="lede">
-        Mobile-first remote client with compact inventory, attention-first sorting, and in-page
-        multi-session tabs.
+        Pair once, create when needed, then live mostly in session inventory and in-page tabs.
       </p>
     </div>
     <div class="host-card">
-      <div class="meta-line"><span>Host</span><strong>shubow-dev</strong></div>
-      <div class="meta-line"><span>Trust</span><strong>paired token saved</strong></div>
+      <div class="meta-line"><span>Connection</span><strong>{{ connectionStateLabel }}</strong></div>
+      <div class="meta-line"><span>Control</span><strong>{{ controllerStateLabel }}</strong></div>
+      <div class="meta-line"><span>Session</span><strong>{{ sessionStateLabel }}</strong></div>
       <div class="meta-line"><span>Sort</span>
-        <select [(ngModel)]="sortMode">
+        <select [(ngModel)]="sortMode" (ngModelChange)="persistSettings()">
           @for (mode of sortModes; track mode.value) {
             <option [value]="mode.value">{{ mode.label }}</option>
           }
@@ -21,106 +21,301 @@
     </div>
   </header>
 
-  <section class="layout">
-    <aside class="inventory">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Inventory</p>
-          <h2>Sessions</h2>
-        </div>
-        <button type="button">Refresh</button>
-      </div>
-      <div class="inventory-list">
-        @for (session of sessions; track session.sessionId) {
-          <article class="session-card">
-            <div class="session-head">
-              <div>
-                <h3>{{ session.title }}</h3>
-                <p>{{ session.sessionId }} · {{ session.provider }}</p>
-              </div>
-              <div class="badge-row">
-                <span class="badge neutral">{{ session.lifecycleStatus }}</span>
-                <span class="badge" [class.good]="inventoryTone(session.inventoryState) === 'good'"
-                  [class.warn]="inventoryTone(session.inventoryState) === 'warn'"
-                  [class.muted]="inventoryTone(session.inventoryState) === 'muted'">
-                  {{ session.inventoryState }}
-                </span>
-                <span class="badge" [class.good]="attentionTone(session.attentionState) === 'good'"
-                  [class.warn]="attentionTone(session.attentionState) === 'warn'"
-                  [class.danger]="attentionTone(session.attentionState) === 'danger'"
-                  [class.muted]="attentionTone(session.attentionState) === 'muted'">
-                  {{ session.attentionReason }}
-                </span>
-              </div>
-            </div>
-            <div class="compact-grid">
-              <div><span>Ctrl</span><strong>{{ session.controllerKind }}</strong></div>
-              <div><span>Clients</span><strong>{{ session.attachedClientCount }}</strong></div>
-              <div><span>Act</span><strong>{{ session.lastActivityLabel }}</strong></div>
-              <div><span>Out</span><strong>{{ session.lastOutputLabel }}</strong></div>
-            </div>
-            <div class="inventory-foot">
-              <p>{{ session.gitLabel }} · files {{ session.recentFileChangeCount }}</p>
-              <button type="button" class="ghost">Open</button>
-            </div>
-          </article>
-        }
-      </div>
-    </aside>
+  <section class="view-tabs">
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'pairing'" (click)="selectViewTab('pairing')">
+      Pairing
+    </button>
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'create'" (click)="selectViewTab('create')">
+      Create
+    </button>
+    <button type="button" class="tab-pill" [class.active]="activeViewTab === 'sessions'" (click)="selectViewTab('sessions')">
+      Sessions
+      @if (sessions.length > 0) {
+        <span class="tab-count">{{ sessions.length }}</span>
+      }
+    </button>
+  </section>
 
-    <section class="workspace">
-      <div class="tabbar">
-        @for (tab of openTabs; track tab.sessionId) {
-          <button
-            type="button"
-            class="tab"
-            [class.active]="tab.sessionId === activeTabSessionId">
-            {{ tab.title }}
-            <span>{{ tab.connected ? 'connected' : 'idle' }}</span>
-          </button>
-        }
-      </div>
-
-      <article class="panel">
+  @if (activeViewTab === 'pairing') {
+    <section class="layout single-pane">
+      <section class="panel stack">
         <div class="section-head">
           <div>
-            <p class="eyebrow">Connection Tab</p>
-            <h2>{{ openTabs[0].title }}</h2>
+            <p class="eyebrow">Pairing</p>
+            <h2>Host link and trust</h2>
           </div>
-          <div class="button-pair">
-            <button type="button" class="ghost">Disconnect</button>
-            <button type="button">Request control</button>
+          <button type="button" class="ghost" (click)="refreshHost()">Refresh Host</button>
+        </div>
+        <div class="form-grid two">
+          <label class="field">
+            <span>Host</span>
+            <input [(ngModel)]="host" name="host" (change)="persistSettings()" />
+          </label>
+          <label class="field">
+            <span>Port</span>
+            <input [(ngModel)]="port" name="port" (change)="persistSettings()" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Bearer token</span>
+          <input [(ngModel)]="token" name="token" placeholder="Approved token fills here automatically" />
+        </label>
+        <div class="button-pair wrap">
+          <button type="button" (click)="startPairing()">Request Pairing</button>
+          <button type="button" class="ghost" (click)="saveToken()">Save Token</button>
+          <button type="button" class="ghost" (click)="clearToken()">Clear Token</button>
+        </div>
+        <div class="detail-grid split-two">
+          <div class="detail-card">
+            <p class="eyebrow">Host Info</p>
+            <pre class="output small-output">{{ hostInfoText }}</pre>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">Pairing</p>
+            <pre class="output small-output">{{ pairingText }}</pre>
           </div>
         </div>
-        <div class="terminal-placeholder">
-          <div class="terminal-head">
-            <span>Session {{ openTabs[0].sessionId }}</span>
-            <strong>{{ openTabs[0].connected ? 'connected' : 'disconnected' }}</strong>
-          </div>
-          <pre>
-{{">"}} attention-first remote terminal area
-{{">"}} in-page tabs replace browser-tab multi-session flow
-{{">"}} file and git inspection stays secondary below
-          </pre>
-        </div>
-        <div class="detail-grid">
-          <div class="detail-card">
-            <p class="eyebrow">Attention</p>
-            <strong>awaiting_input</strong>
-            <span>Show strongest supervision reason here.</span>
-          </div>
-          <div class="detail-card">
-            <p class="eyebrow">Recent Files</p>
-            <strong>2 changed</strong>
-            <span>Compact on phone, expandable on selection.</span>
-          </div>
-          <div class="detail-card">
-            <p class="eyebrow">Git</p>
-            <strong>dirty (main)</strong>
-            <span>Read-only inspection only.</span>
-          </div>
-        </div>
-      </article>
+      </section>
     </section>
-  </section>
+  }
+
+  @if (activeViewTab === 'create') {
+    <section class="layout single-pane">
+      <section class="panel stack">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Create</p>
+            <h2>New remote session</h2>
+          </div>
+          <button type="button" class="ghost" (click)="createSession()">Create Session</button>
+        </div>
+        <div class="form-grid two">
+          <label class="field">
+            <span>Provider</span>
+            <select [(ngModel)]="provider" name="provider" (ngModelChange)="persistSettings()">
+              <option value="codex">codex</option>
+              <option value="claude">claude</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Title</span>
+            <input [(ngModel)]="title" name="title" (change)="persistSettings()" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Workspace root</span>
+          <input [(ngModel)]="workspaceRoot" name="workspaceRoot" (change)="persistSettings()" />
+        </label>
+        <label class="field">
+          <span>Conversation hash</span>
+          <input [(ngModel)]="conversationId" name="conversationId" (change)="persistSettings()" />
+        </label>
+        <label class="field">
+          <span>Explicit command</span>
+          <input [(ngModel)]="command" name="command" (change)="persistSettings()" />
+        </label>
+      </section>
+    </section>
+  }
+
+  @if (activeViewTab === 'sessions') {
+    <section class="layout">
+      <aside class="inventory">
+        <section class="panel stack">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Sessions</p>
+              <h2>Inventory</h2>
+            </div>
+            <button type="button" class="ghost" (click)="loadSessions()">Refresh</button>
+          </div>
+          <div class="inventory-list">
+            @if (sortedSessions.length === 0) {
+              <div class="empty-note">No sessions loaded.</div>
+            } @else {
+              @for (session of sortedSessions; track session.sessionId) {
+                <article class="session-card" [class.selected]="session.sessionId === selectedSessionId">
+                  <div class="session-head">
+                    <div>
+                      <h3>{{ session.title }}</h3>
+                      <p>{{ session.sessionId }} · {{ session.provider }}</p>
+                    </div>
+                    <button type="button" class="ghost" (click)="openSessionTab(session.sessionId)">Open</button>
+                  </div>
+                  <div class="badge-row">
+                    <span class="badge neutral">{{ session.lifecycleStatus }}</span>
+                    <span class="badge" [class.good]="inventoryTone(session.inventoryState) === 'good'"
+                      [class.warn]="inventoryTone(session.inventoryState) === 'warn'"
+                      [class.muted]="inventoryTone(session.inventoryState) === 'muted'">
+                      {{ session.inventoryState }}
+                    </span>
+                    <span class="badge" [class.good]="attentionTone(session.attentionState) === 'good'"
+                      [class.warn]="attentionTone(session.attentionState) === 'warn'"
+                      [class.danger]="attentionTone(session.attentionState) === 'danger'"
+                      [class.muted]="attentionTone(session.attentionState) === 'muted'">
+                      {{ attentionLabel(session) }}
+                    </span>
+                  </div>
+                  <div class="session-metrics">
+                    <span>ctrl {{ session.controllerKind }}</span>
+                    <span>{{ session.attachedClientCount }} clients</span>
+                    <span>act {{ session.lastActivityLabel }}</span>
+                    <span>out {{ session.lastOutputLabel }}</span>
+                  </div>
+                  <div class="inventory-foot">
+                    <p>{{ session.gitLabel }} · files {{ session.recentFileChangeCount }}</p>
+                    <button type="button" class="ghost" (click)="selectSession(session.sessionId)">Inspect</button>
+                  </div>
+                </article>
+              }
+            }
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="tabbar">
+          @if (openTabs.length === 0) {
+            <div class="empty-note">No open session tabs yet.</div>
+          } @else {
+            @for (tab of openTabs; track tab.sessionId) {
+              <button type="button" class="tab" [class.active]="tab.sessionId === activeTabSessionId"
+                (click)="activateTab(tab.sessionId)">
+                {{ tab.title }}
+                <span>{{ tab.connectionState }}</span>
+                <span class="tab-close" (click)="closeSessionTab(tab.sessionId); $event.stopPropagation()">×</span>
+              </button>
+            }
+          }
+        </div>
+
+        <article class="panel">
+          <div class="section-head">
+            <div class="session-heading">
+              <p class="eyebrow">Selected Session</p>
+              <h2>{{ selectedSession?.title || 'No session selected' }}</h2>
+              <p class="lede small">{{ selectedSession?.sessionId || 'Select a session from inventory' }}</p>
+              @if (selectedSession) {
+                <div class="summary-strip">
+                  <span class="summary-pill">{{ selectedSession.lifecycleStatus }}</span>
+                  <span class="summary-pill">{{ attentionLabel(selectedSession) }}</span>
+                  <span class="summary-pill">ctrl {{ selectedSession.controllerKind }}</span>
+                  <span class="summary-pill">act {{ selectedSession.lastActivityLabel }}</span>
+                  <span class="summary-pill">{{ selectedSession.gitLabel }}</span>
+                </div>
+              }
+            </div>
+            <div class="button-pair wrap">
+              <button type="button" (click)="connectActiveTab()">Connect</button>
+              <button type="button" class="ghost" (click)="disconnectActiveTab()">Disconnect</button>
+              <button type="button" class="ghost" (click)="requestControl()">Request control</button>
+              <button type="button" class="ghost" (click)="releaseControl()">Release control</button>
+              <button type="button" class="warning" (click)="stopSession()">Stop</button>
+            </div>
+          </div>
+
+          <div class="terminal-placeholder">
+            <div class="terminal-head">
+              <span>{{ activeTab?.sessionId || selectedSession?.sessionId || 'No active tab' }}</span>
+              <strong>{{ activeTab?.connectionState || 'disconnected' }}</strong>
+            </div>
+            <div class="terminal-surface" #terminalHost></div>
+          </div>
+
+          <section class="subtabs">
+            <button type="button" class="subtab-pill" [class.active]="activeSessionDetailTab === 'overview'"
+              (click)="selectSessionDetailTab('overview')">
+              Overview
+            </button>
+            <button type="button" class="subtab-pill" [class.active]="activeSessionDetailTab === 'files'"
+              (click)="selectSessionDetailTab('files')">
+              Files
+            </button>
+          </section>
+
+          @if (activeSessionDetailTab === 'overview') {
+            <section class="detail-grid split-two">
+              <section class="panel inset-panel stack">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Overview</p>
+                    <h2>Snapshot</h2>
+                  </div>
+                </div>
+                <div class="overview-grid">
+                  <div class="detail-card compact-card">
+                    <p class="eyebrow">Conversation</p>
+                    <strong>{{ selectedSession?.conversationLabel || 'fresh' }}</strong>
+                    <span>{{ selectedSession?.provider || 'n/a' }}</span>
+                  </div>
+                  <div class="detail-card compact-card">
+                    <p class="eyebrow">Sequence</p>
+                    <strong>{{ selectedSnapshot?.currentSequence ?? 'n/a' }}</strong>
+                    <span>recent files {{ selectedSnapshot?.signals?.recentFileChangeCount ?? 0 }}</span>
+                  </div>
+                  <div class="detail-card compact-card">
+                    <p class="eyebrow">Git</p>
+                    <strong>{{ selectedSnapshot?.git?.branch || 'n/a' }}</strong>
+                    <span>
+                      {{ selectedSnapshot?.git?.modifiedCount ?? 0 }} modified ·
+                      {{ selectedSnapshot?.git?.stagedCount ?? 0 }} staged ·
+                      {{ selectedSnapshot?.git?.untrackedCount ?? 0 }} untracked
+                    </span>
+                  </div>
+                  <div class="detail-card compact-card">
+                    <p class="eyebrow">Last Event</p>
+                    <strong>{{ activeTab?.lastEvent || 'No tab event yet.' }}</strong>
+                    <span>{{ selectedSnapshot?.status || 'n/a' }}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel inset-panel stack">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Overview</p>
+                    <h2>Events</h2>
+                  </div>
+                </div>
+                <pre class="output event-output compact-log">{{ events.join('\n') || 'No events yet.' }}</pre>
+              </section>
+            </section>
+          }
+
+          @if (activeSessionDetailTab === 'files') {
+            <section class="detail-grid single-detail">
+              <section class="panel inset-panel stack">
+                <div class="section-head">
+                  <div>
+                    <p class="eyebrow">Files</p>
+                    <h2>Recent file changes</h2>
+                  </div>
+                </div>
+                <div class="chip-list">
+                  @if (!selectedSnapshot?.recentFileChanges?.length) {
+                    <div class="empty-note">No recent files available.</div>
+                  } @else {
+                    @for (path of selectedSnapshot!.recentFileChanges!; track path) {
+                      <button type="button" class="ghost chip" [class.active-chip]="path === selectedFilePath"
+                        (click)="inspectFile(path)">
+                        {{ path }}
+                      </button>
+                    }
+                  }
+                </div>
+                @if (selectedFilePath) {
+                  <div class="detail-card">
+                    <p class="eyebrow">Selected file</p>
+                    <strong>{{ selectedFilePath }}</strong>
+                    <span>{{ formatFileStatus() }}</span>
+                  </div>
+                }
+                <pre class="output file-output">{{ selectedFileContent }}</pre>
+              </section>
+            </section>
+          }
+        </article>
+      </section>
+    </section>
+  }
 </main>

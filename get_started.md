@@ -224,6 +224,46 @@ Back in the browser smoke client:
 
 Pending pairing requests expire automatically after a short timeout and then cannot be approved.
 
+## Try The Angular Remote Client
+
+The Angular remote client also runs separately from the daemon-served smoke page for now.
+
+Start the daemon first:
+
+```bash
+./build/vibe-hostd serve
+```
+
+Then in another shell:
+
+```bash
+cd frontend
+npm run start:remote-client
+```
+
+Open:
+
+- `http://localhost:4201/`
+
+Current dev behavior:
+
+- when served from the Angular dev server, the remote client runs on `4201` but defaults its daemon port field to `18086`
+- it talks directly to the daemon remote listener, not to the Angular dev server itself
+- the daemon-served `http://HOST_IP:18086/` page remains the current runtime reference client until Angular reaches fuller parity
+
+Useful smoke actions in the Angular remote client:
+
+1. refresh host info
+2. request pairing and wait for token claim
+3. save token
+4. refresh session inventory
+5. create a session
+6. inspect snapshot and recent files
+7. open a session tab
+8. connect/disconnect the session websocket
+9. request/release control
+10. stop a session
+
 ## Start A Session From The Host Terminal
 
 ```bash
