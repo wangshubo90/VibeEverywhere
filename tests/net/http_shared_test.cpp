@@ -942,6 +942,70 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
   EXPECT_EQ(sessions_after_clear.body(), "[]");
 }
 
+TEST(HttpSharedTest, ServesHostTrustedDeviceRoutesAndLocalSessionCreation) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  FakeHostAdmin host_admin;
+  FakePairingStore pairing_store;
+  pairing_store.approved_pairings = {
+      vibe::auth::PairingRecord{
+          .device_id = vibe::auth::DeviceId{.value = "device_a"},
+          .device_name = "Alice Phone",
+          .device_type = vibe::auth::DeviceType::Mobile,
+          .bearer_token = "token-a",
+          .approved_at_unix_ms = 100,
+      },
+      vibe::auth::PairingRecord{
+          .device_id = vibe::auth::DeviceId{.value = "device_b"},
+          .device_name = "Dev Browser",
+          .device_type = vibe::auth::DeviceType::Browser,
+          .bearer_token = "token-b",
+          .approved_at_unix_ms = 200,
+      },
+  };
+
+  HttpRequest trusted_devices_request;
+  trusted_devices_request.method(http::verb::get);
+  trusted_devices_request.target("/host/trusted-devices");
+  trusted_devices_request.version(11);
+  const HttpResponse trusted_devices_response =
+      HandleRequest(trusted_devices_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin,
+                                    &pairing_store));
+  EXPECT_EQ(trusted_devices_response.result(), http::status::ok);
+  EXPECT_NE(trusted_devices_response.body().find("\"deviceId\":\"device_a\""), std::string::npos);
+  EXPECT_NE(trusted_devices_response.body().find("\"deviceName\":\"Alice Phone\""), std::string::npos);
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/host/sessions");
+  create_request.version(11);
+  create_request.body() =
+      R"({"provider":"codex","workspaceRoot":".","title":"local-host-ui","conversationId":"conv_hash"})";
+  create_request.prepare_payload();
+  const HttpResponse create_response =
+      HandleRequest(create_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin,
+                                    &pairing_store));
+  EXPECT_EQ(create_response.result(), http::status::created);
+  EXPECT_NE(create_response.body().find("\"title\":\"local-host-ui\""), std::string::npos);
+  EXPECT_NE(create_response.body().find("\"conversationId\":\"conv_hash\""), std::string::npos);
+
+  HttpRequest revoke_request;
+  revoke_request.method(http::verb::post);
+  revoke_request.target("/host/trusted-devices/device_a/expire");
+  revoke_request.version(11);
+  const HttpResponse revoke_response =
+      HandleRequest(revoke_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin,
+                                    &pairing_store));
+  EXPECT_EQ(revoke_response.result(), http::status::ok);
+  EXPECT_EQ(pairing_store.LoadApprovedPairings().size(), 1U);
+  EXPECT_EQ(pairing_store.LoadApprovedPairings()[0].device_id.value, "device_b");
+}
+
 TEST(HttpSharedTest, SavesExpandedHostConfig) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;

@@ -953,17 +953,31 @@ void SessionManager::PersistEntry(const SessionEntry& entry) {
 }
 
 auto SessionManager::MakeSessionId() const -> std::optional<vibe::session::SessionId> {
-  std::size_t max_sequence_number = 0;
+  std::vector<std::size_t> used_sequence_numbers;
+  used_sequence_numbers.reserve(sessions_.size());
   for (const SessionEntry& entry : sessions_) {
     const auto parsed_value = ParseSessionSequenceNumber(entry.id.value());
     if (!parsed_value.has_value()) {
       continue;
     }
 
-    max_sequence_number = std::max(max_sequence_number, *parsed_value);
+    used_sequence_numbers.push_back(*parsed_value);
   }
 
-  const std::string next_value = "s_" + std::to_string(max_sequence_number + 1U);
+  std::sort(used_sequence_numbers.begin(), used_sequence_numbers.end());
+  used_sequence_numbers.erase(
+      std::unique(used_sequence_numbers.begin(), used_sequence_numbers.end()),
+      used_sequence_numbers.end());
+
+  std::size_t next_sequence_number = 1;
+  for (const std::size_t sequence_number : used_sequence_numbers) {
+    if (sequence_number != next_sequence_number) {
+      break;
+    }
+    next_sequence_number += 1;
+  }
+
+  const std::string next_value = "s_" + std::to_string(next_sequence_number);
   return vibe::session::SessionId::TryCreate(next_value);
 }
 

@@ -18,8 +18,11 @@ This folder contains initiative documents and the implementation-ready design se
 12. [ios_client_mvp.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_mvp.md)
 13. [ios_client_architecture.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/ios_client_architecture.md)
 14. [frontend_strategy.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/frontend_strategy.md)
-15. [host_ui_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_v1.md)
-16. [remote_web_client_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_web_client_v1.md)
+15. [frontend_workspace.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/frontend_workspace.md)
+16. [host_ui_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_v1.md)
+17. [host_ui_behaviors_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_behaviors_v1.md)
+18. [remote_web_client_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_web_client_v1.md)
+19. [remote_client_behaviors_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_client_behaviors_v1.md)
 
 ## Purpose of Each Document
 
@@ -37,5 +40,9 @@ This folder contains initiative documents and the implementation-ready design se
 - `ios_client_mvp.md`: first Swift/iPhone client milestone scope
 - `ios_client_architecture.md`: practical SwiftUI/network/terminal architecture notes
 - `frontend_strategy.md`: v1 decision for host UI and remote web client structure
+- `frontend_workspace.md`: Angular workspace structure and frontend commands
 - `host_ui_v1.md`: frozen host admin UI v1 scope and layout
+- `host_ui_behaviors_v1.md`: behavior-first host admin UI requirements
 - `remote_web_client_v1.md`: frozen remote web client v1 scope and layout
+- `remote_client_behaviors_v1.md`: behavior-first remote client requirements
+- `session_attention_inference_v1.md`: conservative attention model and rollout plan

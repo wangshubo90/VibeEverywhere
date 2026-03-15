@@ -297,6 +297,45 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
   EXPECT_EQ(session_store.removed[1], created->id.value());
 }
 
+TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto first = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "first",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  const auto second = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "second",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(second.has_value());
+  EXPECT_EQ(first->id.value(), "s_1");
+  EXPECT_EQ(second->id.value(), "s_2");
+
+  ASSERT_TRUE(manager.StopSession(first->id.value()));
+  ASSERT_TRUE(manager.StopSession(second->id.value()));
+  EXPECT_EQ(manager.ClearInactiveSessions(), 2U);
+  EXPECT_TRUE(manager.ListSessions().empty());
+
+  const auto reused = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "reused",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+  });
+  ASSERT_TRUE(reused.has_value());
+  EXPECT_EQ(reused->id.value(), "s_1");
+}
+
 TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession) {
   FakeSessionStore session_store;
   SessionManager manager(&session_store);

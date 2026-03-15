@@ -257,6 +257,14 @@ auto ToJson(const vibe::auth::PairingRecord& record) -> std::string {
   return json::serialize(object);
 }
 
+auto ToJson(const std::vector<vibe::auth::PairingRecord>& records) -> std::string {
+  json::array array;
+  for (const auto& record : records) {
+    array.emplace_back(json::parse(ToJson(record)));
+  }
+  return json::serialize(array);
+}
+
 auto ToJson(const vibe::net::AttachedClientInfo& info) -> std::string {
   json::object object;
   object["clientId"] = info.client_id;

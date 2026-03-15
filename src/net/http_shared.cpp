@@ -486,6 +486,24 @@ auto HandleHostTlsCertificate(const HttpRequest& request, const HttpRouteContext
   return response;
 }
 
+auto HandleCreateSessionRequest(const HttpRequest& request, vibe::service::SessionManager& session_manager,
+                                const HttpRouteContext& context) -> HttpResponse {
+  const auto parsed_request = ParseCreateSessionRequest(request.body());
+  if (!parsed_request.has_value()) {
+    return MakeJsonResponse(request, http::status::bad_request,
+                            "{\"error\":\"invalid create session request\"}");
+  }
+
+  const auto created =
+      session_manager.CreateSession(ApplyConfiguredProviderOverride(*parsed_request, context.host_config_store));
+  if (!created.has_value()) {
+    return MakeJsonResponse(request, http::status::internal_server_error,
+                            "{\"error\":\"failed to create session\"}");
+  }
+
+  return MakeJsonResponse(request, http::status::created, ToJson(*created));
+}
+
 }  // namespace
 
 auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& session_manager,
@@ -710,6 +728,13 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
                             ToJson(AttachClientCounts(session_manager.ListSessions(), context.host_admin)));
   }
 
+  if (request.method() == http::verb::post && request.target() == "/host/sessions") {
+    if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+      return *auth_response;
+    }
+    return HandleCreateSessionRequest(request, session_manager, context);
+  }
+
   if (request.method() == http::verb::get && request.target() == "/host/clients") {
     if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
       return *auth_response;
@@ -719,6 +744,17 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
                               "{\"error\":\"host admin unavailable\"}");
     }
     return MakeJsonResponse(request, http::status::ok, ToJson(context.host_admin->ListAttachedClients()));
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/host/trusted-devices") {
+    if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+      return *auth_response;
+    }
+    if (context.pairing_store == nullptr) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"pairing store unavailable\"}");
+    }
+    return MakeJsonResponse(request, http::status::ok, ToJson(context.pairing_store->LoadApprovedPairings()));
   }
 
   if (request.method() == http::verb::post) {
@@ -773,6 +809,34 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       }
       return MakeJsonResponse(request, http::status::ok, "{\"status\":\"disconnected\"}");
     }
+
+    constexpr std::string_view host_trusted_devices_prefix = "/host/trusted-devices/";
+    constexpr std::string_view expire_suffix = "/expire";
+    constexpr std::string_view remove_suffix = "/remove";
+    if (target.rfind(host_trusted_devices_prefix, 0) == 0 &&
+        (target.ends_with(std::string(expire_suffix)) || target.ends_with(std::string(remove_suffix)))) {
+      if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+        return *auth_response;
+      }
+      if (context.pairing_store == nullptr) {
+        return MakeJsonResponse(request, http::status::service_unavailable,
+                                "{\"error\":\"pairing store unavailable\"}");
+      }
+      const bool is_expire = target.ends_with(std::string(expire_suffix));
+      const std::size_t suffix_size = is_expire ? expire_suffix.size() : remove_suffix.size();
+      const std::string device_id =
+          target.substr(host_trusted_devices_prefix.size(),
+                        target.size() - host_trusted_devices_prefix.size() - suffix_size);
+      if (device_id.empty()) {
+        return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid device id\"}");
+      }
+      if (!context.pairing_store->RemoveApprovedPairing(device_id)) {
+        return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"device not found\"}");
+      }
+      return MakeJsonResponse(request, http::status::ok,
+                              std::string("{\"status\":\"") +
+                                  (is_expire ? "expired" : "removed") + "\"}");
+    }
   }
 
   if (request.method() == http::verb::get && request.target() == "/sessions") {
@@ -792,21 +856,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
         auth_response.has_value()) {
       return *auth_response;
     }
-
-    const auto parsed_request = ParseCreateSessionRequest(request.body());
-    if (!parsed_request.has_value()) {
-      return MakeJsonResponse(request, http::status::bad_request,
-                              "{\"error\":\"invalid create session request\"}");
-    }
-
-    const auto created = session_manager.CreateSession(
-        ApplyConfiguredProviderOverride(*parsed_request, context.host_config_store));
-    if (!created.has_value()) {
-      return MakeJsonResponse(request, http::status::internal_server_error,
-                              "{\"error\":\"failed to create session\"}");
-    }
-
-    return MakeJsonResponse(request, http::status::created, ToJson(*created));
+    return HandleCreateSessionRequest(request, session_manager, context);
   }
 
   const std::string target(request.target());

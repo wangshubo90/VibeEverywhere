@@ -53,6 +53,7 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJson(const vibe::auth::PairingRequest& request) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::auth::PairingRequest>& requests) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::auth::PairingRecord& record) -> std::string;
+[[nodiscard]] auto ToJson(const std::vector<vibe::auth::PairingRecord>& records) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::net::AttachedClientInfo& info) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::net::AttachedClientInfo>& infos) -> std::string;
 [[nodiscard]] auto ToJson(const TerminalOutputEvent& event) -> std::string;

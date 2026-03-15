@@ -4,6 +4,7 @@ This project currently provides:
 
 - `vibe-hostd` daemon
 - local host admin UI
+- Angular host-admin workspace scaffold and first live data pass
 - local terminal attach/start commands
 - browser smoke client for remote attach/control
 
@@ -27,6 +28,33 @@ cmake -S . -B build -G Ninja \
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+## Frontend Workspace
+
+An Angular workspace now lives under `frontend/`.
+
+Install and build it with:
+
+```bash
+cd frontend
+npm install
+npm run build:libs
+npm run build:host-admin
+npm run build:remote-client
+```
+
+For local frontend development:
+
+```bash
+cd frontend
+npm run start:host-admin
+npm run start:remote-client
+```
+
+Node note:
+
+- an LTS Node release is the intended baseline
+- the current workspace also builds on newer odd-numbered Node releases, but that is not the preferred long-term setup
 
 Linux build note:
 
@@ -134,6 +162,43 @@ Use it to:
 - inspect attached clients
 - stop sessions
 - disconnect clients
+
+## Try The Angular Host Admin
+
+The Angular host-admin app currently runs separately from the daemon-served UI.
+
+Start the daemon first:
+
+```bash
+./build/vibe-hostd serve
+```
+
+Then in another shell:
+
+```bash
+cd frontend
+npm run start:host-admin
+```
+
+Open the Angular app at:
+
+- `http://localhost:4200/`
+
+Current dev behavior:
+
+- when served from Angular dev server, the host-admin app talks to `http://127.0.0.1:18085`
+- when eventually served by the daemon, it should use same-origin requests
+
+Useful smoke actions in the Angular host-admin:
+
+1. refresh host state
+2. edit and save host config
+3. create a session locally from the UI
+4. approve a pending pairing
+5. stop a session
+6. clear ended/archived sessions
+7. revoke a trusted device
+8. disconnect an attached client
 
 ## Pair A Remote Browser Client
 

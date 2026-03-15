@@ -9,7 +9,9 @@ The host admin UI is localhost-only.
 It is the control room for:
 
 - pairing approval
+- trusted device management
 - host config
+- session creation
 - session inventory
 - attached-client management
 - session cleanup
@@ -22,8 +24,9 @@ It should not act like the remote client.
 1. Show what sessions exist right now.
 2. Show who is attached to them.
 3. Make it obvious which session needs operator action.
-4. Let the host stop sessions and disconnect clients quickly.
-5. Expose host config and pairing without leaving the page.
+4. Let the host create, stop, clear, and inspect sessions quickly.
+5. Let the host remove trusted devices and expire access without leaving the page.
+6. Expose host config and pairing without leaving the page.
 
 ## Information Architecture
 
@@ -34,6 +37,7 @@ Use a two-column layout on desktop and a stacked layout on narrow screens.
 - host status
 - host config
 - pending pairing approvals
+- trusted devices
 - attached clients summary
 
 ### Right Column
@@ -70,10 +74,13 @@ Each session card should show:
 
 Card actions:
 
-- `Attach`
+- `Create Session` available from the session area, not only CLI
 - `Files`
 - `Stop`
 - `Clear Ended/Archived` for inventory cleanup without affecting live sessions
+- `Copy CLI Command` or `Copy Session Id` for native-terminal attach/resume help
+
+Do not embed a browser terminal attach flow in the host admin UI.
 
 ## Attached Client View
 
@@ -88,6 +95,21 @@ Show a compact client list with:
 Action:
 
 - `Disconnect`
+
+## Trusted Devices View
+
+Show a compact trusted-device list with:
+
+- device name
+- device type
+- device id
+- token/approval age
+- last seen time if available
+
+Actions:
+
+- `Remove Device`
+- `Expire Token`
 
 ## Pairing Area
 
@@ -123,6 +145,20 @@ Actions:
 - `Save`
 - `Download Remote TLS Certificate`
 
+## Session Creation
+
+Host admin must support session creation directly.
+
+Minimum fields:
+
+- provider
+- title
+- workspace root
+- optional conversation id
+- optional explicit command override
+
+Created sessions should appear immediately in the session list.
+
 ## Visual Guidance
 
 - keep it operational and dense, not decorative
@@ -130,14 +166,15 @@ Actions:
 - make live vs ended vs archived visually obvious
 - avoid calling ended sessions "stopped" in the inventory
 - keep destructive actions visually clear but not noisy
+- optimize for localhost desktop use, not phone use
 
 ## Implementation Guidance
 
-- plain HTML/CSS/JS
-- static assets in `web/host_ui/`
+- Angular app inside the shared frontend workspace
 - subscribe to host-wide session inventory via websocket
 - refresh client presence in response to inventory changes
 - avoid overcoupling UI layout to raw backend field names
+- keep browser terminal code out of this app
 
 ## Non-Goals
 
@@ -145,3 +182,4 @@ Actions:
 - remote attach experience parity
 - workspace tree browser
 - editing or git write actions
+- mobile-first layout work

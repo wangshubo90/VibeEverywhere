@@ -1,0 +1,126 @@
+<main class="shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Remote Client</p>
+      <h1>Supervise sessions without leaving the page</h1>
+      <p class="lede">
+        Mobile-first remote client with compact inventory, attention-first sorting, and in-page
+        multi-session tabs.
+      </p>
+    </div>
+    <div class="host-card">
+      <div class="meta-line"><span>Host</span><strong>shubow-dev</strong></div>
+      <div class="meta-line"><span>Trust</span><strong>paired token saved</strong></div>
+      <div class="meta-line"><span>Sort</span>
+        <select [(ngModel)]="sortMode">
+          @for (mode of sortModes; track mode.value) {
+            <option [value]="mode.value">{{ mode.label }}</option>
+          }
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <section class="layout">
+    <aside class="inventory">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Inventory</p>
+          <h2>Sessions</h2>
+        </div>
+        <button type="button">Refresh</button>
+      </div>
+      <div class="inventory-list">
+        @for (session of sessions; track session.sessionId) {
+          <article class="session-card">
+            <div class="session-head">
+              <div>
+                <h3>{{ session.title }}</h3>
+                <p>{{ session.sessionId }} · {{ session.provider }}</p>
+              </div>
+              <div class="badge-row">
+                <span class="badge neutral">{{ session.lifecycleStatus }}</span>
+                <span class="badge" [class.good]="inventoryTone(session.inventoryState) === 'good'"
+                  [class.warn]="inventoryTone(session.inventoryState) === 'warn'"
+                  [class.muted]="inventoryTone(session.inventoryState) === 'muted'">
+                  {{ session.inventoryState }}
+                </span>
+                <span class="badge" [class.good]="attentionTone(session.attentionState) === 'good'"
+                  [class.warn]="attentionTone(session.attentionState) === 'warn'"
+                  [class.danger]="attentionTone(session.attentionState) === 'danger'"
+                  [class.muted]="attentionTone(session.attentionState) === 'muted'">
+                  {{ session.attentionReason }}
+                </span>
+              </div>
+            </div>
+            <div class="compact-grid">
+              <div><span>Ctrl</span><strong>{{ session.controllerKind }}</strong></div>
+              <div><span>Clients</span><strong>{{ session.attachedClientCount }}</strong></div>
+              <div><span>Act</span><strong>{{ session.lastActivityLabel }}</strong></div>
+              <div><span>Out</span><strong>{{ session.lastOutputLabel }}</strong></div>
+            </div>
+            <div class="inventory-foot">
+              <p>{{ session.gitLabel }} · files {{ session.recentFileChangeCount }}</p>
+              <button type="button" class="ghost">Open</button>
+            </div>
+          </article>
+        }
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <div class="tabbar">
+        @for (tab of openTabs; track tab.sessionId) {
+          <button
+            type="button"
+            class="tab"
+            [class.active]="tab.sessionId === activeTabSessionId">
+            {{ tab.title }}
+            <span>{{ tab.connected ? 'connected' : 'idle' }}</span>
+          </button>
+        }
+      </div>
+
+      <article class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Connection Tab</p>
+            <h2>{{ openTabs[0].title }}</h2>
+          </div>
+          <div class="button-pair">
+            <button type="button" class="ghost">Disconnect</button>
+            <button type="button">Request control</button>
+          </div>
+        </div>
+        <div class="terminal-placeholder">
+          <div class="terminal-head">
+            <span>Session {{ openTabs[0].sessionId }}</span>
+            <strong>{{ openTabs[0].connected ? 'connected' : 'disconnected' }}</strong>
+          </div>
+          <pre>
+{{">"}} attention-first remote terminal area
+{{">"}} in-page tabs replace browser-tab multi-session flow
+{{">"}} file and git inspection stays secondary below
+          </pre>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-card">
+            <p class="eyebrow">Attention</p>
+            <strong>awaiting_input</strong>
+            <span>Show strongest supervision reason here.</span>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">Recent Files</p>
+            <strong>2 changed</strong>
+            <span>Compact on phone, expandable on selection.</span>
+          </div>
+          <div class="detail-card">
+            <p class="eyebrow">Git</p>
+            <strong>dirty (main)</strong>
+            <span>Read-only inspection only.</span>
+          </div>
+        </div>
+      </article>
+    </section>
+  </section>
+</main>

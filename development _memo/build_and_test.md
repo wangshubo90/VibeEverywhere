@@ -63,6 +63,31 @@ ctest --test-dir build --output-on-failure -L unit
 ctest --test-dir build --output-on-failure -R session
 ```
 
+## Frontend Workspace
+
+The maintained web frontend now lives under `frontend/` as an Angular workspace.
+
+Recommended baseline:
+
+- use an LTS Node release for day-to-day frontend work
+- odd-numbered Node releases may build locally but are not the preferred baseline
+
+Run from `frontend/`:
+
+```bash
+npm install
+npm run build:libs
+npm run build:host-admin
+npm run build:remote-client
+```
+
+For local development:
+
+```bash
+npm run start:host-admin
+npm run start:remote-client
+```
+
 ## TDD Workflow
 
 Expected loop:
