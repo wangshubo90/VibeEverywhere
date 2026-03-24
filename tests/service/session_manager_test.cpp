@@ -159,7 +159,7 @@ TEST(SessionManagerTest, SkipsInvalidPersistedSessionIds) {
   EXPECT_TRUE(manager.ListSessions().empty());
 }
 
-TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessionId) {
+TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecoveredGaps) {
   FakeSessionStore session_store;
   session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
       .session_id = "s_2",
@@ -193,7 +193,7 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .command_argv = std::nullopt,
   });
   ASSERT_TRUE(first_created.has_value());
-  EXPECT_EQ(first_created->id.value(), "s_10");
+  EXPECT_EQ(first_created->id.value(), "s_1");
   EXPECT_FALSE(first_created->is_recovered);
   EXPECT_TRUE(first_created->is_active);
   EXPECT_TRUE(first_created->created_at_unix_ms.has_value());
@@ -207,16 +207,16 @@ TEST(SessionManagerTest, CreateSessionAllocatesPastHighestRecoveredAndLiveSessio
       .command_argv = std::nullopt,
   });
   ASSERT_TRUE(second_created.has_value());
-  EXPECT_EQ(second_created->id.value(), "s_11");
+  EXPECT_EQ(second_created->id.value(), "s_3");
   EXPECT_FALSE(second_created->is_recovered);
   EXPECT_TRUE(second_created->is_active);
 
   const auto sessions = manager.ListSessions();
   ASSERT_EQ(sessions.size(), 4U);
-  EXPECT_EQ(sessions[0].id.value(), "s_2");
-  EXPECT_EQ(sessions[1].id.value(), "s_9");
-  EXPECT_EQ(sessions[2].id.value(), "s_10");
-  EXPECT_EQ(sessions[3].id.value(), "s_11");
+  EXPECT_EQ(sessions[0].id.value(), "s_1");
+  EXPECT_EQ(sessions[1].id.value(), "s_2");
+  EXPECT_EQ(sessions[2].id.value(), "s_3");
+  EXPECT_EQ(sessions[3].id.value(), "s_9");
 }
 
 TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
