@@ -215,6 +215,8 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
       .host_admin = host_admin,
       .client_address = "127.0.0.1",
       .is_local_request = true,
+      .remote_listener_host = "127.0.0.1",
+      .remote_listener_port = 18086,
       .remote_tls_certificate_path = "",
       .listener_role = listener_role,
   };
@@ -279,6 +281,44 @@ TEST(HttpSharedTest, ReturnsHostInfoWithRemoteTlsEnabled) {
   const HttpResponse response = HandleRequest(request, session_manager, context);
   EXPECT_EQ(response.result(), http::status::ok);
   EXPECT_NE(response.body().find("\"tls\":{\"enabled\":true"), std::string::npos);
+}
+
+TEST(HttpSharedTest, ReturnsDiscoveryInfo) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/discovery/info");
+  request.version(11);
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager, MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"hostId\":\"host_1\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"displayName\":\"Dev Host\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"remoteHost\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"remotePort\":18086"), std::string::npos);
+  EXPECT_NE(response.body().find("\"protocolVersion\":\"1\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"tls\":false"), std::string::npos);
+}
+
+TEST(HttpSharedTest, ReturnsDiscoveryInfoWithTlsEnabled) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/discovery/info");
+  request.version(11);
+
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.remote_tls_enabled = true;
+  const HttpResponse response = HandleRequest(request, session_manager, context);
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"tls\":true"), std::string::npos);
 }
 
 TEST(HttpSharedTest, ReturnsCorsPreflightResponse) {

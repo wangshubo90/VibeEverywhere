@@ -23,6 +23,7 @@
 #include <variant>
 #include <vector>
 
+#include "vibe/net/discovery_broadcaster.h"
 #include "vibe/net/http_shared.h"
 #include "vibe/net/json.h"
 #include "vibe/net/local_auth.h"
@@ -894,6 +895,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
               std::shared_ptr<WebSocketRegistry> websocket_registry,
               std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
               const ListenerRole listener_role, const bool remote_tls_enabled,
+              std::string remote_listener_host, const std::uint16_t remote_listener_port,
               std::string remote_tls_certificate_path)
       : stream_(std::forward<Stream>(stream)),
         session_manager_(session_manager),
@@ -906,6 +908,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
         overview_websocket_registry_(std::move(overview_websocket_registry)),
         listener_role_(listener_role),
         remote_tls_enabled_(remote_tls_enabled),
+        remote_listener_host_(std::move(remote_listener_host)),
+        remote_listener_port_(remote_listener_port),
         remote_tls_certificate_path_(std::move(remote_tls_certificate_path)) {}
 
   void Start() {
@@ -969,6 +973,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
                   .client_address = endpoint.address().to_string(),
                   .is_local_request = endpoint.address().is_loopback(),
                   .remote_tls_enabled = self->remote_tls_enabled_,
+                  .remote_listener_host = self->remote_listener_host_,
+                  .remote_listener_port = self->remote_listener_port_,
                   .remote_tls_certificate_path = self->remote_tls_certificate_path_,
                   .listener_role = self->listener_role_,
               });
@@ -1020,6 +1026,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
   ListenerRole listener_role_{ListenerRole::RemoteClient};
   bool remote_tls_enabled_{false};
+  std::string remote_listener_host_;
+  std::uint16_t remote_listener_port_{0};
   std::string remote_tls_certificate_path_;
 };
 
@@ -1035,6 +1043,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
                std::shared_ptr<WebSocketRegistry> websocket_registry,
                std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
                const ListenerRole listener_role, const bool remote_tls_enabled,
+               std::string remote_listener_host, const std::uint16_t remote_listener_port,
                std::string remote_tls_certificate_path)
       : acceptor_(io_context),
         socket_(io_context),
@@ -1048,6 +1057,8 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
         overview_websocket_registry_(std::move(overview_websocket_registry)),
         listener_role_(listener_role),
         remote_tls_enabled_(remote_tls_enabled),
+        remote_listener_host_(std::move(remote_listener_host)),
+        remote_listener_port_(remote_listener_port),
         remote_tls_certificate_path_(std::move(remote_tls_certificate_path)) {
     boost::system::error_code error_code;
     const tcp::endpoint endpoint(address, port);
@@ -1105,7 +1116,8 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
                 self->pairing_service_, self->pairing_store_, self->host_config_store_,
                 self->host_admin_, self->websocket_registry_, self->overview_websocket_registry_,
                 self->listener_role_,
-                self->remote_tls_enabled_, self->remote_tls_certificate_path_)
+                self->remote_tls_enabled_, self->remote_listener_host_,
+                self->remote_listener_port_, self->remote_tls_certificate_path_)
                 ->Start();
           }
 
@@ -1125,6 +1137,8 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
   ListenerRole listener_role_{ListenerRole::RemoteClient};
   bool remote_tls_enabled_{false};
+  std::string remote_listener_host_;
+  std::uint16_t remote_listener_port_{0};
   std::string remote_tls_certificate_path_;
   bool stopped_{false};
 };
@@ -1140,6 +1154,7 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
                 std::shared_ptr<vibe::net::HostAdmin> host_admin,
                 std::shared_ptr<WebSocketRegistry> websocket_registry,
                 std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
+                std::string remote_listener_host, const std::uint16_t remote_listener_port,
                 std::string remote_tls_certificate_path)
       : acceptor_(io_context),
         socket_(io_context),
@@ -1152,6 +1167,8 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
         host_admin_(std::move(host_admin)),
         websocket_registry_(std::move(websocket_registry)),
         overview_websocket_registry_(std::move(overview_websocket_registry)),
+        remote_listener_host_(std::move(remote_listener_host)),
+        remote_listener_port_(remote_listener_port),
         remote_tls_certificate_path_(std::move(remote_tls_certificate_path)) {
     boost::system::error_code error_code;
     const tcp::endpoint endpoint(address, port);
@@ -1207,7 +1224,8 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
                 self->authorizer_, self->pairing_service_, self->pairing_store_,
                 self->host_config_store_, self->host_admin_, self->websocket_registry_,
                 self->overview_websocket_registry_,
-                ListenerRole::RemoteClient, true, self->remote_tls_certificate_path_)
+                ListenerRole::RemoteClient, true, self->remote_listener_host_,
+                self->remote_listener_port_, self->remote_tls_certificate_path_)
                 ->Start();
           }
 
@@ -1226,6 +1244,8 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
   std::shared_ptr<vibe::net::HostAdmin> host_admin_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
+  std::string remote_listener_host_;
+  std::uint16_t remote_listener_port_{0};
   std::string remote_tls_certificate_path_;
   bool stopped_{false};
 };
@@ -1308,16 +1328,25 @@ auto HttpServer::Run() -> bool {
     auto session_pump =
         std::make_shared<SessionPump>(*io_context_, session_manager_, websocket_registry,
                                       overview_websocket_registry);
+    auto discovery_broadcaster = std::make_shared<UdpDiscoveryBroadcaster>(
+        [this, remote_tls_enabled = remote_tls_config.enabled]() {
+          return ToJson(ResolveDiscoveryInfo(
+              host_config_store_->LoadHostIdentity(), remote_bind_address_, remote_port_,
+              remote_tls_enabled));
+        });
     auto admin_listener =
         std::make_shared<HttpListener>(*io_context_, admin_address, admin_port_, session_manager_,
                                        *authorizer_, *pairing_service_, *pairing_store_,
                                        *host_config_store_, host_admin, websocket_registry,
                                        overview_websocket_registry,
                                        ListenerRole::AdminLocal, remote_tls_config.enabled,
+                                       remote_bind_address_, remote_port_,
                                        remote_tls_config.certificate_pem_path);
     std::shared_ptr<HttpListener> remote_http_listener;
     std::shared_ptr<HttpsListener> remote_https_listener;
     session_pump->Start();
+    const bool discovery_started = discovery_broadcaster->Start();
+    static_cast<void>(discovery_started);
     admin_listener->Start();
     if (remote_tls_config.enabled) {
       remote_https_listener =
@@ -1325,6 +1354,7 @@ auto HttpServer::Run() -> bool {
                                           remote_port_, session_manager_, *authorizer_,
                                           *pairing_service_, *pairing_store_, *host_config_store_,
                                           host_admin, websocket_registry, overview_websocket_registry,
+                                          remote_bind_address_, remote_port_,
                                           remote_tls_config.certificate_pem_path);
       remote_https_listener->Start();
     } else {
@@ -1334,6 +1364,7 @@ auto HttpServer::Run() -> bool {
                                          *host_config_store_, host_admin, websocket_registry,
                                          overview_websocket_registry,
                                          ListenerRole::RemoteClient, false,
+                                         remote_bind_address_, remote_port_,
                                          remote_tls_config.certificate_pem_path);
       remote_http_listener->Start();
     }
@@ -1343,10 +1374,13 @@ auto HttpServer::Run() -> bool {
       std::lock_guard lock(state_mutex_);
       stop_callback_ =
           [this, io_context, session_pump, admin_listener, remote_http_listener,
-           remote_https_listener, websocket_registry, overview_websocket_registry]() {
+           remote_https_listener, discovery_broadcaster, websocket_registry,
+           overview_websocket_registry]() {
             asio::post(*io_context, [this, io_context, session_pump, admin_listener,
                                      remote_http_listener, remote_https_listener,
-                                     websocket_registry, overview_websocket_registry]() {
+                                     discovery_broadcaster, websocket_registry,
+                                     overview_websocket_registry]() {
+              discovery_broadcaster->Stop();
               session_pump->Stop();
               admin_listener->Stop();
               if (remote_http_listener) {

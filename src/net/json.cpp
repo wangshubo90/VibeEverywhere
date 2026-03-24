@@ -428,6 +428,17 @@ auto ToJson(const ErrorEvent& event) -> std::string {
   return json::serialize(object);
 }
 
+auto ToJson(const DiscoveryInfo& info) -> std::string {
+  json::object object;
+  object["hostId"] = info.host_id;
+  object["displayName"] = info.display_name;
+  object["remoteHost"] = info.remote_host;
+  object["remotePort"] = info.remote_port;
+  object["protocolVersion"] = info.protocol_version;
+  object["tls"] = info.tls;
+  return json::serialize(object);
+}
+
 auto ToJsonHostInfo() -> std::string {
   return ToJsonHostInfo(std::nullopt, false);
 }
