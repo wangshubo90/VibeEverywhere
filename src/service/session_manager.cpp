@@ -129,6 +129,35 @@ auto ContainsParentTraversal(const std::filesystem::path& path) -> bool {
   });
 }
 
+auto ApplyGroupTagMutation(const std::vector<std::string>& existing_tags,
+                           const SessionGroupTagsUpdateMode mode,
+                           const std::vector<std::string>& tags) -> std::vector<std::string> {
+  const std::vector<std::string> normalized_existing =
+      vibe::session::NormalizeGroupTags(existing_tags);
+  const std::vector<std::string> normalized_input = vibe::session::NormalizeGroupTags(tags);
+
+  if (mode == SessionGroupTagsUpdateMode::Set) {
+    return normalized_input;
+  }
+
+  std::vector<std::string> result = normalized_existing;
+  if (mode == SessionGroupTagsUpdateMode::Add) {
+    for (const auto& tag : normalized_input) {
+      if (std::ranges::find(result, tag) == result.end()) {
+        result.push_back(tag);
+      }
+    }
+    return result;
+  }
+
+  result.erase(std::remove_if(result.begin(), result.end(),
+                              [&normalized_input](const std::string& tag) {
+                                return std::ranges::find(normalized_input, tag) != normalized_input.end();
+                              }),
+               result.end());
+  return result;
+}
+
 struct AttentionInference {
   vibe::session::AttentionState state{vibe::session::AttentionState::None};
   vibe::session::AttentionReason reason{vibe::session::AttentionReason::None};
@@ -241,6 +270,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .title = request.title,
       .status = vibe::session::SessionStatus::Created,
       .conversation_id = request.conversation_id,
+      .group_tags = vibe::session::NormalizeGroupTags(request.group_tags),
   };
 
   const vibe::session::ProviderConfig provider_config =
@@ -325,6 +355,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
                 .title = persisted.title,
                 .status = NormalizeRecoveredStatus(persisted.status),
                 .conversation_id = persisted.conversation_id,
+                .group_tags = vibe::session::NormalizeGroupTags(persisted.group_tags),
             },
         .current_sequence = persisted.current_sequence,
         .recent_terminal_tail = persisted.recent_terminal_tail,
@@ -634,6 +665,27 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
   return false;
 }
 
+auto SessionManager::UpdateSessionGroupTags(const std::string& session_id,
+                                            const SessionGroupTagsUpdateMode mode,
+                                            const std::vector<std::string>& tags)
+    -> std::optional<SessionSummary> {
+  SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr) {
+    return std::nullopt;
+  }
+
+  if (entry->runtime != nullptr) {
+    const auto snapshot = entry->runtime->record().snapshot();
+    entry->runtime->UpdateGroupTags(ApplyGroupTagMutation(snapshot.metadata.group_tags, mode, tags));
+  } else if (entry->recovered_snapshot.has_value()) {
+    entry->recovered_snapshot->metadata.group_tags =
+        ApplyGroupTagMutation(entry->recovered_snapshot->metadata.group_tags, mode, tags);
+  }
+
+  PersistEntry(*entry);
+  return BuildSummary(*entry);
+}
+
 auto SessionManager::ResizeSession(const std::string& session_id,
                                    const vibe::session::TerminalSize terminal_size) -> bool {
   if (SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
@@ -867,6 +919,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .title = metadata.title,
         .status = metadata.status,
         .conversation_id = metadata.conversation_id,
+        .group_tags = metadata.group_tags,
         .controller_client_id = entry.controller_client_id,
         .controller_kind = entry.controller_kind,
         .is_recovered = entry.is_recovered,
@@ -902,6 +955,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .title = metadata.title,
       .status = metadata.status,
       .conversation_id = metadata.conversation_id,
+      .group_tags = metadata.group_tags,
       .controller_client_id = entry.controller_client_id,
       .controller_kind = entry.controller_kind,
       .is_recovered = entry.is_recovered,
@@ -945,6 +999,7 @@ void SessionManager::PersistEntry(const SessionEntry& entry) {
       .title = snapshot.metadata.title,
       .status = snapshot.metadata.status,
       .conversation_id = snapshot.metadata.conversation_id,
+      .group_tags = snapshot.metadata.group_tags,
       .current_sequence = snapshot.current_sequence,
       .recent_terminal_tail = snapshot.recent_terminal_tail,
   };

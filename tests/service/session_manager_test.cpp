@@ -95,6 +95,7 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Running,
       .conversation_id = std::nullopt,
+      .group_tags = {"frontend", "mvp"},
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -109,6 +110,7 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   EXPECT_EQ(summary->workspace_root, "/tmp/recovered");
   EXPECT_EQ(summary->title, "recovered-session");
   EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+  EXPECT_EQ(summary->group_tags, (std::vector<std::string>{"frontend", "mvp"}));
   EXPECT_EQ(summary->controller_kind, vibe::session::ControllerKind::Host);
   EXPECT_TRUE(summary->is_recovered);
   EXPECT_FALSE(summary->is_active);
@@ -119,6 +121,7 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   const auto snapshot = manager.GetSnapshot("s_42");
   ASSERT_TRUE(snapshot.has_value());
   EXPECT_EQ(snapshot->metadata.status, vibe::session::SessionStatus::Exited);
+  EXPECT_EQ(snapshot->metadata.group_tags, (std::vector<std::string>{"frontend", "mvp"}));
   EXPECT_EQ(snapshot->current_sequence, 7U);
   EXPECT_EQ(snapshot->recent_terminal_tail, "restored tail");
 
@@ -149,6 +152,7 @@ TEST(SessionManagerTest, SkipsInvalidPersistedSessionIds) {
       .title = "bad-session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 0,
       .recent_terminal_tail = "",
   });
@@ -168,6 +172,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "recovered-two",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 2,
       .recent_terminal_tail = "tail-2",
   });
@@ -178,6 +183,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "recovered-nine",
       .status = vibe::session::SessionStatus::Running,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 9,
       .recent_terminal_tail = "tail-9",
   });
@@ -191,6 +197,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "live-one",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .group_tags = {},
   });
   ASSERT_TRUE(first_created.has_value());
   EXPECT_EQ(first_created->id.value(), "s_1");
@@ -205,6 +212,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "live-two",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .group_tags = {},
   });
   ASSERT_TRUE(second_created.has_value());
   EXPECT_EQ(second_created->id.value(), "s_3");
@@ -219,6 +227,85 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
   EXPECT_EQ(sessions[3].id.value(), "s_3");
 }
 
+TEST(SessionManagerTest, CreateSessionNormalizesAndPersistsGroupTags) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "tagged",
+      .conversation_id = std::nullopt,
+      .command_argv = std::nullopt,
+      .group_tags = {" Frontend ", "mvp", "frontend"},
+  });
+  ASSERT_TRUE(created.has_value());
+  EXPECT_EQ(created->group_tags, (std::vector<std::string>{"frontend", "mvp"}));
+
+  const auto snapshot = manager.GetSnapshot(created->id.value());
+  ASSERT_TRUE(snapshot.has_value());
+  EXPECT_EQ(snapshot->metadata.group_tags, (std::vector<std::string>{"frontend", "mvp"}));
+
+  const auto persisted = FindLastPersistedRecord(session_store, created->id.value());
+  ASSERT_TRUE(persisted.has_value());
+  EXPECT_EQ(persisted->group_tags, (std::vector<std::string>{"frontend", "mvp"}));
+}
+
+TEST(SessionManagerTest, UpdatesGroupTagsForLiveAndRecoveredSessions) {
+  FakeSessionStore session_store;
+  session_store.sessions.push_back(vibe::store::PersistedSessionRecord{
+      .session_id = "s_42",
+      .provider = vibe::session::ProviderType::Claude,
+      .workspace_root = "/tmp/recovered",
+      .title = "recovered-session",
+      .status = vibe::session::SessionStatus::Exited,
+      .conversation_id = std::nullopt,
+      .group_tags = {"legacy"},
+      .current_sequence = 7,
+      .recent_terminal_tail = "restored tail",
+  });
+
+  SessionManager manager(&session_store);
+  ASSERT_EQ(manager.LoadPersistedSessions(), 1U);
+
+  const auto live = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "live-tagged",
+      .conversation_id = std::nullopt,
+      .command_argv = std::nullopt,
+      .group_tags = {"frontend"},
+  });
+  ASSERT_TRUE(live.has_value());
+
+  const auto updated_live = manager.UpdateSessionGroupTags(
+      live->id.value(), SessionGroupTagsUpdateMode::Add, {" MVP ", "frontend"});
+  ASSERT_TRUE(updated_live.has_value());
+  EXPECT_EQ(updated_live->group_tags, (std::vector<std::string>{"frontend", "mvp"}));
+
+  const auto removed_live = manager.UpdateSessionGroupTags(
+      live->id.value(), SessionGroupTagsUpdateMode::Remove, {"frontend"});
+  ASSERT_TRUE(removed_live.has_value());
+  EXPECT_EQ(removed_live->group_tags, (std::vector<std::string>{"mvp"}));
+
+  const auto updated_recovered = manager.UpdateSessionGroupTags(
+      "s_42", SessionGroupTagsUpdateMode::Set, {" Ops ", "ops", "archive"});
+  ASSERT_TRUE(updated_recovered.has_value());
+  EXPECT_EQ(updated_recovered->group_tags, (std::vector<std::string>{"ops", "archive"}));
+
+  const auto recovered_snapshot = manager.GetSnapshot("s_42");
+  ASSERT_TRUE(recovered_snapshot.has_value());
+  EXPECT_EQ(recovered_snapshot->metadata.group_tags, (std::vector<std::string>{"ops", "archive"}));
+
+  const auto persisted_live = FindLastPersistedRecord(session_store, live->id.value());
+  ASSERT_TRUE(persisted_live.has_value());
+  EXPECT_EQ(persisted_live->group_tags, (std::vector<std::string>{"mvp"}));
+
+  const auto persisted_recovered = FindLastPersistedRecord(session_store, "s_42");
+  ASSERT_TRUE(persisted_recovered.has_value());
+  EXPECT_EQ(persisted_recovered->group_tags, (std::vector<std::string>{"ops", "archive"}));
+}
+
 TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
   SessionManager manager(nullptr, []() -> std::unique_ptr<vibe::session::IPtyProcess> {
     return nullptr;
@@ -230,6 +317,7 @@ TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
       .title = "missing-pty",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .group_tags = {},
   });
 
   EXPECT_FALSE(created.has_value());
@@ -245,6 +333,7 @@ TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsE
       .title = "shutdown-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
   ASSERT_TRUE(manager.RequestControl(created->id.value(), "remote-1",
@@ -272,6 +361,7 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -285,6 +375,7 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
       .title = "clear-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -307,6 +398,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "first",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   const auto second = manager.CreateSession(CreateSessionRequest{
       .provider = vibe::session::ProviderType::Codex,
@@ -314,6 +406,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "second",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(first.has_value());
   ASSERT_TRUE(second.has_value());
@@ -331,6 +424,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "reused",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(reused.has_value());
   EXPECT_EQ(reused->id.value(), "s_1");
@@ -346,6 +440,7 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
       .title = "output-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "printf 'ready\\n'; sleep 1"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -368,6 +463,7 @@ TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
       .title = "control-activity",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -410,6 +506,7 @@ TEST_F(GitSessionManagerTest, GitPollDoesNotAdvanceActivityWithoutGitStateChange
       .title = "git-idle",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -441,6 +538,7 @@ TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndS
       .title = "git-transitions",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -524,6 +622,7 @@ TEST(SessionManagerTest, StopSetsShortLivedExitedAttention) {
       .title = "exit-attention",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 
@@ -557,6 +656,7 @@ TEST(SessionManagerTest, ReadFileReturnsContentWithinRecoveredWorkspaceRoot) {
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -594,6 +694,7 @@ TEST(SessionManagerTest, ReadFileRejectsInvalidOrEscapingPaths) {
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -631,6 +732,7 @@ TEST(SessionManagerTest, ReadFileMarksTruncatedResponses) {
       .title = "recovered-session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 7,
       .recent_terminal_tail = "restored tail",
   });
@@ -666,6 +768,7 @@ TEST(SessionManagerTest, PollAllTracksRecentWorkspaceFileChangesForLiveSession) 
       .title = "file-watch",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
 

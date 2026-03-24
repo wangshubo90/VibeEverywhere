@@ -41,6 +41,7 @@ TEST(SessionMetadataTest, DefaultsToCreatedStatus) {
       .title = "bootstrap",
       .status = SessionStatus::Created,
       .conversation_id = std::nullopt,
+      .group_tags = {},
   };
 
   EXPECT_EQ(metadata.id.value(), "session_123");

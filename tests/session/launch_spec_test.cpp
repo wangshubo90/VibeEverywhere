@@ -16,6 +16,7 @@ auto MakeMetadata() -> SessionMetadata {
       .title = "launch-spec",
       .status = SessionStatus::Created,
       .conversation_id = std::nullopt,
+      .group_tags = {},
   };
 }
 

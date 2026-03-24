@@ -146,6 +146,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .title = "First Session",
       .status = vibe::session::SessionStatus::Running,
       .conversation_id = std::nullopt,
+      .group_tags = {"frontend"},
       .current_sequence = 42,
       .recent_terminal_tail = std::string("tail\0bytes\n", 11),
   };
@@ -156,6 +157,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .title = "Recovered Session",
       .status = vibe::session::SessionStatus::Exited,
       .conversation_id = "conv_42",
+      .group_tags = {"frontend", "mvp"},
       .current_sequence = 84,
       .recent_terminal_tail = std::string("\x1b[31merror\x1b[0m\n", 15),
   };
@@ -166,6 +168,7 @@ TEST_F(FileStoresTest, SessionRecordsRoundTripAcrossReloadAndPreserveTerminalTai
       .title = "Other Session",
       .status = vibe::session::SessionStatus::Error,
       .conversation_id = std::nullopt,
+      .group_tags = {"backend"},
       .current_sequence = 7,
       .recent_terminal_tail = "fatal\n",
   };

@@ -10,6 +10,35 @@ namespace vibe::net {
 
 namespace json = boost::json;
 
+namespace {
+
+auto ParseNormalizedTagsArray(const json::value* value) -> std::optional<std::vector<std::string>> {
+  if (value == nullptr) {
+    return std::vector<std::string>{};
+  }
+  if (!value->is_array()) {
+    return std::nullopt;
+  }
+
+  std::vector<std::string> tags;
+  tags.reserve(value->as_array().size());
+  for (const auto& item : value->as_array()) {
+    if (!item.is_string()) {
+      return std::nullopt;
+    }
+
+    const std::string normalized = vibe::session::NormalizeGroupTag(json::value_to<std::string>(item));
+    if (normalized.empty()) {
+      return std::nullopt;
+    }
+    tags.push_back(normalized);
+  }
+
+  return vibe::session::NormalizeGroupTags(tags);
+}
+
+}  // namespace
+
 auto ParseCreateSessionRequest(const std::string& body)
     -> std::optional<vibe::service::CreateSessionRequest> {
   boost::system::error_code error_code;
@@ -24,6 +53,7 @@ auto ParseCreateSessionRequest(const std::string& body)
   const auto title = object.if_contains("title");
   const auto conversation_id = object.if_contains("conversationId");
   const auto command = object.if_contains("command");
+  const auto group_tags = object.if_contains("groupTags");
 
   if (provider_value == nullptr || workspace_root == nullptr || title == nullptr ||
       !provider_value->is_string() || !workspace_root->is_string() || !title->is_string()) {
@@ -74,12 +104,18 @@ auto ParseCreateSessionRequest(const std::string& body)
     command_argv = std::move(parsed_command);
   }
 
+  const auto parsed_group_tags = ParseNormalizedTagsArray(group_tags);
+  if (!parsed_group_tags.has_value()) {
+    return std::nullopt;
+  }
+
   return vibe::service::CreateSessionRequest{
       .provider = provider,
       .workspace_root = json::value_to<std::string>(*workspace_root),
       .title = json::value_to<std::string>(*title),
       .conversation_id = std::move(parsed_conversation_id),
       .command_argv = std::move(command_argv),
+      .group_tags = std::move(*parsed_group_tags),
   };
 }
 
@@ -261,6 +297,44 @@ auto ParseHostConfigRequest(const std::string& body) -> std::optional<HostConfig
       .remote_port = *parsed_remote_port,
       .codex_command = std::move(codex_command),
       .claude_command = std::move(claude_command),
+  };
+}
+
+auto ParseSessionGroupTagsUpdateRequest(const std::string& body)
+    -> std::optional<SessionGroupTagsUpdatePayload> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto mode = object.if_contains("mode");
+  const auto tags = object.if_contains("tags");
+  if (mode == nullptr || !mode->is_string()) {
+    return std::nullopt;
+  }
+
+  const auto parsed_tags = ParseNormalizedTagsArray(tags);
+  if (!parsed_tags.has_value()) {
+    return std::nullopt;
+  }
+
+  const std::string mode_name = json::value_to<std::string>(*mode);
+  vibe::service::SessionGroupTagsUpdateMode parsed_mode = vibe::service::SessionGroupTagsUpdateMode::Add;
+  if (mode_name == "add") {
+    parsed_mode = vibe::service::SessionGroupTagsUpdateMode::Add;
+  } else if (mode_name == "remove") {
+    parsed_mode = vibe::service::SessionGroupTagsUpdateMode::Remove;
+  } else if (mode_name == "set") {
+    parsed_mode = vibe::service::SessionGroupTagsUpdateMode::Set;
+  } else {
+    return std::nullopt;
+  }
+
+  return SessionGroupTagsUpdatePayload{
+      .mode = parsed_mode,
+      .tags = std::move(*parsed_tags),
   };
 }
 

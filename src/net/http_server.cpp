@@ -526,10 +526,12 @@ class WebSocketSession final : public WebSocketSessionBase,
 
     const bool status_changed =
         !last_status_.has_value() || *last_status_ != summary->status ||
+        last_group_tags_ != summary->group_tags ||
         last_controller_client_id_ != summary->controller_client_id ||
         last_controller_kind_ != summary->controller_kind;
     if (status_changed) {
       last_status_ = summary->status;
+      last_group_tags_ = summary->group_tags;
       last_controller_client_id_ = summary->controller_client_id;
       last_controller_kind_ = summary->controller_kind;
       QueueFrame(ToJson(SessionUpdatedEvent{.summary = *summary}), last_sequence_);
@@ -711,6 +713,7 @@ class WebSocketSession final : public WebSocketSessionBase,
   std::string client_address_;
   std::uint64_t last_sequence_{1};
   std::optional<vibe::session::SessionStatus> last_status_;
+  std::vector<std::string> last_group_tags_;
   std::optional<std::string> last_controller_client_id_;
   vibe::session::ControllerKind last_controller_kind_{vibe::session::ControllerKind::None};
   std::optional<std::string> last_activity_state_;

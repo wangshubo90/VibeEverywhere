@@ -26,6 +26,13 @@ struct CreateSessionRequest {
   std::string title;
   std::optional<std::string> conversation_id;
   std::optional<std::vector<std::string>> command_argv;
+  std::vector<std::string> group_tags;
+};
+
+enum class SessionGroupTagsUpdateMode {
+  Add,
+  Remove,
+  Set,
 };
 
 struct SessionSummary {
@@ -35,6 +42,7 @@ struct SessionSummary {
   std::string title;
   vibe::session::SessionStatus status;
   std::optional<std::string> conversation_id;
+  std::vector<std::string> group_tags;
   std::optional<std::string> controller_client_id;
   vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
   bool is_recovered{false};
@@ -105,6 +113,10 @@ class SessionManager {
   [[nodiscard]] auto ReadFile(const std::string& session_id, const std::string& workspace_path,
                               std::size_t max_bytes) const -> SessionFileReadResult;
   [[nodiscard]] auto SendInput(const std::string& session_id, const std::string& input) -> bool;
+  [[nodiscard]] auto UpdateSessionGroupTags(const std::string& session_id,
+                                            SessionGroupTagsUpdateMode mode,
+                                            const std::vector<std::string>& tags)
+      -> std::optional<SessionSummary>;
   [[nodiscard]] auto ResizeSession(const std::string& session_id,
                                    vibe::session::TerminalSize terminal_size) -> bool;
   [[nodiscard]] auto StopSession(const std::string& session_id) -> bool;

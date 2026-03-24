@@ -97,6 +97,7 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   if (summary.conversation_id.has_value()) {
     object["conversationId"] = *summary.conversation_id;
   }
+  object["groupTags"] = json::value_from(summary.group_tags);
   if (summary.controller_client_id.has_value()) {
     object["controllerClientId"] = *summary.controller_client_id;
   }
@@ -181,6 +182,7 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   if (snapshot.metadata.conversation_id.has_value()) {
     object["conversationId"] = *snapshot.metadata.conversation_id;
   }
+  object["groupTags"] = json::value_from(snapshot.metadata.group_tags);
   object["currentSequence"] = snapshot.current_sequence;
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
   object["recentFileChanges"] = json::value_from(snapshot.recent_file_changes);
@@ -313,6 +315,7 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   if (event.summary.conversation_id.has_value()) {
     object["conversationId"] = *event.summary.conversation_id;
   }
+  object["groupTags"] = json::value_from(event.summary.group_tags);
   if (event.summary.controller_client_id.has_value()) {
     object["controllerClientId"] = *event.summary.controller_client_id;
   }
@@ -373,6 +376,7 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   object["type"] = "session.activity";
   object["sessionId"] = event.summary.id.value();
   object["activityState"] = ToActivityState(event.summary);
+  object["groupTags"] = json::value_from(event.summary.group_tags);
   object["isActive"] = event.summary.is_active;
   object["supervisionState"] = std::string(vibe::session::ToString(event.summary.supervision_state));
   object["attentionState"] = ToAttentionState(event.summary);

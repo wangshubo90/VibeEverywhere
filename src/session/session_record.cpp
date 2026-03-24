@@ -33,6 +33,10 @@ void SessionRecord::SetRecentFileChanges(std::vector<std::string> recent_file_ch
 
 void SessionRecord::SetGitSummary(GitSummary git_summary) { git_summary_ = std::move(git_summary); }
 
+void SessionRecord::SetGroupTags(std::vector<std::string> group_tags) {
+  metadata_.group_tags = std::move(group_tags);
+}
+
 auto SessionRecord::snapshot() const -> SessionSnapshot {
   return SessionSnapshot{
       .metadata = metadata_,

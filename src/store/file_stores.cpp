@@ -540,6 +540,7 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
   const auto* title = object.if_contains("title");
   const auto* status = object.if_contains("status");
   const auto* conversation_id = object.if_contains("conversationId");
+  const auto* group_tags = object.if_contains("groupTags");
   const auto* current_sequence = object.if_contains("currentSequence");
   const auto* recent_terminal_tail = object.if_contains("recentTerminalTailBase64");
   if (session_id == nullptr || provider == nullptr || workspace_root == nullptr || title == nullptr ||
@@ -549,6 +550,9 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
     return std::nullopt;
   }
   if (conversation_id != nullptr && !conversation_id->is_string()) {
+    return std::nullopt;
+  }
+  if (group_tags != nullptr && !group_tags->is_array()) {
     return std::nullopt;
   }
 
@@ -568,6 +572,18 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
     return std::nullopt;
   }
 
+  std::vector<std::string> parsed_group_tags;
+  if (group_tags != nullptr) {
+    parsed_group_tags.reserve(group_tags->as_array().size());
+    for (const auto& item : group_tags->as_array()) {
+      if (!item.is_string()) {
+        return std::nullopt;
+      }
+      parsed_group_tags.push_back(std::string(item.as_string()));
+    }
+    parsed_group_tags = vibe::session::NormalizeGroupTags(parsed_group_tags);
+  }
+
   return PersistedSessionRecord{
       .session_id = std::string(session_id->as_string()),
       .provider = *parsed_provider,
@@ -577,6 +593,7 @@ auto PersistedSessionRecordFromJson(const json::value& value) -> std::optional<P
       .conversation_id =
           conversation_id != nullptr ? std::make_optional(std::string(conversation_id->as_string()))
                                      : std::nullopt,
+      .group_tags = std::move(parsed_group_tags),
       .current_sequence = parsed_sequence,
       .recent_terminal_tail = *decoded_tail,
   };
@@ -592,6 +609,7 @@ auto ToJsonValue(const PersistedSessionRecord& record) -> json::value {
   if (record.conversation_id.has_value()) {
     object["conversationId"] = *record.conversation_id;
   }
+  object["groupTags"] = json::value_from(record.group_tags);
   object["currentSequence"] = record.current_sequence;
   object["recentTerminalTailBase64"] = Base64Encode(record.recent_terminal_tail);
   return object;

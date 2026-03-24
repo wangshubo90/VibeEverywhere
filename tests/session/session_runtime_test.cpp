@@ -63,6 +63,7 @@ auto MakeMetadata() -> SessionMetadata {
       .title = "runtime",
       .status = SessionStatus::Created,
       .conversation_id = std::nullopt,
+      .group_tags = {},
   };
 }
 

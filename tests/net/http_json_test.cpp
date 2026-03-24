@@ -50,6 +50,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .title = "demo",
       .status = vibe::session::SessionStatus::Running,
       .conversation_id = "conv_hash_1",
+      .group_tags = {"frontend", "mvp"},
       .controller_client_id = std::nullopt,
       .controller_kind = vibe::session::ControllerKind::Host,
       .is_recovered = false,
@@ -77,6 +78,7 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_NE(json.find("\"conversationId\":\"conv_hash_1\""), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
   EXPECT_NE(json.find("\"archivedRecord\":false"), std::string::npos);
   EXPECT_NE(json.find("\"inventoryState\":\"live\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
@@ -132,7 +134,8 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .workspace_root = "/tmp/project",
               .title = "recoverable-session",
               .status = vibe::session::SessionStatus::Running,
-      .conversation_id = std::nullopt,
+              .conversation_id = std::nullopt,
+              .group_tags = {"frontend", "mvp"},
           },
       .current_sequence = 42,
       .recent_terminal_tail = "tail",
@@ -169,6 +172,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   });
 
   EXPECT_NE(json.find("\"signals\""), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":110"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":42"), std::string::npos);
@@ -217,7 +221,8 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .workspace_root = "/tmp/project",
               .title = "demo",
               .status = vibe::session::SessionStatus::Running,
-      .conversation_id = std::nullopt,
+              .conversation_id = std::nullopt,
+              .group_tags = {"frontend"},
               .controller_client_id = "client-1",
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
@@ -247,6 +252,7 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
   EXPECT_NE(json.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"status\":\"Running\""), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"frontend\"]"), std::string::npos);
   EXPECT_NE(json.find("\"controllerClientId\":\"client-1\""), std::string::npos);
   EXPECT_NE(json.find("\"controllerKind\":\"remote\""), std::string::npos);
   EXPECT_NE(json.find("\"archivedRecord\":false"), std::string::npos);
@@ -286,7 +292,8 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .workspace_root = "/tmp/project",
               .title = "demo",
               .status = vibe::session::SessionStatus::Running,
-      .conversation_id = std::nullopt,
+              .conversation_id = std::nullopt,
+              .group_tags = {"frontend"},
               .controller_client_id = "client-1",
               .controller_kind = vibe::session::ControllerKind::Remote,
               .is_recovered = false,
@@ -316,6 +323,7 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
   EXPECT_NE(json.find("\"type\":\"session.activity\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_9\""), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"frontend\"]"), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionReason\":\"git_state_changed\""), std::string::npos);
@@ -341,7 +349,8 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .workspace_root = ".",
                   .title = "one",
                   .status = vibe::session::SessionStatus::Running,
-      .conversation_id = std::nullopt,
+                  .conversation_id = std::nullopt,
+                  .group_tags = {"frontend"},
                   .controller_client_id = std::nullopt,
                   .controller_kind = vibe::session::ControllerKind::Host,
                   .is_recovered = false,
@@ -368,7 +377,8 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .workspace_root = "/tmp",
                   .title = "two",
                   .status = vibe::session::SessionStatus::Exited,
-      .conversation_id = std::nullopt,
+                  .conversation_id = std::nullopt,
+                  .group_tags = {"backend"},
                   .controller_client_id = std::nullopt,
                   .controller_kind = vibe::session::ControllerKind::None,
                   .is_recovered = true,
@@ -395,6 +405,8 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
   EXPECT_NE(json.find("\"type\":\"sessions.snapshot\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_1\""), std::string::npos);
   EXPECT_NE(json.find("\"sessionId\":\"s_2\""), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"frontend\"]"), std::string::npos);
+  EXPECT_NE(json.find("\"groupTags\":[\"backend\"]"), std::string::npos);
   EXPECT_NE(json.find("\"inventoryState\":\"live\""), std::string::npos);
   EXPECT_NE(json.find("\"inventoryState\":\"archived\""), std::string::npos);
 }

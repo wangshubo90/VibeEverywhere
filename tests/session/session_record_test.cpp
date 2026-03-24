@@ -16,6 +16,7 @@ auto MakeMetadata() -> SessionMetadata {
       .title = "session-record",
       .status = SessionStatus::Created,
       .conversation_id = std::nullopt,
+      .group_tags = {"frontend"},
   };
 }
 
@@ -54,6 +55,7 @@ TEST(SessionRecordTest, SnapshotReflectsAccumulatedSessionState) {
   record.SetCurrentSequence(128);
   record.SetRecentTerminalTail("git status\n");
   record.SetRecentFileChanges({"src/main.cpp", "README.md"});
+  record.SetGroupTags({"frontend", "mvp"});
   record.SetGitSummary(GitSummary{
       .branch = "feature/session-record",
       .modified_count = 1,
@@ -66,6 +68,7 @@ TEST(SessionRecordTest, SnapshotReflectsAccumulatedSessionState) {
 
   const SessionSnapshot snapshot = record.snapshot();
   EXPECT_EQ(snapshot.metadata.status, SessionStatus::Running);
+  EXPECT_EQ(snapshot.metadata.group_tags, (std::vector<std::string>{"frontend", "mvp"}));
   EXPECT_EQ(snapshot.current_sequence, 128U);
   EXPECT_EQ(snapshot.recent_terminal_tail, "git status\n");
   EXPECT_EQ(snapshot.recent_file_changes, (std::vector<std::string>{"src/main.cpp", "README.md"}));

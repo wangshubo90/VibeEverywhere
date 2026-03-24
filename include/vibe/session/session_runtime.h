@@ -31,6 +31,7 @@ class SessionRuntime {
   [[nodiscard]] auto MarkRunning() -> bool;
   [[nodiscard]] auto HandleExit(bool clean_exit) -> bool;
   void UpdateGitSummary(GitSummary git_summary);
+  void UpdateGroupTags(std::vector<std::string> group_tags);
   void UpdateRecentFileChanges(std::vector<std::string> recent_file_changes);
   void PollOnce(int read_timeout_ms);
 

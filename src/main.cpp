@@ -34,6 +34,7 @@ auto MakeLocalSessionMetadata() -> vibe::session::SessionMetadata {
       .title = "local-pty",
       .status = vibe::session::SessionStatus::Created,
       .conversation_id = std::nullopt,
+      .group_tags = {},
   };
 }
 

@@ -122,6 +122,10 @@ void SessionRuntime::UpdateGitSummary(GitSummary git_summary) {
   record_.SetGitSummary(std::move(git_summary));
 }
 
+void SessionRuntime::UpdateGroupTags(std::vector<std::string> group_tags) {
+  record_.SetGroupTags(std::move(group_tags));
+}
+
 void SessionRuntime::UpdateRecentFileChanges(std::vector<std::string> recent_file_changes) {
   record_.SetRecentFileChanges(std::move(recent_file_changes));
 }

@@ -347,7 +347,7 @@ TEST(HttpSharedTest, CanCreateAndListSessions) {
   create_request.version(11);
   create_request.set(http::field::authorization, "Bearer good-token");
   create_request.body() =
-      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"new-session\"}";
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"new-session\",\"groupTags\":[\" Frontend \",\"mvp\",\"frontend\"]}";
   create_request.prepare_payload();
 
   const HttpResponse create_response =
@@ -355,6 +355,7 @@ TEST(HttpSharedTest, CanCreateAndListSessions) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(create_response.result(), http::status::created);
   EXPECT_NE(create_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(create_response.body().find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
 
   HttpRequest list_request;
   list_request.method(http::verb::get);
@@ -367,6 +368,7 @@ TEST(HttpSharedTest, CanCreateAndListSessions) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(list_response.result(), http::status::ok);
   EXPECT_NE(list_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(list_response.body().find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
 }
 
 TEST(HttpSharedTest, AdminLocalCanCreateSessionWithoutBearerToken) {
@@ -403,7 +405,7 @@ TEST(HttpSharedTest, ReturnsSessionDetailAndSnapshot) {
   create_request.version(11);
   create_request.set(http::field::authorization, "Bearer good-token");
   create_request.body() =
-      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"new-session\"}";
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"new-session\",\"groupTags\":[\"frontend\"]}";
   create_request.prepare_payload();
   const HttpResponse create_response =
       HandleRequest(create_request, session_manager,
@@ -420,6 +422,7 @@ TEST(HttpSharedTest, ReturnsSessionDetailAndSnapshot) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(detail_response.result(), http::status::ok);
   EXPECT_NE(detail_response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(detail_response.body().find("\"groupTags\":[\"frontend\"]"), std::string::npos);
 
   HttpRequest snapshot_request;
   snapshot_request.method(http::verb::get);
@@ -431,6 +434,86 @@ TEST(HttpSharedTest, ReturnsSessionDetailAndSnapshot) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(snapshot_response.result(), http::status::ok);
   EXPECT_NE(snapshot_response.body().find("\"currentSequence\":0"), std::string::npos);
+  EXPECT_NE(snapshot_response.body().find("\"groupTags\":[\"frontend\"]"), std::string::npos);
+}
+
+TEST(HttpSharedTest, MutatesSessionGroupTagsAndReadsBackNormalizedTags) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"tag-target\",\"groupTags\":[\"frontend\"]}";
+  create_request.prepare_payload();
+  EXPECT_EQ(HandleRequest(create_request, session_manager,
+                          MakeAuthContext(authorizer, pairing_service, host_config_store))
+                .result(),
+            http::status::created);
+
+  HttpRequest groups_request;
+  groups_request.method(http::verb::post);
+  groups_request.target("/sessions/s_1/groups");
+  groups_request.version(11);
+  groups_request.set(http::field::authorization, "Bearer good-token");
+  groups_request.body() = R"({"mode":"add","tags":[" MVP ","frontend"]})";
+  groups_request.prepare_payload();
+
+  const HttpResponse groups_response =
+      HandleRequest(groups_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(groups_response.result(), http::status::ok);
+  EXPECT_NE(groups_response.body().find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
+
+  HttpRequest detail_request;
+  detail_request.method(http::verb::get);
+  detail_request.target("/sessions/s_1");
+  detail_request.version(11);
+  detail_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse detail_response =
+      HandleRequest(detail_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(detail_response.result(), http::status::ok);
+  EXPECT_NE(detail_response.body().find("\"groupTags\":[\"frontend\",\"mvp\"]"), std::string::npos);
+}
+
+TEST(HttpSharedTest, RejectsInvalidSessionGroupTagsMutationRequest) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest create_request;
+  create_request.method(http::verb::post);
+  create_request.target("/sessions");
+  create_request.version(11);
+  create_request.set(http::field::authorization, "Bearer good-token");
+  create_request.body() =
+      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"tag-target\"}";
+  create_request.prepare_payload();
+  EXPECT_EQ(HandleRequest(create_request, session_manager,
+                          MakeAuthContext(authorizer, pairing_service, host_config_store))
+                .result(),
+            http::status::created);
+
+  HttpRequest groups_request;
+  groups_request.method(http::verb::post);
+  groups_request.target("/sessions/s_1/groups");
+  groups_request.version(11);
+  groups_request.set(http::field::authorization, "Bearer good-token");
+  groups_request.body() = R"({"mode":"add","tags":["   "]})";
+  groups_request.prepare_payload();
+
+  const HttpResponse groups_response =
+      HandleRequest(groups_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(groups_response.result(), http::status::bad_request);
+  EXPECT_NE(groups_response.body().find("invalid session group tags request"), std::string::npos);
 }
 
 TEST(HttpSharedTest, ReturnsSessionFileContentWithinWorkspaceRoot) {
@@ -1118,6 +1201,8 @@ TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
       .host_config_store = &host_config_store,
       .client_address = "10.0.0.8",
       .is_local_request = false,
+      .remote_listener_host = "",
+      .remote_listener_port = 0,
       .remote_tls_certificate_path = "",
       .listener_role = ListenerRole::RemoteClient,
   };

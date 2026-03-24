@@ -174,6 +174,7 @@ TEST(InterfaceContractTest, PairingAndStoreSeamsSupportBasicUsage) {
       .title = "demo",
       .status = vibe::session::SessionStatus::Running,
       .conversation_id = std::nullopt,
+      .group_tags = {},
       .current_sequence = 12,
       .recent_terminal_tail = "tail",
   };

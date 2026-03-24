@@ -505,6 +505,13 @@ auto HandleCreateSessionRequest(const HttpRequest& request, vibe::service::Sessi
   return MakeJsonResponse(request, http::status::created, ToJson(*created));
 }
 
+auto MakeSessionGroupTagsResponse(const vibe::service::SessionSummary& summary) -> std::string {
+  json::object object;
+  object["sessionId"] = summary.id.value();
+  object["groupTags"] = json::value_from(summary.group_tags);
+  return json::serialize(object);
+}
+
 }  // namespace
 
 auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& session_manager,
@@ -876,6 +883,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     const std::string remainder = request_path.substr(sessions_prefix.size());
     const auto snapshot_suffix = std::string("/snapshot");
     const auto file_suffix = std::string("/file");
+    const auto groups_suffix = std::string("/groups");
     const auto input_suffix = std::string("/input");
     const auto stop_suffix = std::string("/stop");
     const auto tail_marker = std::string("/tail");
@@ -969,6 +977,29 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       }
 
       return MakeJsonResponse(request, http::status::ok, "{\"status\":\"ok\"}");
+    }
+
+    if (request.method() == http::verb::post && remainder.size() > groups_suffix.size() &&
+        remainder.ends_with(groups_suffix)) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+
+      const std::string session_id = remainder.substr(0, remainder.size() - groups_suffix.size());
+      const auto payload = ParseSessionGroupTagsUpdateRequest(request.body());
+      if (!payload.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request,
+                                "{\"error\":\"invalid session group tags request\"}");
+      }
+
+      const auto updated = session_manager.UpdateSessionGroupTags(session_id, payload->mode, payload->tags);
+      if (!updated.has_value()) {
+        return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
+      }
+
+      return MakeJsonResponse(request, http::status::ok, MakeSessionGroupTagsResponse(*updated));
     }
 
     if (request.method() == http::verb::post && remainder.size() > stop_suffix.size() &&

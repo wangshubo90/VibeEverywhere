@@ -24,6 +24,7 @@ class SessionRecord {
   void SetRecentTerminalTail(std::string recent_terminal_tail);
   void SetRecentFileChanges(std::vector<std::string> recent_file_changes);
   void SetGitSummary(GitSummary git_summary);
+  void SetGroupTags(std::vector<std::string> group_tags);
 
   [[nodiscard]] auto snapshot() const -> SessionSnapshot;
 

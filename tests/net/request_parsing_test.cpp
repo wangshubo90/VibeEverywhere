@@ -23,6 +23,13 @@ TEST(RequestParsingTest, ParsesCreateSessionRequestWithConversationId) {
   EXPECT_EQ(*request->conversation_id, "conv_123");
 }
 
+TEST(RequestParsingTest, ParsesCreateSessionRequestWithNormalizedGroupTags) {
+  const auto request = ParseCreateSessionRequest(
+      R"({"provider":"codex","workspaceRoot":".","title":"demo","groupTags":[" Frontend ","mvp","frontend"]})");
+  ASSERT_TRUE(request.has_value());
+  EXPECT_EQ(request->group_tags, (std::vector<std::string>{"frontend", "mvp"}));
+}
+
 TEST(RequestParsingTest, RejectsInvalidExplicitCommandInCreateSessionRequest) {
   EXPECT_FALSE(ParseCreateSessionRequest(
                    R"({"provider":"codex","workspaceRoot":".","title":"demo","command":[]})")
@@ -32,6 +39,15 @@ TEST(RequestParsingTest, RejectsInvalidExplicitCommandInCreateSessionRequest) {
                    .has_value());
   EXPECT_FALSE(ParseCreateSessionRequest(
                    R"({"provider":"codex","workspaceRoot":".","title":"demo","command":"codex"})")
+                   .has_value());
+}
+
+TEST(RequestParsingTest, RejectsEmptyGroupTagsInCreateSessionRequest) {
+  EXPECT_FALSE(ParseCreateSessionRequest(
+                   R"({"provider":"codex","workspaceRoot":".","title":"demo","groupTags":[""]})")
+                   .has_value());
+  EXPECT_FALSE(ParseCreateSessionRequest(
+                   R"({"provider":"codex","workspaceRoot":".","title":"demo","groupTags":["   "]})")
                    .has_value());
 }
 
@@ -62,6 +78,20 @@ TEST(RequestParsingTest, RejectsInvalidHostConfigRequest) {
   EXPECT_FALSE(ParseHostConfigRequest(
                    R"({"displayName":"Host Box","adminHost":"127.0.0.1","adminPort":19085,"remoteHost":"0.0.0.0","remotePort":19086,"providerCommands":{"codex":[]}})")
                    .has_value());
+}
+
+TEST(RequestParsingTest, ParsesSessionGroupTagsUpdateRequest) {
+  const auto payload =
+      ParseSessionGroupTagsUpdateRequest(R"({"mode":"remove","tags":[" Frontend ","frontend","mvp"]})");
+  ASSERT_TRUE(payload.has_value());
+  EXPECT_EQ(payload->mode, vibe::service::SessionGroupTagsUpdateMode::Remove);
+  EXPECT_EQ(payload->tags, (std::vector<std::string>{"frontend", "mvp"}));
+}
+
+TEST(RequestParsingTest, RejectsInvalidSessionGroupTagsUpdateRequest) {
+  EXPECT_FALSE(ParseSessionGroupTagsUpdateRequest(R"({"mode":"invalid","tags":["frontend"]})").has_value());
+  EXPECT_FALSE(ParseSessionGroupTagsUpdateRequest(R"({"mode":"add","tags":["   "]})").has_value());
+  EXPECT_FALSE(ParseSessionGroupTagsUpdateRequest(R"({"mode":"set","tags":"frontend"})").has_value());
 }
 
 TEST(RequestParsingTest, ParsesWebSocketInputCommand) {

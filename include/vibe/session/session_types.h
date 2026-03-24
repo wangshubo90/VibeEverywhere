@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace vibe::session {
 
@@ -47,11 +48,14 @@ struct SessionMetadata {
   std::string title;
   SessionStatus status{SessionStatus::Created};
   std::optional<std::string> conversation_id;
+  std::vector<std::string> group_tags;
 };
 
 [[nodiscard]] auto ToString(ProviderType provider) -> std::string_view;
 [[nodiscard]] auto ToString(SessionStatus status) -> std::string_view;
 [[nodiscard]] auto ToString(ControllerKind controller_kind) -> std::string_view;
+[[nodiscard]] auto NormalizeGroupTag(std::string_view tag) -> std::string;
+[[nodiscard]] auto NormalizeGroupTags(const std::vector<std::string>& tags) -> std::vector<std::string>;
 
 }  // namespace vibe::session
 
