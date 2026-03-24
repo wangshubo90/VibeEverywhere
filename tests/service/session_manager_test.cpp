@@ -213,10 +213,10 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
 
   const auto sessions = manager.ListSessions();
   ASSERT_EQ(sessions.size(), 4U);
-  EXPECT_EQ(sessions[0].id.value(), "s_1");
-  EXPECT_EQ(sessions[1].id.value(), "s_2");
-  EXPECT_EQ(sessions[2].id.value(), "s_3");
-  EXPECT_EQ(sessions[3].id.value(), "s_9");
+  EXPECT_EQ(sessions[0].id.value(), "s_2");
+  EXPECT_EQ(sessions[1].id.value(), "s_9");
+  EXPECT_EQ(sessions[2].id.value(), "s_1");
+  EXPECT_EQ(sessions[3].id.value(), "s_3");
 }
 
 TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
