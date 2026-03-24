@@ -3,6 +3,7 @@
 
 #include <boost/beast/http.hpp>
 
+#include <cstdint>
 #include <string>
 
 #include "vibe/auth/authorizer.h"
@@ -33,6 +34,8 @@ struct HttpRouteContext {
   std::string client_address;
   bool is_local_request{false};
   bool remote_tls_enabled{false};
+  std::string remote_listener_host;
+  std::uint16_t remote_listener_port{0};
   std::string remote_tls_certificate_path;
   ListenerRole listener_role{ListenerRole::RemoteClient};
 };
