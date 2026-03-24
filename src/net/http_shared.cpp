@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "vibe/net/discovery.h"
 #include "vibe/net/json.h"
 #include "vibe/net/request_parsing.h"
 
@@ -714,6 +715,15 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
         context.host_config_store != nullptr ? context.host_config_store->LoadHostIdentity() : std::nullopt;
     return MakeJsonResponse(request, http::status::ok,
                             ToJsonHostInfo(host_identity, context.remote_tls_enabled));
+  }
+
+  if (request.method() == http::verb::get && request.target() == "/discovery/info") {
+    const auto host_identity =
+        context.host_config_store != nullptr ? context.host_config_store->LoadHostIdentity() : std::nullopt;
+    return MakeJsonResponse(
+        request, http::status::ok,
+        ToJson(ResolveDiscoveryInfo(host_identity, context.remote_listener_host,
+                                    context.remote_listener_port, context.remote_tls_enabled)));
   }
 
   if (request.method() == http::verb::get && request.target() == "/host/local-token") {

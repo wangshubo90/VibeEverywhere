@@ -21,6 +21,24 @@ TEST(HttpJsonTest, SerializesHostInfo) {
             std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesDiscoveryInfo) {
+  const std::string json = ToJson(DiscoveryInfo{
+      .host_id = "host_1",
+      .display_name = "Dev Host",
+      .remote_host = "192.168.1.10",
+      .remote_port = 19086,
+      .protocol_version = "1",
+      .tls = true,
+  });
+
+  EXPECT_NE(json.find("\"hostId\":\"host_1\""), std::string::npos);
+  EXPECT_NE(json.find("\"displayName\":\"Dev Host\""), std::string::npos);
+  EXPECT_NE(json.find("\"remoteHost\":\"192.168.1.10\""), std::string::npos);
+  EXPECT_NE(json.find("\"remotePort\":19086"), std::string::npos);
+  EXPECT_NE(json.find("\"protocolVersion\":\"1\""), std::string::npos);
+  EXPECT_NE(json.find("\"tls\":true"), std::string::npos);
+}
+
 TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   const auto id = vibe::session::SessionId::TryCreate("s_host");
   ASSERT_TRUE(id.has_value());

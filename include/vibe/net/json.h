@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "vibe/auth/pairing.h"
+#include "vibe/net/discovery.h"
 #include "vibe/net/host_admin.h"
 #include "vibe/service/session_manager.h"
 #include "vibe/session/session_snapshot.h"
@@ -62,6 +63,7 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJson(const SessionActivityEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionInventoryEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const ErrorEvent& event) -> std::string;
+[[nodiscard]] auto ToJson(const DiscoveryInfo& info) -> std::string;
 [[nodiscard]] auto ToJsonHostInfo() -> std::string;
 [[nodiscard]] auto ToJsonHostInfo(const std::optional<vibe::store::HostIdentity>& host_identity,
                                   bool tls_enabled) -> std::string;

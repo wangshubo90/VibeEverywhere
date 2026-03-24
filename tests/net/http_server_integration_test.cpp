@@ -743,6 +743,13 @@ TEST_F(HttpServerFixture, RemoteListenerUsesPlainHttpWhenTlsDisabled) {
   auto response = SendRequest(kRemotePort, http::verb::get, "/host/info");
   EXPECT_EQ(response.result(), http::status::ok);
   EXPECT_NE(response.body().find("\"tls\":{\"enabled\":false"), std::string::npos);
+
+  auto discovery_info = SendRequest(kRemotePort, http::verb::get, "/discovery/info");
+  EXPECT_EQ(discovery_info.result(), http::status::ok);
+  EXPECT_NE(discovery_info.body().find("\"remoteHost\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(discovery_info.body().find("\"remotePort\":" + std::to_string(kRemotePort)),
+            std::string::npos);
+  EXPECT_NE(discovery_info.body().find("\"tls\":false"), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, ServerFailsToStartWhenPersistedRemoteTlsConfigIsIncomplete) {
@@ -777,6 +784,13 @@ TEST_F(HttpServerFixture, RemoteListenerSupportsHttpsAndWssWhenTlsConfigured) {
   auto secure_host_info = SendSecureRequest(kRemotePort, http::verb::get, "/host/info");
   EXPECT_EQ(secure_host_info.result(), http::status::ok);
   EXPECT_NE(secure_host_info.body().find("\"tls\":{\"enabled\":true"), std::string::npos);
+
+  auto secure_discovery_info = SendSecureRequest(kRemotePort, http::verb::get, "/discovery/info");
+  EXPECT_EQ(secure_discovery_info.result(), http::status::ok);
+  EXPECT_NE(secure_discovery_info.body().find("\"remoteHost\":\"127.0.0.1\""), std::string::npos);
+  EXPECT_NE(secure_discovery_info.body().find("\"remotePort\":" + std::to_string(kRemotePort)),
+            std::string::npos);
+  EXPECT_NE(secure_discovery_info.body().find("\"tls\":true"), std::string::npos);
 
   auto admin_health = SendRequest(kAdminPort, http::verb::get, "/health");
   EXPECT_EQ(admin_health.result(), http::status::ok);
