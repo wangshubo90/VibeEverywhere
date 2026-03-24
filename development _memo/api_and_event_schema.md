@@ -6,6 +6,25 @@ This document translates the initiative API into a more implementation-ready con
 
 All non-health endpoints should be designed to support bearer-token authorization in the MVP.
 
+## Discovery Endpoints
+
+These are additive to the current remote API and support client-side device discovery.
+
+### `GET /discovery/info`
+
+Returns the same core metadata advertised over UDP broadcast.
+
+Suggested fields:
+
+- `hostId`
+- `displayName`
+- `remoteHost`
+- `remotePort`
+- `protocolVersion`
+- `tls`
+
+This allows clients to verify a discovered host over HTTP after receiving a UDP announcement.
+
 ### `GET /host/info`
 
 Returns host metadata and capability flags.
@@ -84,6 +103,7 @@ Suggested fields per item:
 - `lastActivityAt`
 - `controllerClientId` if present
 - `controllerKind` such as `host`, `remote`, or `none`
+- `groupTags`
 
 ### `POST /sessions`
 
@@ -95,7 +115,8 @@ Suggested request:
 {
   "provider": "codex",
   "workspaceRoot": "/Users/example/project",
-  "title": "refactor-ui"
+  "title": "refactor-ui",
+  "groupTags": ["frontend", "mvp"]
 }
 ```
 
@@ -121,6 +142,35 @@ Returns:
 - bounded recent terminal tail
 - recent file changes
 - current git summary
+- group tags
+
+### `POST /sessions/{sessionId}/groups`
+
+Adds, removes, or replaces group tags for a session.
+
+Suggested request:
+
+```json
+{
+  "mode": "add",
+  "tags": ["frontend"]
+}
+```
+
+Suggested `mode` values:
+
+- `add`
+- `remove`
+- `set`
+
+Suggested response:
+
+```json
+{
+  "sessionId": "s_123",
+  "groupTags": ["frontend", "mobile"]
+}
+```
 
 ### `GET /sessions/{sessionId}/tail?bytes=65536`
 
@@ -200,6 +250,7 @@ Suggested payload additions:
 - `controllerClientId`
 - `controllerKind`
 - `terminalSize`
+- `groupTags`
 
 ### `files.changed`
 
@@ -258,6 +309,18 @@ Suggested payload:
 {
   "type": "session.control.request"
 }
+
+### `session.groups.update`
+
+Suggested payload:
+
+```json
+{
+  "type": "session.groups.update",
+  "mode": "add",
+  "tags": ["frontend"]
+}
+```
 ```
 
 ### `session.control.release`

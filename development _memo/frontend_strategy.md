@@ -1,22 +1,24 @@
 # Frontend Strategy V1
 
-This document freezes the first frontend direction for the host admin UI and the remote web client.
+This document freezes the current frontend direction for the host admin UI and the remote client.
 
 ## Decision
 
-Keep both frontend surfaces in the current repository for now.
+Keep the host admin UI in the runtime repository.
 
-Introduce a real frontend stack now.
+Move the maintained remote client into a separate repository:
 
-Use Angular for the first maintained frontend implementation.
+- `~/dev/VibeEverywhere-Client`
+
+Use the new React + Vite client repository as the maintained remote client implementation.
 
 ## Why
 
 - the runtime is now stable enough that frontend structure matters
-- both the host admin UI and remote client need stronger state coordination than the smoke pages
-- in-page multi-session tabs and richer inventory/detail behavior are easier to maintain in a component model
-- Angular gives a disciplined app structure for forms, stateful views, and route-level separation
-- keeping both apps in the same repository still keeps backend/frontend coordination tight
+- the host admin UI and remote client are now diverging in purpose
+- the remote client UI has been redesigned independently and should iterate faster than the runtime
+- the separate client repository should focus on remote workflow, discovery, and grouping
+- the runtime repository should stay focused on truthful host behavior and host-local admin
 
 ## Frontend Surfaces
 
@@ -44,7 +46,7 @@ The host browser UI should not act as a session terminal.
 
 Native host interaction should happen through the daemon-aware CLI in a local terminal.
 
-### 2. Remote Web Client
+### 2. Remote Client
 
 Audience:
 
@@ -52,12 +54,14 @@ Audience:
 
 Purpose:
 
+- device discovery
 - pairing request
 - session inventory monitoring
 - connect to one or more sessions
 - observe terminal output
 - request/release control
 - read-only file inspection
+- session grouping views across hosts
 
 This is a session watch/intervene client, not a host configuration UI.
 
@@ -65,22 +69,24 @@ Multi-session handling should use in-page tabs, not browser tabs, as the primary
 
 ## Repo Layout Recommendation
 
-Keep frontend sources in-repo in an explicit Angular workspace:
+Runtime repository:
 
-- `frontend/`
-  - `projects/host-admin/`
-  - `projects/remote-client/`
-  - `projects/shared-ui/`
-  - `projects/session-model/`
+- host admin UI
+- daemon-served smoke pages while needed
+- runtime API docs and contracts
 
-Built assets should still be served by the daemon as static output.
+Client repository:
+
+- `~/dev/VibeEverywhere-Client`
+- React + Vite application
+- remote client UX only
 
 Recommended near-term path:
 
-1. keep current static pages working until Angular parity exists
-2. create one Angular workspace with two apps
-3. preserve distinct host-admin and remote-client outputs
-4. retire the smoke pages only after feature parity
+1. keep current daemon-served remote smoke client working as reference
+2. port runtime API into the separate client repo
+3. add discovery and grouping support
+4. retire older in-repo remote frontend only after the separate client reaches parity
 
 ## Shared UI Principles
 
@@ -92,6 +98,7 @@ Recommended near-term path:
 - avoid IDE-like affordances
 - keep the remote client mobile-first and compact
 - host admin can stay desktop/localhost oriented
+- remote client should merge sessions across paired hosts without making the host own cross-host group state
 
 ## Frontend Design Process
 
@@ -125,20 +132,27 @@ Neither frontend should re-infer high-level session meaning from terminal bytes.
 
 ## Framework Notes
 
-- Angular should own:
+- Host admin in the runtime repo may continue with its current in-repo implementation.
+
+- React + Vite client repo should own:
   - view composition
+  - paired-device collections
+  - discovered-device collections
   - session collections and sort/filter state
   - in-page session tabs
-  - forms and trusted-device management
+  - grouping views and group-tag editing
+  - pairing and remote connection flows
 
 - The daemon remains responsible for:
   - auth
   - pairing
+  - discovery advertisements
   - session lifecycle
   - attention inference
   - terminal transport
+  - session group-tag persistence
 
-- Keep Angular-specific state thin over runtime truth. Do not duplicate backend semantics in the client.
+- Keep client-specific state thin over runtime truth. Do not duplicate backend semantics in the client.
 
 ## Deferred
 
