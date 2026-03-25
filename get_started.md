@@ -1,12 +1,13 @@
 # Getting Started
 
-This project currently provides:
+This repository currently provides:
 
 - `vibe-hostd` daemon
-- local host admin UI
-- Angular host-admin workspace scaffold and first live data pass
-- local terminal attach/start commands
-- browser smoke client for remote attach/control
+- localhost-only host admin surface
+- daemon-served browser smoke client for remote attach/control
+- in-repo host-admin frontend workspace under `frontend/`
+- runtime APIs used by the maintained remote client in `~/dev/VibeEverywhere-Client`
+- UDP discovery support in the runtime
 
 ## Build
 
@@ -29,37 +30,54 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Frontend Workspace
+Linux build note:
 
-An Angular workspace now lives under `frontend/`.
+- the PTY runtime uses `<pty.h>` and links `libutil` through CMake on Linux
+- if your distro splits PTY development headers from the base toolchain, install the corresponding libc/pty development package before configuring
 
-Install and build it with:
+## Frontend Layout
+
+There are currently two frontend surfaces.
+
+### 1. In-Repo Host Admin Workspace
+
+This repository still contains the host-admin frontend workspace under `frontend/`.
 
 ```bash
 cd frontend
 npm install
 npm run build:libs
 npm run build:host-admin
-npm run build:remote-client
+npm run start:host-admin
 ```
 
-For local frontend development:
+Default dev URL:
+
+- `http://127.0.0.1:4200`
+
+### 2. Separate Remote Client Repo
+
+The maintained remote client now lives in:
+
+- `~/dev/VibeEverywhere-Client`
 
 ```bash
-cd frontend
-npm run start:host-admin
-npm run start:remote-client
+cd ~/dev/VibeEverywhere-Client
+npm install
+npm test
+npm run lint
+npm run build
+npm run dev
 ```
 
-Node note:
+Default dev URL:
+
+- `http://127.0.0.1:3000`
+
+Node note for both frontend workspaces:
 
 - an LTS Node release is the intended baseline
-- the current workspace also builds on newer odd-numbered Node releases, but that is not the preferred long-term setup
-
-Linux build note:
-
-- the PTY runtime uses `<pty.h>` and links `libutil` through CMake on Linux
-- if your distro splits PTY development headers from the base toolchain, install the corresponding libc/pty development package before configuring
+- newer odd-numbered Node releases may also work, but that is not the preferred long-term setup
 
 ## Start The Daemon
 
@@ -71,8 +89,9 @@ Default listeners:
 
 - host admin: `127.0.0.1:18085`
 - remote client/API: `0.0.0.0:18086`
+- UDP discovery: `18087`
 
-To override them explicitly:
+To override the HTTP listeners explicitly:
 
 ```bash
 ./build/vibe-hostd serve \
@@ -81,6 +100,8 @@ To override them explicitly:
 ```
 
 The host admin listener should stay localhost-only. Expose only the remote listener to other devices.
+
+Discovery is advisory only. Pairing and authorization still gate real access.
 
 ## Host Network Setup
 
@@ -162,10 +183,9 @@ Use it to:
 - inspect attached clients
 - stop sessions
 - disconnect clients
+- clear ended or archived sessions
 
-## Try The Angular Host Admin
-
-The Angular host-admin app currently runs separately from the daemon-served UI.
+## Try The Host Admin Dev UI
 
 Start the daemon first:
 
@@ -180,53 +200,39 @@ cd frontend
 npm run start:host-admin
 ```
 
-Open the Angular app at:
+Open:
 
-- `http://localhost:4200/`
+- `http://127.0.0.1:4200/`
 
 Current dev behavior:
 
-- when served from Angular dev server, the host-admin app talks to `http://127.0.0.1:18085`
+- when served from the dev server, the host-admin app talks to `http://127.0.0.1:18085`
 - when eventually served by the daemon, it should use same-origin requests
 
-Useful smoke actions in the Angular host-admin:
+Useful smoke actions:
 
 1. refresh host state
 2. edit and save host config
 3. create a session locally from the UI
 4. approve a pending pairing
 5. stop a session
-6. clear ended/archived sessions
+6. clear ended or archived sessions
 7. revoke a trusted device
 8. disconnect an attached client
 
-## Pair A Remote Browser Client
+## Remote Client Choices
 
-On another device, open:
+There are currently two remote client paths.
+
+### 1. Daemon-Served Smoke Page
+
+Open on another device:
 
 - `http://HOST_IP:18086/`
 
-In the browser smoke client:
+Use it as the simplest runtime reference client.
 
-1. set host/port
-2. click `Start Pairing`
-
-In the host admin UI:
-
-1. copy the `pairingId` and `code` from the pending list
-2. approve the pairing
-3. copy the returned bearer token
-
-Back in the browser smoke client:
-
-1. paste the token
-2. click `Save Token`
-
-Pending pairing requests expire automatically after a short timeout and then cannot be approved.
-
-## Try The Angular Remote Client
-
-The Angular remote client also runs separately from the daemon-served smoke page for now.
+### 2. Separate Maintained Remote Client
 
 Start the daemon first:
 
@@ -237,32 +243,32 @@ Start the daemon first:
 Then in another shell:
 
 ```bash
-cd frontend
-npm run start:remote-client
+cd ~/dev/VibeEverywhere-Client
+npm run dev
 ```
 
 Open:
 
-- `http://localhost:4201/`
+- `http://127.0.0.1:3000/`
 
 Current dev behavior:
 
-- when served from the Angular dev server, the remote client runs on `4201` but defaults its daemon port field to `18086`
-- it talks directly to the daemon remote listener, not to the Angular dev server itself
-- the daemon-served `http://HOST_IP:18086/` page remains the current runtime reference client until Angular reaches fuller parity
+- the separate client talks directly to the daemon remote listener
+- it should target daemon port `18086`
+- the daemon-served page remains the simplest runtime reference client
 
-Useful smoke actions in the Angular remote client:
+## Pairing Flow
 
-1. refresh host info
-2. request pairing and wait for token claim
-3. save token
-4. refresh session inventory
-5. create a session
-6. inspect snapshot and recent files
-7. open a session tab
-8. connect/disconnect the session websocket
-9. request/release control
-10. stop a session
+From a remote client:
+
+1. request pairing
+2. switch to host admin
+3. approve the pending pairing
+4. return to the remote client
+5. confirm token claim succeeds
+6. confirm sessions can be listed
+
+Pending pairing requests expire automatically after a short timeout and then cannot be approved.
 
 ## Start A Session From The Host Terminal
 
@@ -278,46 +284,60 @@ To attach to an existing session:
 ./build/vibe-hostd session-attach s_1
 ```
 
-## Create A Session From The Browser Client
+## Create A Session From A Remote Client
 
-In the smoke client:
+Typical flow:
 
-1. choose `Provider`
-2. set `Session Title`
-3. set `Workspace Root`
-4. optionally set `Explicit Command`
-5. click `Create Session`
+1. choose a provider
+2. set session title
+3. set workspace root
+4. optionally set conversation id
+5. optionally set explicit command
+6. create the session
+7. open a session tab or view
+8. attach websocket
+9. request control
 
-Then:
+## Discovery Quick Check
 
-1. click `List Sessions`
-2. click `Use`
-3. click `Connect`
-4. click `Request Control`
+The runtime now exposes discovery metadata over HTTP.
 
-## Explicit Command Override
+From another machine on the same network:
 
-If the default provider executable is wrong for your machine, provide an explicit command.
-
-Example:
-
-```text
-/opt/homebrew/bin/claude --print
+```bash
+curl http://HOST_IP:18086/discovery/info
 ```
 
-The smoke client parses that into argv and sends it as an explicit session command override.
+Expected fields include:
+
+- `hostId`
+- `displayName`
+- `remoteHost`
+- `remotePort`
+- `protocolVersion`
+- `tls`
+
+The runtime also broadcasts the same discovery payload over UDP on port `18087`.
+
+Optional UDP spot-check if you have a listener tool:
+
+```bash
+nc -luk 18087
+```
+
+## Smoke Checklist
+
+Use the current smoke checklist in:
+
+- [tests_smoke/mvp_smoke_checklist.md](/Users/shubow/dev/VibeEverywhere/tests_smoke/mvp_smoke_checklist.md)
 
 ## Current Notes
 
-- The daemon now uses two listeners by default:
-- host admin on `127.0.0.1:18085`
-- remote client/API on `0.0.0.0:18086`
-- macOS and Linux are the only intended runtime targets right now.
-- The current PTY/session path is shared across macOS and Linux through a POSIX backend selected by a factory seam.
-- Linux readiness is currently strongest for configure/build/test and PTY session lifecycle behavior.
-- File watching, process-tree inspection, and resource monitoring are not implemented yet on either platform.
-- Sessions are still selected by `sessionId`, not by port.
-- A session can outlive any particular client attachment.
-- Stopping a session stops the real host-side PTY process.
-- Host admin UI is localhost-only and should not be exposed.
-- The served remote browser page is still a smoke client, not the final remote product client.
+- the daemon uses two HTTP listeners by default
+- host admin remains localhost-only and should not be exposed
+- macOS and Linux are the only intended runtime targets right now
+- the current PTY/session path is shared across macOS and Linux through a POSIX backend selected by a factory seam
+- sessions are still selected by `sessionId`, not by port
+- a session can outlive any particular client attachment
+- stopping a session stops the real host-side PTY process
+- the daemon-served remote browser page is still a smoke client, not the final product client

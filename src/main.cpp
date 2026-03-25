@@ -262,7 +262,9 @@ auto main(const int argc, char** argv) -> int {
                                  remote_tls_override);
     sigset_t signal_set;
     sigemptyset(&signal_set);
+    sigaddset(&signal_set, SIGHUP);
     sigaddset(&signal_set, SIGINT);
+    sigaddset(&signal_set, SIGQUIT);
     sigaddset(&signal_set, SIGTERM);
 
     sigset_t previous_signal_set;
