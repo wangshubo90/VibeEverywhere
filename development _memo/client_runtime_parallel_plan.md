@@ -116,13 +116,14 @@ Repo:
 
 Scope:
 
-- device discovery store and UI in `AuthSection`
-- merge discovered hosts with manually configured hosts and paired hosts
-- use UDP payload plus `GET /discovery/info` verification path
+- browser-side discovery UX and saved-device state in `AuthSection`
+- merge manually configured hosts, verified hosts, and paired hosts cleanly
+- do not assume raw UDP receive is possible in the browser
+- keep `GET /discovery/info` verification as the current web-client discovery baseline
 
 Blocked by:
 
-- Track B payload stability
+- browser runtime constraints if the goal is true automatic discovery
 
 ### Track D: Session Group Tags Runtime
 
@@ -207,8 +208,11 @@ Avoid overlapping edits in the same client files unless the interfaces are alrea
 
 ### Milestone 2
 
-- nearby hosts appear automatically via discovery
-- discovered hosts can be paired without manual address entry
+- native/mobile client:
+  - nearby hosts appear automatically via UDP discovery
+  - discovered hosts can be paired without manual address entry
+- web client:
+  - manual host add + verify remains the baseline unless a helper/relay is introduced
 
 ### Milestone 3
 
