@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
@@ -15,6 +18,48 @@
 namespace vibe::service {
 
 namespace {
+
+class ServerTraceLogger {
+ public:
+  static auto Instance() -> ServerTraceLogger& {
+    static ServerTraceLogger instance;
+    return instance;
+  }
+
+  void Log(const std::string_view event, const std::string_view session_id,
+           const std::size_t value = 0) {
+    if (output_ == nullptr) {
+      return;
+    }
+
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                              start_time_)
+            .count();
+    std::lock_guard<std::mutex> lock(mutex_);
+    (*output_) << elapsed << ' ' << session_id << ' ' << event << ' ' << value << '\n';
+    output_->flush();
+  }
+
+ private:
+  ServerTraceLogger() {
+    const char* path = std::getenv("VIBE_SERVER_TRACE_PATH");
+    if (path == nullptr || *path == '\0') {
+      return;
+    }
+
+    output_ = std::make_unique<std::ofstream>(path, std::ios::out | std::ios::trunc);
+    if (output_ == nullptr || !output_->is_open()) {
+      output_.reset();
+      return;
+    }
+    start_time_ = std::chrono::steady_clock::now();
+  }
+
+  std::unique_ptr<std::ofstream> output_;
+  std::chrono::steady_clock::time_point start_time_{};
+  std::mutex mutex_;
+};
 
 auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
   return status == vibe::session::SessionStatus::Running ||
@@ -667,7 +712,11 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
     if (entry->runtime == nullptr) {
       return false;
     }
-    return entry->runtime->WriteInput(input);
+    ServerTraceLogger::Instance().Log("send_input.begin", session_id, input.size());
+    const bool wrote = entry->runtime->WriteInput(input);
+    ServerTraceLogger::Instance().Log(wrote ? "send_input.ok" : "send_input.fail", session_id,
+                                      input.size());
+    return wrote;
   }
 
   return false;
@@ -867,6 +916,7 @@ auto SessionManager::PollSession(const std::string& session_id, const int read_t
     return false;
   }
 
+  const std::uint64_t previous_sequence = entry->last_observed_sequence;
   entry->runtime->PollOnce(read_timeout_ms);
   const auto snapshot = entry->runtime->record().snapshot();
   if (snapshot.current_sequence != entry->last_observed_sequence) {
@@ -874,6 +924,9 @@ auto SessionManager::PollSession(const std::string& session_id, const int read_t
     entry->last_observed_sequence = snapshot.current_sequence;
     entry->last_output_at_unix_ms = now_unix_ms;
     entry->last_activity_at_unix_ms = now_unix_ms;
+    ServerTraceLogger::Instance().Log(
+        "poll.output", session_id,
+        static_cast<std::size_t>(snapshot.current_sequence - previous_sequence));
   }
 
   const auto current_status = entry->runtime->record().metadata().status;

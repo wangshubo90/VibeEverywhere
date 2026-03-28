@@ -11,13 +11,17 @@
 #include <boost/system/error_code.hpp>
 
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
@@ -42,6 +46,46 @@ namespace websocket = beast::websocket;
 using tcp = asio::ip::tcp;
 
 namespace {
+
+class WebSocketTraceLogger {
+ public:
+  static auto Instance() -> WebSocketTraceLogger& {
+    static WebSocketTraceLogger instance;
+    return instance;
+  }
+
+  void Log(const std::string_view event, const std::string_view session_id, const std::size_t value = 0) {
+    if (output_ == nullptr) {
+      return;
+    }
+
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time_)
+            .count();
+    std::lock_guard<std::mutex> lock(mutex_);
+    (*output_) << elapsed << ' ' << session_id << ' ' << event << ' ' << value << '\n';
+    output_->flush();
+  }
+
+ private:
+  WebSocketTraceLogger() {
+    const char* path = std::getenv("VIBE_WS_TRACE_PATH");
+    if (path == nullptr || *path == '\0') {
+      return;
+    }
+
+    output_ = std::make_unique<std::ofstream>(path, std::ios::out | std::ios::trunc);
+    if (output_ == nullptr || !output_->is_open()) {
+      output_.reset();
+      return;
+    }
+    start_time_ = std::chrono::steady_clock::now();
+  }
+
+  std::unique_ptr<std::ofstream> output_;
+  std::chrono::steady_clock::time_point start_time_{};
+  std::mutex mutex_;
+};
 
 constexpr auto kMaintenancePollInterval = std::chrono::milliseconds(50);
 
@@ -622,6 +666,8 @@ class WebSocketSession final : public WebSocketSessionBase,
     }
 
     write_in_progress_ = true;
+    WebSocketTraceLogger::Instance().Log(pending_frames_.front().is_text ? "ws.write.text" : "ws.write.binary",
+                                         session_id_, pending_frames_.front().payload.size());
     websocket_.text(pending_frames_.front().is_text);
     websocket_.async_write(
         asio::buffer(pending_frames_.front().payload),

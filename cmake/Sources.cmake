@@ -29,6 +29,7 @@ set(VIBE_TEST_SOURCES
   tests/auth/auth_core_test.cpp
   tests/auth_store/interface_contract_test.cpp
   tests/cli/daemon_client_test.cpp
+  tests/cli/session_attach_integration_test.cpp
   tests/net/discovery_broadcaster_test.cpp
   tests/net/http_json_test.cpp
   tests/net/http_server_integration_test.cpp

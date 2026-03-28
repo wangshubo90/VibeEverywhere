@@ -22,6 +22,11 @@
 #endif
 
 #include <array>
+#include <chrono>
+#include <cstdlib>
+#include <fstream>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -29,6 +34,47 @@
 
 namespace vibe::session {
 namespace {
+
+class PtyTraceLogger {
+ public:
+  static auto Instance() -> PtyTraceLogger& {
+    static PtyTraceLogger instance;
+    return instance;
+  }
+
+  void Log(const std::string_view event, const ProcessId pid, const std::size_t value = 0) {
+    if (output_ == nullptr) {
+      return;
+    }
+
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                              start_time_)
+            .count();
+    std::lock_guard<std::mutex> lock(mutex_);
+    (*output_) << elapsed << ' ' << pid << ' ' << event << ' ' << value << '\n';
+    output_->flush();
+  }
+
+ private:
+  PtyTraceLogger() {
+    const char* path = std::getenv("VIBE_PTY_TRACE_PATH");
+    if (path == nullptr || *path == '\0') {
+      return;
+    }
+
+    output_ = std::make_unique<std::ofstream>(path, std::ios::out | std::ios::trunc);
+    if (output_ == nullptr || !output_->is_open()) {
+      output_.reset();
+      return;
+    }
+    start_time_ = std::chrono::steady_clock::now();
+  }
+
+  std::unique_ptr<std::ofstream> output_;
+  std::chrono::steady_clock::time_point start_time_{};
+  std::mutex mutex_;
+};
 
 auto BuildArgv(const LaunchSpec& launch_spec) -> std::vector<char*> {
   std::vector<char*> argv;
@@ -138,7 +184,11 @@ auto PosixPtyProcess::Write(const std::string_view input) -> bool {
     return false;
   }
 
+  PtyTraceLogger::Instance().Log("pty.write.begin", pid_, input.size());
   const ssize_t bytes_written = write(master_fd_, input.data(), input.size());
+  PtyTraceLogger::Instance().Log(bytes_written == static_cast<ssize_t>(input.size()) ? "pty.write.ok"
+                                                                                     : "pty.write.fail",
+                                 pid_, input.size());
   return bytes_written == static_cast<ssize_t>(input.size());
 }
 
@@ -163,16 +213,20 @@ auto PosixPtyProcess::Read(const int timeout_ms) -> ReadResult {
   std::array<char, 4096> buffer{};
   const ssize_t bytes_read = read(master_fd_, buffer.data(), buffer.size());
   if (bytes_read == 0) {
+    PtyTraceLogger::Instance().Log("pty.read.closed", pid_);
     return ReadResult{.data = "", .closed = true};
   }
 
   if (bytes_read < 0) {
     if (errno == EIO) {
+      PtyTraceLogger::Instance().Log("pty.read.closed", pid_);
       return ReadResult{.data = "", .closed = true};
     }
 
     return ReadResult{.data = "", .closed = false};
   }
+
+  PtyTraceLogger::Instance().Log("pty.read.data", pid_, static_cast<std::size_t>(bytes_read));
 
   return ReadResult{
       .data = std::string(buffer.data(), static_cast<std::size_t>(bytes_read)),
