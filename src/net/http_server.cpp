@@ -449,6 +449,7 @@ class WebSocketSession final : public WebSocketSessionBase,
           self->client_id_ = "ws_" + self->session_id_ + "_" +
                              std::to_string(reinterpret_cast<std::uintptr_t>(self.get()));
           self->connected_at_unix_ms_ = CurrentUnixTimeMs();
+          self->raw_output_mode_ = IsRawTerminalStreamRequested(self->target_);
           self->sequence_window_ = {};
           boost::system::error_code socket_error;
           beast::get_lowest_layer(self->websocket_).set_option(tcp::no_delay(true), socket_error);
@@ -471,11 +472,7 @@ class WebSocketSession final : public WebSocketSessionBase,
       return;
     }
 
-    QueueFrame(ToJson(TerminalOutputEvent{
-                   .session_id = session_id_,
-                   .slice = *output,
-               }),
-               output->seq_end + 1);
+    QueueOutputFrame(*output, output->seq_end + 1);
   }
 
   [[nodiscard]] auto session_id() const -> const std::string& override { return session_id_; }
@@ -506,6 +503,7 @@ class WebSocketSession final : public WebSocketSessionBase,
   struct PendingFrame {
     std::string payload;
     std::uint64_t next_sequence{1};
+    bool is_text{true};
   };
 
   void QueueInitialEvents() {
@@ -519,11 +517,7 @@ class WebSocketSession final : public WebSocketSessionBase,
     const vibe::session::OutputSlice initial_slice = tail.value_or(vibe::session::OutputSlice{});
     const std::uint64_t next_sequence =
         initial_slice.seq_end > 0 ? initial_slice.seq_end + 1 : sequence_window_.delivered_next();
-    QueueFrame(ToJson(TerminalOutputEvent{
-                   .session_id = session_id_,
-                   .slice = initial_slice,
-               }),
-               next_sequence);
+    QueueOutputFrame(initial_slice, next_sequence);
   }
 
   void QueueStatusEvents() {
@@ -589,10 +583,31 @@ class WebSocketSession final : public WebSocketSessionBase,
   }
 
   void QueueFrame(std::string payload, const std::uint64_t next_sequence) {
+    QueueFrame(std::move(payload), next_sequence, true);
+  }
+
+  void QueueOutputFrame(const vibe::session::OutputSlice& slice, const std::uint64_t next_sequence) {
+    if (raw_output_mode_) {
+      if (slice.data.empty()) {
+        return;
+      }
+      QueueFrame(std::string(slice.data), next_sequence, false);
+      return;
+    }
+
+    QueueFrame(ToJson(TerminalOutputEvent{
+                   .session_id = session_id_,
+                   .slice = slice,
+               }),
+               next_sequence, true);
+  }
+
+  void QueueFrame(std::string payload, const std::uint64_t next_sequence, const bool is_text) {
     sequence_window_.ReserveThrough(next_sequence);
     pending_frames_.push_back(PendingFrame{
         .payload = std::move(payload),
         .next_sequence = next_sequence,
+        .is_text = is_text,
     });
 
     if (!write_in_progress_) {
@@ -607,7 +622,7 @@ class WebSocketSession final : public WebSocketSessionBase,
     }
 
     write_in_progress_ = true;
-    websocket_.text(true);
+    websocket_.text(pending_frames_.front().is_text);
     websocket_.async_write(
         asio::buffer(pending_frames_.front().payload),
         [self = this->shared_from_this()](const boost::system::error_code& error_code,
@@ -742,6 +757,7 @@ class WebSocketSession final : public WebSocketSessionBase,
   bool exit_event_sent_{false};
   bool write_in_progress_{false};
   bool closed_{false};
+  bool raw_output_mode_{false};
   bool is_local_request_{false};
   ListenerRole listener_role_{ListenerRole::RemoteClient};
   std::int64_t connected_at_unix_ms_{0};

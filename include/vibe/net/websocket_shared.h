@@ -22,6 +22,7 @@ class StreamSequenceWindow {
 [[nodiscard]] auto IsOverviewWebSocketTarget(const std::string& target) -> bool;
 [[nodiscard]] auto ExtractSessionIdFromWebSocketTarget(const std::string& target) -> std::string;
 [[nodiscard]] auto ExtractAccessTokenFromWebSocketTarget(const std::string& target) -> std::string;
+[[nodiscard]] auto IsRawTerminalStreamRequested(const std::string& target) -> bool;
 
 }  // namespace vibe::net
 

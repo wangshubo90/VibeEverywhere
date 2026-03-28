@@ -85,4 +85,12 @@ auto ExtractAccessTokenFromWebSocketTarget(const std::string& target) -> std::st
   return ExtractQueryValue(target, "access_token");
 }
 
+auto IsRawTerminalStreamRequested(const std::string& target) -> bool {
+  if (!IsSessionWebSocketTarget(target)) {
+    return false;
+  }
+
+  return ExtractQueryValue(target, "stream") == "raw";
+}
+
 }  // namespace vibe::net

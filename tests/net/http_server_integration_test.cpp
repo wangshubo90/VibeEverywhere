@@ -469,6 +469,49 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsActivityEventForSignalC
   EXPECT_NE(output_payload.find("\"type\":\"terminal.output\""), std::string::npos);
 }
 
+TEST_F(HttpServerFixture, WebSocketSessionEndpointSupportsRawTerminalStreamMode) {
+  const std::string token = EnsureApprovedToken();
+  auto create_response =
+      SendRequest(kRemotePort, http::verb::post, "/sessions",
+                  R"({"provider":"codex","workspaceRoot":".","title":"ws-raw","command":["/bin/sh","-c","printf 'raw-ready\n'; sleep 1"]})",
+                  token);
+  EXPECT_EQ(create_response.result(), http::status::created);
+  const std::string session_id = ExtractSessionId(create_response.body());
+  ASSERT_FALSE(session_id.empty());
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> websocket(io_context);
+  const auto results = resolver.resolve("127.0.0.1", std::to_string(kRemotePort));
+  auto endpoint = asio::connect(websocket.next_layer(), results);
+  static_cast<void>(endpoint);
+
+  websocket.set_option(websocket::stream_base::decorator(
+      [&token](websocket::request_type& request) {
+        request.set(http::field::authorization, "Bearer " + token);
+      }));
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort),
+                      "/ws/sessions/" + session_id + "?stream=raw");
+
+  beast::flat_buffer buffer;
+  websocket.read(buffer);
+  EXPECT_TRUE(websocket.got_text());
+  buffer.consume(buffer.size());
+
+  bool saw_binary_output = false;
+  for (int attempt = 0; attempt < 6 && !saw_binary_output; ++attempt) {
+    websocket.read(buffer);
+    const std::string payload = beast::buffers_to_string(buffer.data());
+    if (!websocket.got_text()) {
+      EXPECT_NE(payload.find("raw-ready"), std::string::npos);
+      saw_binary_output = true;
+    }
+    buffer.consume(buffer.size());
+  }
+
+  EXPECT_TRUE(saw_binary_output);
+}
+
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);

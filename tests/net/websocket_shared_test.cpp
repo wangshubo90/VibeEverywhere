@@ -30,6 +30,13 @@ TEST(WebSocketSharedTest, ExtractsAccessToken) {
   EXPECT_TRUE(ExtractAccessTokenFromWebSocketTarget("/ws/sessions/s_123").empty());
 }
 
+TEST(WebSocketSharedTest, DetectsRawTerminalStreamMode) {
+  EXPECT_TRUE(IsRawTerminalStreamRequested("/ws/sessions/s_123?stream=raw"));
+  EXPECT_TRUE(IsRawTerminalStreamRequested("/ws/sessions/s_123?access_token=abc&stream=raw"));
+  EXPECT_FALSE(IsRawTerminalStreamRequested("/ws/sessions/s_123"));
+  EXPECT_FALSE(IsRawTerminalStreamRequested("/ws/overview?stream=raw"));
+}
+
 TEST(WebSocketSharedTest, StreamSequenceWindowReservesUndeliveredOutput) {
   StreamSequenceWindow window;
 

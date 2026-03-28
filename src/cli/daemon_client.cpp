@@ -39,10 +39,23 @@ volatile sig_atomic_t g_terminal_resize_pending = 0;
 void HandleWindowResizeSignal(int /*signal_number*/) { g_terminal_resize_pending = 1; }
 
 auto BuildWebSocketTarget(const std::string& session_id) -> std::string {
-  return "/ws/sessions/" + session_id;
+  return "/ws/sessions/" + session_id + "?stream=raw";
 }
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
+
+void WriteAllToStdout(const std::string_view data) {
+  const char* bytes = data.data();
+  std::size_t remaining = data.size();
+  while (remaining > 0U) {
+    const ssize_t written = write(STDOUT_FILENO, bytes, remaining);
+    if (written <= 0) {
+      break;
+    }
+    bytes += written;
+    remaining -= static_cast<std::size_t>(written);
+  }
+}
 
 auto DetectTerminalSize() -> vibe::session::TerminalSize {
   winsize size{};
@@ -234,8 +247,7 @@ auto HandleServerMessage(const std::string& payload,
         encoded != nullptr && encoded->is_string()) {
       const auto decoded = DecodeBase64(json::value_to<std::string>(*encoded));
       if (decoded.has_value()) {
-        std::cout.write(decoded->data(), static_cast<std::streamsize>(decoded->size()));
-        std::cout.flush();
+        WriteAllToStdout(*decoded);
       }
     }
     return true;
@@ -598,8 +610,12 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
       if (!error_code) {
         const std::string payload = beast::buffers_to_string(buffer.data());
         buffer.consume(buffer.size());
-        if (!HandleServerMessage(payload, controller_kind, stream_state, exit_code)) {
-          return exit_code;
+        if (ws.got_text()) {
+          if (!HandleServerMessage(payload, controller_kind, stream_state, exit_code)) {
+            return exit_code;
+          }
+        } else {
+          WriteAllToStdout(payload);
         }
       } else if (error_code == websocket::error::closed) {
         return exit_code;
