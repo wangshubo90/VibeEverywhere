@@ -19,6 +19,7 @@
 #include <array>
 #include <chrono>
 #include <iostream>
+#include <string_view>
 #include <vector>
 #include <thread>
 
@@ -161,6 +162,47 @@ class ScopedRawTerminalMode {
  private:
   termios original_attributes_{};
   bool active_{false};
+};
+
+void RestoreTerminalEscapeModes() {
+  if (!isatty(STDOUT_FILENO)) {
+    return;
+  }
+
+  // Reset common interactive terminal modes that a remote PTY/app may have enabled:
+  // application cursor keys, alternate screen, bracketed paste, focus/mouse reporting,
+  // xterm modifyOtherKeys, and kitty keyboard protocol.
+  constexpr std::string_view kResetSequence =
+      "\x1b[?1l"
+      "\x1b[?1049l"
+      "\x1b[?2004l"
+      "\x1b[?1004l"
+      "\x1b[?1002l"
+      "\x1b[?1003l"
+      "\x1b[?1006l"
+      "\x1b[>4;0m"
+      "\x1b[<u";
+
+  const auto* data = kResetSequence.data();
+  std::size_t remaining = kResetSequence.size();
+  while (remaining > 0U) {
+    const ssize_t written = write(STDOUT_FILENO, data, remaining);
+    if (written <= 0) {
+      break;
+    }
+    data += written;
+    remaining -= static_cast<std::size_t>(written);
+  }
+}
+
+class ScopedTerminalEscapeReset {
+ public:
+  ScopedTerminalEscapeReset() = default;
+
+  ScopedTerminalEscapeReset(const ScopedTerminalEscapeReset&) = delete;
+  auto operator=(const ScopedTerminalEscapeReset&) -> ScopedTerminalEscapeReset& = delete;
+
+  ~ScopedTerminalEscapeReset() { RestoreTerminalEscapeModes(); }
 };
 
 struct SessionStreamState {
@@ -484,6 +526,7 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
       .active_controller_kind = "none",
       .active_controller_has_client = false,
   };
+  ScopedTerminalEscapeReset terminal_escape_reset;
   ScopedRawTerminalMode raw_terminal_mode;
   ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
   auto last_terminal_size = DetectTerminalSize();
