@@ -19,6 +19,8 @@ struct LocalAuthServices {
 };
 
 [[nodiscard]] auto DefaultStorageRoot() -> std::filesystem::path;
+[[nodiscard]] auto DefaultControllerSocketPath(const std::filesystem::path& storage_root)
+    -> std::filesystem::path;
 [[nodiscard]] auto CreateLocalAuthServices(const std::filesystem::path& storage_root) -> LocalAuthServices;
 
 }  // namespace vibe::net

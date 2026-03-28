@@ -10,6 +10,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
@@ -18,6 +19,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -28,6 +30,8 @@
 #include <vector>
 #include <thread>
 
+#include "vibe/net/local_auth.h"
+
 namespace vibe::cli {
 
 namespace asio = boost::asio;
@@ -36,6 +40,7 @@ namespace http = beast::http;
 namespace json = boost::json;
 namespace websocket = beast::websocket;
 using tcp = asio::ip::tcp;
+using local_stream = asio::local::stream_protocol;
 
 namespace {
 
@@ -80,6 +85,44 @@ class AttachTraceLogger {
 
 auto BuildWebSocketTarget(const std::string& session_id) -> std::string {
   return "/ws/sessions/" + session_id + "?stream=raw";
+}
+
+auto IsLocalEndpointHost(const std::string_view host) -> bool {
+  return host == "127.0.0.1" || host == "localhost" || host == "::1";
+}
+
+auto BuildLocalControllerHandshake(const std::string& session_id,
+                                   const vibe::session::TerminalSize terminal_size)
+    -> std::string {
+  json::object object;
+  object["sessionId"] = session_id;
+  object["columns"] = terminal_size.columns;
+  object["rows"] = terminal_size.rows;
+  return json::serialize(object) + "\n";
+}
+
+auto BuildLocalControllerFrame(const char type, const std::string_view payload) -> std::string {
+  std::string frame;
+  frame.resize(5U + payload.size());
+  frame[0] = type;
+  const std::uint32_t size = static_cast<std::uint32_t>(payload.size());
+  frame[1] = static_cast<char>((size >> 24) & 0xFF);
+  frame[2] = static_cast<char>((size >> 16) & 0xFF);
+  frame[3] = static_cast<char>((size >> 8) & 0xFF);
+  frame[4] = static_cast<char>(size & 0xFF);
+  if (!payload.empty()) {
+    std::memcpy(frame.data() + 5, payload.data(), payload.size());
+  }
+  return frame;
+}
+
+auto BuildLocalResizePayload(const vibe::session::TerminalSize terminal_size) -> std::string {
+  std::string payload(4, '\0');
+  payload[0] = static_cast<char>((terminal_size.columns >> 8) & 0xFF);
+  payload[1] = static_cast<char>(terminal_size.columns & 0xFF);
+  payload[2] = static_cast<char>((terminal_size.rows >> 8) & 0xFF);
+  payload[3] = static_cast<char>(terminal_size.rows & 0xFF);
+  return payload;
 }
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
@@ -536,8 +579,169 @@ auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<L
   return ParseSessionList(response.body());
 }
 
+auto AttachSessionLocal(const std::string& session_id) -> int {
+  AttachTraceLogger trace_logger;
+  asio::io_context io_context;
+  local_stream::socket socket(io_context);
+  boost::system::error_code error_code;
+  const auto socket_path = vibe::net::DefaultControllerSocketPath(vibe::net::DefaultStorageRoot());
+  socket.connect(local_stream::endpoint(socket_path.string()), error_code);
+  if (error_code) {
+    return -1;
+  }
+
+  const auto initial_terminal_size = DetectTerminalSize();
+  const std::string handshake =
+      BuildLocalControllerHandshake(session_id, initial_terminal_size);
+  asio::write(socket, asio::buffer(handshake), error_code);
+  if (error_code) {
+    std::cerr << "local controller handshake write failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
+  std::string handshake_response;
+  std::array<char, 256> handshake_chunk{};
+  while (handshake_response.find('\n') == std::string::npos) {
+    const std::size_t bytes_read = socket.read_some(asio::buffer(handshake_chunk), error_code);
+    if (error_code) {
+      std::cerr << "local controller handshake failed: " << error_code.message() << '\n';
+      return 1;
+    }
+    handshake_response.append(handshake_chunk.data(), bytes_read);
+    if (handshake_response.size() > 4096U) {
+      std::cerr << "local controller handshake failed: oversized response\n";
+      return 1;
+    }
+  }
+  handshake_response.resize(handshake_response.find('\n'));
+  if (handshake_response != "OK") {
+    std::cerr << (handshake_response.empty() ? "local controller attach rejected"
+                                             : handshake_response)
+              << '\n';
+    return 1;
+  }
+
+  std::atomic<bool> stop_requested{false};
+  std::atomic<bool> read_failed{false};
+  std::string read_error_message;
+
+  ScopedTerminalEscapeReset terminal_escape_reset;
+  ScopedRawTerminalMode raw_terminal_mode;
+  ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
+  auto last_terminal_size = initial_terminal_size;
+  bool resize_sync_pending = false;
+  bool stdin_open = true;
+
+  std::thread reader_thread([&]() {
+    std::array<char, 4096> buffer{};
+    while (!stop_requested.load()) {
+      boost::system::error_code read_error;
+      const std::size_t bytes_read = socket.read_some(asio::buffer(buffer), read_error);
+      if (read_error == asio::error::eof) {
+        stop_requested.store(true);
+        return;
+      }
+      if (read_error) {
+        read_error_message = read_error.message();
+        read_failed.store(true);
+        stop_requested.store(true);
+        return;
+      }
+      if (bytes_read == 0) {
+        continue;
+      }
+
+      trace_logger.Log("ws.read.binary", bytes_read);
+      trace_logger.Log("stdout.write", bytes_read);
+      WriteAllToStdout(std::string_view(buffer.data(), bytes_read));
+    }
+  });
+
+  while (!stop_requested.load()) {
+    if (g_terminal_resize_pending != 0) {
+      g_terminal_resize_pending = 0;
+      const auto current_terminal_size = DetectTerminalSize();
+      if (current_terminal_size != last_terminal_size) {
+        last_terminal_size = current_terminal_size;
+        resize_sync_pending = true;
+      }
+    }
+
+    if (resize_sync_pending) {
+      const auto payload = BuildLocalResizePayload(last_terminal_size);
+      const auto frame = BuildLocalControllerFrame('R', payload);
+      asio::write(socket, asio::buffer(frame), error_code);
+      if (error_code) {
+        stop_requested.store(true);
+        break;
+      }
+      trace_logger.Log("ws.write.resize");
+      resize_sync_pending = false;
+    }
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    int max_fd = -1;
+    if (stdin_open) {
+      FD_SET(STDIN_FILENO, &read_fds);
+      max_fd = STDIN_FILENO;
+    }
+
+    timeval timeout{};
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 20000;
+    const int select_result =
+        max_fd >= 0 ? select(max_fd + 1, &read_fds, nullptr, nullptr, &timeout) : 0;
+    if (select_result < 0) {
+      continue;
+    }
+
+    if (stdin_open && FD_ISSET(STDIN_FILENO, &read_fds)) {
+      char input_buffer[1024];
+      const ssize_t bytes_read = read(STDIN_FILENO, input_buffer, sizeof(input_buffer));
+      if (bytes_read == 0) {
+        stdin_open = false;
+        stop_requested.store(true);
+        break;
+      }
+      if (bytes_read < 0) {
+        continue;
+      }
+
+      trace_logger.Log("stdin.read", static_cast<std::size_t>(bytes_read));
+      const auto frame =
+          BuildLocalControllerFrame('I', std::string_view(input_buffer, static_cast<std::size_t>(bytes_read)));
+      asio::write(socket, asio::buffer(frame), error_code);
+      if (error_code) {
+        stop_requested.store(true);
+        break;
+      }
+      trace_logger.Log("ws.write.input", static_cast<std::size_t>(bytes_read));
+    }
+  }
+
+  boost::system::error_code close_error;
+  socket.close(close_error);
+  if (reader_thread.joinable()) {
+    reader_thread.join();
+  }
+  if (read_failed.load()) {
+    std::cerr << "local controller read failed: " << read_error_message << '\n';
+    return 1;
+  }
+
+  return 0;
+}
+
 auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
                    const vibe::session::ControllerKind controller_kind) -> int {
+  if (controller_kind == vibe::session::ControllerKind::Host && IsLocalEndpointHost(endpoint.host)) {
+    const int local_attach_result = AttachSessionLocal(session_id);
+    if (local_attach_result >= 0) {
+      return local_attach_result;
+    }
+  }
+
   AttachTraceLogger trace_logger;
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -574,7 +778,15 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
 
   auto write_command = [&ws](const std::string& command) -> bool {
     boost::system::error_code write_error;
+    ws.text(true);
     ws.write(asio::buffer(command), write_error);
+    return !write_error;
+  };
+
+  auto write_raw_input = [&ws](const std::string_view input) -> bool {
+    boost::system::error_code write_error;
+    ws.text(false);
+    ws.write(asio::buffer(input.data(), input.size()), write_error);
     return !write_error;
   };
 
@@ -728,8 +940,8 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
           if (!input_state.has_control) {
             continue;
           }
-          const bool wrote = write_command(
-              BuildInputCommand(std::string(input_buffer, static_cast<std::size_t>(bytes_read))));
+          const bool wrote =
+              write_raw_input(std::string_view(input_buffer, static_cast<std::size_t>(bytes_read)));
           if (!wrote) {
             stop_requested.store(true);
             if (reader_thread.joinable()) {

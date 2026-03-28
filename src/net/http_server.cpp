@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <boost/asio.hpp>
+#include <boost/asio/local/stream_protocol.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/websocket.hpp>
+#include <boost/json.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <chrono>
@@ -41,9 +43,11 @@ namespace vibe::net {
 
 namespace asio = boost::asio;
 namespace beast = boost::beast;
+namespace json = boost::json;
 namespace ssl = asio::ssl;
 namespace websocket = beast::websocket;
 using tcp = asio::ip::tcp;
+using local_stream = asio::local::stream_protocol;
 
 namespace {
 
@@ -695,10 +699,47 @@ class WebSocketSession final : public WebSocketSessionBase,
           }
 
           const std::string payload = beast::buffers_to_string(self->read_buffer_.data());
+          const bool got_text = self->websocket_.got_text();
           self->read_buffer_.consume(self->read_buffer_.size());
-          self->HandleClientCommand(payload);
+          if (got_text) {
+            self->HandleClientCommand(payload);
+          } else {
+            self->HandleClientBinary(payload);
+          }
           self->DoRead();
         });
+  }
+
+  void HandleClientBinary(const std::string& payload) {
+    if (!raw_output_mode_) {
+      QueueFrame(ToJson(ErrorEvent{
+                     .session_id = session_id_,
+                     .code = "invalid_command",
+                     .message = "binary websocket frames are not supported for this session",
+                 }),
+                 sequence_window_.next_request_sequence());
+      return;
+    }
+
+    if (!session_manager_.HasControl(session_id_, client_id_)) {
+      QueueFrame(ToJson(ErrorEvent{
+                     .session_id = session_id_,
+                     .code = "command_rejected",
+                     .message = "command rejected for current session state",
+                 }),
+                 sequence_window_.next_request_sequence());
+      return;
+    }
+
+    if (!session_manager_.SendInput(session_id_, payload)) {
+      QueueFrame(ToJson(ErrorEvent{
+                     .session_id = session_id_,
+                     .code = "command_rejected",
+                     .message = "command rejected for current session state",
+                 }),
+                 sequence_window_.next_request_sequence());
+      return;
+    }
   }
 
   void HandleClientCommand(const std::string& payload) {
@@ -942,6 +983,11 @@ class SessionPump : public std::enable_shared_from_this<SessionPump> {
 
       if (sessions.empty()) {
         it = websocket_registry_->erase(it);
+        continue;
+      }
+
+      if (session_manager_.HasPrivilegedLocalController(it->first)) {
+        ++it;
         continue;
       }
 
@@ -1433,6 +1479,389 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
   bool stopped_{false};
 };
 
+class LocalControllerSession final : public std::enable_shared_from_this<LocalControllerSession> {
+ public:
+  LocalControllerSession(local_stream::socket socket, vibe::service::SessionManager& session_manager)
+      : socket_(std::move(socket)), session_manager_(session_manager) {}
+
+  void Start() { ReadHandshake(); }
+
+  void ForceClose() {
+    if (closed_) {
+      return;
+    }
+    closed_ = true;
+    boost::system::error_code error_code;
+    if (pty_readable_) {
+      pty_readable_->cancel(error_code);
+      pty_readable_->close(error_code);
+      pty_readable_.reset();
+    }
+    socket_.cancel(error_code);
+    socket_.close(error_code);
+    ReleaseControlIfHeld();
+  }
+
+ private:
+  void ReadHandshake() {
+    asio::async_read_until(
+        socket_, handshake_buffer_, '\n',
+        [self = shared_from_this()](const boost::system::error_code& error_code,
+                                    const std::size_t /*bytes_transferred*/) {
+          if (error_code) {
+            self->ForceClose();
+            return;
+          }
+
+          std::istream stream(&self->handshake_buffer_);
+          std::string line;
+          std::getline(stream, line);
+          self->HandleHandshake(line);
+        });
+  }
+
+  void HandleHandshake(const std::string& line) {
+    boost::system::error_code error_code;
+    const json::value parsed = json::parse(line, error_code);
+    if (error_code || !parsed.is_object()) {
+      WriteHandshakeResponse("ERROR invalid local controller handshake\n", false);
+      return;
+    }
+
+    const json::object& object = parsed.as_object();
+    const auto* session_id = object.if_contains("sessionId");
+    const auto* columns = object.if_contains("columns");
+    const auto* rows = object.if_contains("rows");
+    if (session_id == nullptr || !session_id->is_string()) {
+      WriteHandshakeResponse("ERROR missing sessionId\n", false);
+      return;
+    }
+
+    session_id_ = std::string(session_id->as_string());
+    initial_terminal_size_ = vibe::session::TerminalSize{
+        .columns = static_cast<std::uint16_t>(columns != nullptr && columns->is_int64()
+                                                  ? columns->as_int64()
+                                                  : 120),
+        .rows = static_cast<std::uint16_t>(rows != nullptr && rows->is_int64()
+                                               ? rows->as_int64()
+                                               : 40),
+    };
+    client_id_ = "local-controller-" + std::to_string(CurrentUnixTimeMs()) + "-" +
+                 std::to_string(socket_.native_handle());
+
+    const auto summary = session_manager_.GetSession(session_id_);
+    if (!summary.has_value()) {
+      WriteHandshakeResponse("ERROR session not found\n", false);
+      return;
+    }
+
+    if (!session_manager_.RequestControl(session_id_, client_id_, vibe::session::ControllerKind::Host)) {
+      WriteHandshakeResponse("ERROR failed to claim control\n", false);
+      return;
+    }
+    has_control_ = true;
+    if (!session_manager_.ResizeSession(session_id_, initial_terminal_size_)) {
+      WriteHandshakeResponse("ERROR failed to resize session\n", false);
+      return;
+    }
+
+    const auto tail = session_manager_.GetTail(session_id_, 64U * 1024U);
+    if (tail.has_value()) {
+      initial_tail_ = tail->data;
+      next_output_sequence_ = tail->seq_end > 0 ? tail->seq_end + 1 : 1;
+    } else {
+      next_output_sequence_ = summary->current_sequence + 1;
+    }
+
+    WriteHandshakeResponse("OK\n", true);
+  }
+
+  void WriteHandshakeResponse(const std::string& response, const bool success) {
+    asio::async_write(
+        socket_, asio::buffer(response),
+        [self = shared_from_this(), success](const boost::system::error_code& error_code,
+                                             const std::size_t /*bytes_transferred*/) {
+          if (error_code || !success) {
+            self->ForceClose();
+            return;
+          }
+
+          if (!self->initial_tail_.empty()) {
+            self->QueueOutput(std::move(self->initial_tail_));
+          }
+          self->ReadFrameHeader();
+          self->SyncReadableDescriptor();
+          self->ArmReadableWait();
+        });
+  }
+
+  void ReadFrameHeader() {
+    asio::async_read(
+        socket_, asio::buffer(frame_header_),
+        [self = shared_from_this()](const boost::system::error_code& error_code,
+                                    const std::size_t /*bytes_transferred*/) {
+          if (error_code) {
+            self->ForceClose();
+            return;
+          }
+
+          const char type = self->frame_header_[0];
+          const std::uint32_t size =
+              (static_cast<std::uint32_t>(static_cast<unsigned char>(self->frame_header_[1])) << 24) |
+              (static_cast<std::uint32_t>(static_cast<unsigned char>(self->frame_header_[2])) << 16) |
+              (static_cast<std::uint32_t>(static_cast<unsigned char>(self->frame_header_[3])) << 8) |
+              static_cast<std::uint32_t>(static_cast<unsigned char>(self->frame_header_[4]));
+          if (size > 1024U * 1024U) {
+            self->ForceClose();
+            return;
+          }
+
+          self->ReadFramePayload(type, size);
+        });
+  }
+
+  void ReadFramePayload(const char type, const std::uint32_t size) {
+    frame_payload_.assign(size, '\0');
+    if (size == 0) {
+      HandleFrame(type, {});
+      return;
+    }
+
+    asio::async_read(
+        socket_, asio::buffer(frame_payload_),
+        [self = shared_from_this(), type](const boost::system::error_code& error_code,
+                                          const std::size_t /*bytes_transferred*/) {
+          if (error_code) {
+            self->ForceClose();
+            return;
+          }
+
+          self->HandleFrame(type, std::string_view(self->frame_payload_.data(),
+                                                   self->frame_payload_.size()));
+        });
+  }
+
+  void HandleFrame(const char type, const std::string_view payload) {
+    if (!has_control_) {
+      ForceClose();
+      return;
+    }
+
+    if (type == 'I') {
+      if (!session_manager_.SendInput(session_id_, std::string(payload))) {
+        ForceClose();
+        return;
+      }
+    } else if (type == 'R') {
+      if (payload.size() != 4U) {
+        ForceClose();
+        return;
+      }
+
+      const vibe::session::TerminalSize terminal_size{
+          .columns = static_cast<std::uint16_t>(
+              (static_cast<unsigned char>(payload[0]) << 8) |
+              static_cast<unsigned char>(payload[1])),
+          .rows = static_cast<std::uint16_t>(
+              (static_cast<unsigned char>(payload[2]) << 8) |
+              static_cast<unsigned char>(payload[3])),
+      };
+      if (!session_manager_.ResizeSession(session_id_, terminal_size)) {
+        ForceClose();
+        return;
+      }
+    } else {
+      ForceClose();
+      return;
+    }
+
+    ReadFrameHeader();
+  }
+
+  void SyncReadableDescriptor() {
+    const auto readable_fd = session_manager_.GetReadableFd(session_id_);
+    if (!readable_fd.has_value()) {
+      pty_readable_.reset();
+      return;
+    }
+
+    if (pty_readable_) {
+      return;
+    }
+
+    const int duplicated_fd = dup(*readable_fd);
+    if (duplicated_fd < 0) {
+      return;
+    }
+
+    pty_readable_ = std::make_unique<asio::posix::stream_descriptor>(socket_.get_executor());
+    pty_readable_->assign(duplicated_fd);
+  }
+
+  void ArmReadableWait() {
+    if (!pty_readable_ || closed_) {
+      return;
+    }
+
+    pty_readable_->async_wait(
+        asio::posix::stream_descriptor::wait_read,
+        [self = shared_from_this()](const boost::system::error_code& error_code) {
+          if (error_code == asio::error::operation_aborted) {
+            return;
+          }
+
+          if (error_code) {
+            self->ForceClose();
+            return;
+          }
+
+          static_cast<void>(self->session_manager_.PollSession(self->session_id_, 0));
+          self->FlushOutput();
+
+          const auto summary = self->session_manager_.GetSession(self->session_id_);
+          if (!summary.has_value() || summary->status == vibe::session::SessionStatus::Exited ||
+              summary->status == vibe::session::SessionStatus::Error) {
+            self->close_after_writes_ = true;
+          }
+
+          self->SyncReadableDescriptor();
+          if (self->pty_readable_ != nullptr && !self->closed_) {
+            self->ArmReadableWait();
+          } else if (self->close_after_writes_ && !self->write_in_progress_ &&
+                     self->pending_output_.empty()) {
+            self->ForceClose();
+          }
+        });
+  }
+
+  void FlushOutput() {
+    const auto slice = session_manager_.GetOutputSince(session_id_, next_output_sequence_);
+    if (!slice.has_value() || slice->data.empty()) {
+      return;
+    }
+
+    next_output_sequence_ = slice->seq_end + 1;
+    QueueOutput(std::string(slice->data));
+  }
+
+  void QueueOutput(std::string payload) {
+    if (payload.empty() || closed_) {
+      return;
+    }
+
+    pending_output_.push_back(std::move(payload));
+    if (!write_in_progress_) {
+      DoWrite();
+    }
+  }
+
+  void DoWrite() {
+    if (pending_output_.empty() || closed_) {
+      write_in_progress_ = false;
+      if (close_after_writes_) {
+        ForceClose();
+      }
+      return;
+    }
+
+    write_in_progress_ = true;
+    asio::async_write(
+        socket_, asio::buffer(pending_output_.front()),
+        [self = shared_from_this()](const boost::system::error_code& error_code,
+                                    const std::size_t /*bytes_transferred*/) {
+          if (error_code) {
+            self->ForceClose();
+            return;
+          }
+
+          self->pending_output_.pop_front();
+          self->DoWrite();
+        });
+  }
+
+  void ReleaseControlIfHeld() {
+    if (!has_control_) {
+      return;
+    }
+    const bool released = session_manager_.ReleaseControl(session_id_, client_id_);
+    static_cast<void>(released);
+    has_control_ = false;
+  }
+
+  local_stream::socket socket_;
+  vibe::service::SessionManager& session_manager_;
+  asio::streambuf handshake_buffer_;
+  std::array<char, 5> frame_header_{};
+  std::vector<char> frame_payload_;
+  std::deque<std::string> pending_output_;
+  std::unique_ptr<asio::posix::stream_descriptor> pty_readable_;
+  std::string session_id_;
+  std::string client_id_;
+  std::string initial_tail_;
+  vibe::session::TerminalSize initial_terminal_size_{};
+  std::uint64_t next_output_sequence_{1};
+  bool has_control_{false};
+  bool write_in_progress_{false};
+  bool close_after_writes_{false};
+  bool closed_{false};
+};
+
+class LocalControllerListener final : public std::enable_shared_from_this<LocalControllerListener> {
+ public:
+  LocalControllerListener(asio::io_context& io_context, std::filesystem::path socket_path,
+                          vibe::service::SessionManager& session_manager)
+      : acceptor_(io_context),
+        socket_(io_context),
+        socket_path_(std::move(socket_path)),
+        session_manager_(session_manager) {
+    std::filesystem::create_directories(socket_path_.parent_path());
+    std::error_code remove_error;
+    std::filesystem::remove(socket_path_, remove_error);
+
+    local_stream::endpoint endpoint(socket_path_.string());
+    acceptor_.open(endpoint.protocol());
+    acceptor_.bind(endpoint);
+    acceptor_.listen();
+    std::filesystem::permissions(
+        socket_path_,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+        std::filesystem::perm_options::replace, remove_error);
+  }
+
+  ~LocalControllerListener() { Stop(); }
+
+  void Start() { DoAccept(); }
+
+  void Stop() {
+    boost::system::error_code error_code;
+    acceptor_.cancel(error_code);
+    acceptor_.close(error_code);
+    socket_.close(error_code);
+    std::error_code remove_error;
+    std::filesystem::remove(socket_path_, remove_error);
+  }
+
+ private:
+  void DoAccept() {
+    acceptor_.async_accept(socket_, [self = shared_from_this()](const boost::system::error_code& error_code) {
+      if (!self->acceptor_.is_open()) {
+        return;
+      }
+
+      if (!error_code) {
+        std::make_shared<LocalControllerSession>(std::move(self->socket_), self->session_manager_)->Start();
+      }
+
+      self->DoAccept();
+    });
+  }
+
+  local_stream::acceptor acceptor_;
+  local_stream::socket socket_;
+  std::filesystem::path socket_path_;
+  vibe::service::SessionManager& session_manager_;
+};
+
 }  // namespace
 
 HttpServer::HttpServer(std::string admin_bind_address, const std::uint16_t admin_port,
@@ -1511,6 +1940,8 @@ auto HttpServer::Run() -> bool {
     auto session_pump =
         std::make_shared<SessionPump>(*io_context_, session_manager_, websocket_registry,
                                       overview_websocket_registry);
+    auto local_controller_listener = std::make_shared<LocalControllerListener>(
+        *io_context_, DefaultControllerSocketPath(storage_root_), session_manager_);
     auto discovery_broadcaster = std::make_shared<UdpDiscoveryBroadcaster>(
         [this, remote_tls_enabled = remote_tls_config.enabled]() {
           return ToJson(ResolveDiscoveryInfo(
@@ -1528,6 +1959,7 @@ auto HttpServer::Run() -> bool {
     std::shared_ptr<HttpListener> remote_http_listener;
     std::shared_ptr<HttpsListener> remote_https_listener;
     session_pump->Start();
+    local_controller_listener->Start();
     const bool discovery_started = discovery_broadcaster->Start();
     static_cast<void>(discovery_started);
     admin_listener->Start();
@@ -1557,14 +1989,16 @@ auto HttpServer::Run() -> bool {
       std::lock_guard lock(state_mutex_);
       stop_callback_ =
           [this, io_context, session_pump, admin_listener, remote_http_listener,
-           remote_https_listener, discovery_broadcaster, websocket_registry,
+           remote_https_listener, local_controller_listener, discovery_broadcaster, websocket_registry,
            overview_websocket_registry]() {
             asio::post(*io_context, [this, io_context, session_pump, admin_listener,
                                      remote_http_listener, remote_https_listener,
+                                     local_controller_listener,
                                      discovery_broadcaster, websocket_registry,
                                      overview_websocket_registry]() {
               discovery_broadcaster->Stop();
               session_pump->Stop();
+              local_controller_listener->Stop();
               admin_listener->Stop();
               if (remote_http_listener) {
                 remote_http_listener->Stop();

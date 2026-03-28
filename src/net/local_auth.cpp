@@ -19,6 +19,11 @@ auto DefaultStorageRoot() -> std::filesystem::path {
   return std::filesystem::current_path() / ".vibe-everywhere";
 }
 
+auto DefaultControllerSocketPath(const std::filesystem::path& storage_root)
+    -> std::filesystem::path {
+  return storage_root / "controller.sock";
+}
+
 auto CreateLocalAuthServices(const std::filesystem::path& storage_root) -> LocalAuthServices {
   auto pairing_store = std::make_shared<vibe::store::FilePairingStore>(storage_root);
   auto host_config_store = std::make_shared<vibe::store::FileHostConfigStore>(storage_root);

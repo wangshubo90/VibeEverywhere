@@ -127,6 +127,7 @@ class SessionManager {
                                     vibe::session::ControllerKind controller_kind) -> bool;
   [[nodiscard]] auto ReleaseControl(const std::string& session_id, const std::string& client_id) -> bool;
   [[nodiscard]] auto HasControl(const std::string& session_id, const std::string& client_id) const -> bool;
+  [[nodiscard]] auto HasPrivilegedLocalController(const std::string& session_id) const -> bool;
   [[nodiscard]] auto Shutdown() -> std::size_t;
   [[nodiscard]] auto PollSession(const std::string& session_id, int read_timeout_ms) -> bool;
   void PollAll(int read_timeout_ms);

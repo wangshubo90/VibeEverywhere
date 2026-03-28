@@ -19,6 +19,8 @@ namespace vibe::service {
 
 namespace {
 
+constexpr std::string_view kPrivilegedLocalControllerPrefix = "local-controller-";
+
 class ServerTraceLogger {
  public:
   static auto Instance() -> ServerTraceLogger& {
@@ -875,6 +877,16 @@ auto SessionManager::HasControl(const std::string& session_id, const std::string
   return false;
 }
 
+auto SessionManager::HasPrivilegedLocalController(const std::string& session_id) const -> bool {
+  if (const SessionEntry* entry = FindEntry(session_id); entry != nullptr) {
+    return entry->controller_kind == vibe::session::ControllerKind::Host &&
+           entry->controller_client_id.has_value() &&
+           entry->controller_client_id->starts_with(kPrivilegedLocalControllerPrefix);
+  }
+
+  return false;
+}
+
 auto SessionManager::Shutdown() -> std::size_t {
   std::size_t shutdown_count = 0;
 
@@ -948,6 +960,15 @@ void SessionManager::PollAll(const int read_timeout_ms) {
 
   for (SessionEntry& entry : sessions_) {
     if (entry.runtime == nullptr) {
+      continue;
+    }
+
+    const bool privileged_local_controller =
+        entry.controller_kind == vibe::session::ControllerKind::Host &&
+        entry.controller_client_id.has_value() &&
+        entry.controller_client_id->starts_with(kPrivilegedLocalControllerPrefix);
+
+    if (privileged_local_controller) {
       continue;
     }
 
