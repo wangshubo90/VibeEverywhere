@@ -3,10 +3,15 @@
 #include <iostream>
 #include <optional>
 #include <pthread.h>
+#include <signal.h>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <atomic>
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
+#include <unistd.h>
 #include <vector>
 
 #include "vibe/cli/daemon_client.h"
@@ -20,6 +25,116 @@
 #include "vibe/store/file_stores.h"
 
 namespace {
+
+volatile sig_atomic_t g_local_terminal_resize_pending = 0;
+
+void HandleLocalWindowResizeSignal(int /*signal_number*/) { g_local_terminal_resize_pending = 1; }
+
+class ScopedSignalHandler {
+ public:
+  ScopedSignalHandler(const int signal_number, void (*handler)(int))
+      : signal_number_(signal_number), previous_handler_(std::signal(signal_number, handler)) {}
+
+  ScopedSignalHandler(const ScopedSignalHandler&) = delete;
+  auto operator=(const ScopedSignalHandler&) -> ScopedSignalHandler& = delete;
+
+  ~ScopedSignalHandler() { std::signal(signal_number_, previous_handler_); }
+
+ private:
+  int signal_number_{0};
+  using SignalHandler = void (*)(int);
+  SignalHandler previous_handler_{SIG_DFL};
+};
+
+class ScopedRawTerminalMode {
+ public:
+  ScopedRawTerminalMode() {
+    if (!isatty(STDIN_FILENO)) {
+      return;
+    }
+
+    if (tcgetattr(STDIN_FILENO, &original_attributes_) != 0) {
+      return;
+    }
+
+    termios raw_attributes = original_attributes_;
+    raw_attributes.c_iflag &= static_cast<tcflag_t>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
+    raw_attributes.c_oflag &= static_cast<tcflag_t>(~OPOST);
+    raw_attributes.c_cflag |= CS8;
+    raw_attributes.c_lflag &= static_cast<tcflag_t>(~(ECHO | ICANON | IEXTEN | ISIG));
+    raw_attributes.c_cc[VMIN] = 1;
+    raw_attributes.c_cc[VTIME] = 0;
+
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw_attributes) == 0) {
+      active_ = true;
+    }
+  }
+
+  ScopedRawTerminalMode(const ScopedRawTerminalMode&) = delete;
+  auto operator=(const ScopedRawTerminalMode&) -> ScopedRawTerminalMode& = delete;
+
+  ~ScopedRawTerminalMode() {
+    if (!active_) {
+      return;
+    }
+
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_attributes_);
+  }
+
+ private:
+  termios original_attributes_{};
+  bool active_{false};
+};
+
+void RestoreTerminalEscapeModes() {
+  if (!isatty(STDOUT_FILENO)) {
+    return;
+  }
+
+  constexpr std::string_view kResetSequence =
+      "\x1b[?1l"
+      "\x1b[?1049l"
+      "\x1b[?2004l"
+      "\x1b[?1004l"
+      "\x1b[?1002l"
+      "\x1b[?1003l"
+      "\x1b[?1006l"
+      "\x1b[>4;0m"
+      "\x1b[<u";
+
+  const auto* data = kResetSequence.data();
+  std::size_t remaining = kResetSequence.size();
+  while (remaining > 0U) {
+    const ssize_t written = write(STDOUT_FILENO, data, remaining);
+    if (written <= 0) {
+      break;
+    }
+    data += written;
+    remaining -= static_cast<std::size_t>(written);
+  }
+}
+
+class ScopedTerminalEscapeReset {
+ public:
+  ScopedTerminalEscapeReset() = default;
+
+  ScopedTerminalEscapeReset(const ScopedTerminalEscapeReset&) = delete;
+  auto operator=(const ScopedTerminalEscapeReset&) -> ScopedTerminalEscapeReset& = delete;
+
+  ~ScopedTerminalEscapeReset() { RestoreTerminalEscapeModes(); }
+};
+
+auto DetectTerminalSize() -> vibe::session::TerminalSize {
+  winsize size{};
+  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0 && size.ws_row > 0) {
+    return vibe::session::TerminalSize{
+        .columns = size.ws_col,
+        .rows = size.ws_row,
+    };
+  }
+
+  return vibe::session::TerminalSize{};
+}
 
 auto MakeLocalSessionMetadata() -> vibe::session::SessionMetadata {
   const auto session_id = vibe::session::SessionId::TryCreate("local_pty");
@@ -49,13 +164,16 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
 
   const auto metadata = MakeLocalSessionMetadata();
   const std::vector<std::string> arguments(command.begin() + 1, command.end());
+  const TerminalSize initial_terminal_size = DetectTerminalSize();
   const LaunchSpec launch_spec{
       .provider = ProviderType::Codex,
       .executable = command.front(),
       .arguments = arguments,
       .environment_overrides = {},
       .working_directory = metadata.workspace_root,
-      .terminal_size = TerminalSize{.columns = 120, .rows = 40},
+      .terminal_size = initial_terminal_size.columns > 0 && initial_terminal_size.rows > 0
+                           ? initial_terminal_size
+                           : TerminalSize{.columns = 120, .rows = 40},
   };
 
   const vibe::session::PtyPlatformSupport platform_support =
@@ -73,11 +191,31 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
     return 1;
   }
 
+  ScopedTerminalEscapeReset terminal_escape_reset;
+  ScopedRawTerminalMode raw_terminal_mode;
+  ScopedSignalHandler window_resize_handler(SIGWINCH, HandleLocalWindowResizeSignal);
   std::uint64_t next_output_sequence = 1;
+  auto last_terminal_size = launch_spec.terminal_size;
+  bool resize_sync_pending = true;
   bool stdin_open = true;
+  const std::optional<int> readable_fd = runtime.readable_fd();
 
   while (true) {
-    runtime.PollOnce(50);
+    if (g_local_terminal_resize_pending != 0) {
+      g_local_terminal_resize_pending = 0;
+      const auto current_terminal_size = DetectTerminalSize();
+      if (current_terminal_size.columns > 0 && current_terminal_size.rows > 0 &&
+          current_terminal_size != last_terminal_size) {
+        last_terminal_size = current_terminal_size;
+        resize_sync_pending = true;
+      }
+    }
+
+    if (resize_sync_pending) {
+      const bool resized = runtime.ResizeTerminal(last_terminal_size);
+      static_cast<void>(resized);
+      resize_sync_pending = false;
+    }
 
     const OutputSlice output = runtime.output_buffer().SliceFromSequence(next_output_sequence);
     if (!output.data.empty()) {
@@ -94,35 +232,55 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
     }
 
     if (!stdin_open) {
+      if (readable_fd.has_value()) {
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(*readable_fd, &read_fds);
+        const int ready = select(*readable_fd + 1, &read_fds, nullptr, nullptr, nullptr);
+        if (ready > 0 && FD_ISSET(*readable_fd, &read_fds)) {
+          runtime.PollOnce(0);
+        }
+      } else {
+        runtime.PollOnce(10);
+      }
       continue;
     }
 
     fd_set read_fds;
     FD_ZERO(&read_fds);
     FD_SET(STDIN_FILENO, &read_fds);
+    int max_fd = STDIN_FILENO;
+    if (readable_fd.has_value()) {
+      FD_SET(*readable_fd, &read_fds);
+      if (*readable_fd > max_fd) {
+        max_fd = *readable_fd;
+      }
+    }
 
-    timeval timeout{};
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 0;
-
-    const int select_result = select(STDIN_FILENO + 1, &read_fds, nullptr, nullptr, &timeout);
-    if (select_result <= 0 || !FD_ISSET(STDIN_FILENO, &read_fds)) {
+    const int select_result = select(max_fd + 1, &read_fds, nullptr, nullptr, nullptr);
+    if (select_result <= 0) {
       continue;
     }
 
-    char buffer[1024];
-    const ssize_t bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
-    if (bytes_read == 0) {
-      stdin_open = false;
-      continue;
-    }
-    if (bytes_read < 0) {
-      continue;
+    if (readable_fd.has_value() && FD_ISSET(*readable_fd, &read_fds)) {
+      runtime.PollOnce(0);
     }
 
-    const std::string input(buffer, static_cast<std::size_t>(bytes_read));
-    const bool wrote_input = runtime.WriteInput(input);
-    static_cast<void>(wrote_input);
+    if (FD_ISSET(STDIN_FILENO, &read_fds)) {
+      char buffer[1024];
+      const ssize_t bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
+      if (bytes_read == 0) {
+        stdin_open = false;
+        continue;
+      }
+      if (bytes_read < 0) {
+        continue;
+      }
+
+      const std::string input(buffer, static_cast<std::size_t>(bytes_read));
+      const bool wrote_input = runtime.WriteInput(input);
+      static_cast<void>(wrote_input);
+    }
   }
 }
 
