@@ -476,5 +476,75 @@ TEST_F(SessionAttachFixture, DISABLED_SessionAttachDoesNotBatchTwoQuickReadlineE
       << "\nws trace:\n" << ReadWsTrace();
 }
 
+TEST_F(SessionAttachFixture, DISABLED_SessionAttachDoesNotBatchTwoQuickPromptRedrawEchoes) {
+  const std::string session_id = CreateSession(
+      R"(["/usr/bin/perl","-e","$|=1; system(q(stty -echo -icanon min 1 time 0)); my $line = q(); print qq(prompt> ); while (sysread(STDIN, my $c, 1)) { if ($c eq qq(\n) || $c eq qq(\r)) { if ($line eq q(exit)) { print qq(\rprompt> exit\n); last; } $line = q(); print qq(\rprompt> ); next; } if (ord($c) == 3) { last; } $line .= $c; print qq(\rprompt> $line); }"])");
+  ASSERT_FALSE(session_id.empty());
+
+  StartAttachClient(session_id);
+
+  const std::string startup_output =
+      ReadUntilContains("prompt> ", std::chrono::milliseconds(6000));
+  ASSERT_NE(startup_output.find("prompt> "), std::string::npos)
+      << "startup output: " << startup_output << "\nclient trace:\n" << ReadTrace()
+      << "\nserver trace:\n" << ReadServerTrace() << "\npty trace:\n" << ReadPtyTrace()
+      << "\nws trace:\n" << ReadWsTrace();
+
+  ASSERT_EQ(::write(master_fd_, ",", 1), 1);
+  const std::string first_window = ReadAvailable(std::chrono::milliseconds(8));
+  ASSERT_EQ(::write(master_fd_, " ", 1), 1);
+  const std::string combined_output =
+      first_window + ReadUntilContains("prompt> , ", std::chrono::milliseconds(250));
+
+  static_cast<void>(::write(master_fd_, "\x03", 1));
+  static_cast<void>(ReadAvailable(std::chrono::milliseconds(100)));
+
+  EXPECT_NE(first_window.find(","), std::string::npos)
+      << "prompt redraw session did not render the first key before the second arrived; startup: "
+      << startup_output << " combined output: " << combined_output << "\nclient trace:\n"
+      << ReadTrace() << "\nserver trace:\n" << ReadServerTrace()
+      << "\npty trace:\n" << ReadPtyTrace() << "\nws trace:\n" << ReadWsTrace();
+  EXPECT_NE(combined_output.find("prompt> , "), std::string::npos)
+      << "prompt redraw session did not produce the expected redraw output; startup: "
+      << startup_output << " combined output: " << combined_output << "\nclient trace:\n"
+      << ReadTrace() << "\nserver trace:\n" << ReadServerTrace()
+      << "\npty trace:\n" << ReadPtyTrace() << "\nws trace:\n" << ReadWsTrace();
+}
+
+TEST_F(SessionAttachFixture, DISABLED_SessionAttachDoesNotBatchTwoQuickPythonReadlineEchoes) {
+  const std::string session_id = CreateSession(
+      R"(["/usr/bin/python3","-c","import sys\nwhile True:\n    try:\n        line = input('prompt> ')\n    except EOFError:\n        break\n    if line == 'exit':\n        break\n    print(line)\n    sys.stdout.flush()\n"])");
+  ASSERT_FALSE(session_id.empty());
+
+  StartAttachClient(session_id);
+
+  const std::string startup_output =
+      ReadUntilContains("prompt> ", std::chrono::milliseconds(6000));
+  ASSERT_NE(startup_output.find("prompt> "), std::string::npos)
+      << "startup output: " << startup_output << "\nclient trace:\n" << ReadTrace()
+      << "\nserver trace:\n" << ReadServerTrace() << "\npty trace:\n" << ReadPtyTrace()
+      << "\nws trace:\n" << ReadWsTrace();
+
+  ASSERT_EQ(::write(master_fd_, ",", 1), 1);
+  const std::string first_window = ReadAvailable(std::chrono::milliseconds(8));
+  ASSERT_EQ(::write(master_fd_, " ", 1), 1);
+  const std::string combined_output =
+      first_window + ReadUntilContains(", ", std::chrono::milliseconds(250));
+
+  static_cast<void>(::write(master_fd_, "exit\n", 5));
+  static_cast<void>(ReadUntilQuiet(std::chrono::milliseconds(200), std::chrono::milliseconds(1000)));
+
+  EXPECT_NE(first_window.find(","), std::string::npos)
+      << "python readline session did not render the first key before the second arrived; startup: "
+      << startup_output << " combined output: " << combined_output << "\nclient trace:\n"
+      << ReadTrace() << "\nserver trace:\n" << ReadServerTrace()
+      << "\npty trace:\n" << ReadPtyTrace() << "\nws trace:\n" << ReadWsTrace();
+  EXPECT_NE(combined_output.find(", "), std::string::npos)
+      << "python readline session did not echo both keys; startup: " << startup_output
+      << " combined output: " << combined_output << "\nclient trace:\n" << ReadTrace()
+      << "\nserver trace:\n" << ReadServerTrace() << "\npty trace:\n" << ReadPtyTrace()
+      << "\nws trace:\n" << ReadWsTrace();
+}
+
 }  // namespace
 }  // namespace vibe::cli
