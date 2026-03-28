@@ -137,20 +137,29 @@ void SessionRuntime::PollOnce(const int read_timeout_ms) {
     return;
   }
 
-  const ReadResult read_result = pty_process_.Read(read_timeout_ms);
-  if (!read_result.data.empty()) {
-    output_buffer_.Append(read_result.data);
-    record_.SetCurrentSequence(output_buffer_.next_sequence() - 1);
-    record_.SetRecentTerminalTail(output_buffer_.Tail(64U * 1024U).data);
-  }
+  int timeout_ms_remaining = read_timeout_ms;
+  while (true) {
+    const ReadResult read_result = pty_process_.Read(timeout_ms_remaining);
+    timeout_ms_remaining = 0;
 
-  if (read_result.closed) {
-    const std::optional<int> exit_code = pty_process_.PollExit();
-    if (exit_code.has_value()) {
-      const bool handled_exit = HandleExit(*exit_code == 0);
-      static_cast<void>(handled_exit);
+    if (!read_result.data.empty()) {
+      output_buffer_.Append(read_result.data);
+      record_.SetCurrentSequence(output_buffer_.next_sequence() - 1);
+      record_.SetRecentTerminalTail(output_buffer_.Tail(64U * 1024U).data);
     }
-    return;
+
+    if (read_result.closed) {
+      const std::optional<int> exit_code = pty_process_.PollExit();
+      if (exit_code.has_value()) {
+        const bool handled_exit = HandleExit(*exit_code == 0);
+        static_cast<void>(handled_exit);
+      }
+      return;
+    }
+
+    if (read_result.data.empty()) {
+      break;
+    }
   }
 
   const std::optional<int> exit_code = pty_process_.PollExit();

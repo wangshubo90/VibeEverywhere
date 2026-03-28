@@ -18,7 +18,15 @@ class FakePtyProcess final : public IPtyProcess {
     return write_result;
   }
 
-  [[nodiscard]] auto Read(int /*timeout_ms*/) -> ReadResult override { return next_read_result; }
+  [[nodiscard]] auto Read(int /*timeout_ms*/) -> ReadResult override {
+    read_count += 1;
+    if (!queued_read_results.empty()) {
+      ReadResult result = queued_read_results.front();
+      queued_read_results.erase(queued_read_results.begin());
+      return result;
+    }
+    return next_read_result;
+  }
   [[nodiscard]] auto ReadableFd() const -> std::optional<int> override { return readable_fd; }
 
   [[nodiscard]] auto Resize(const TerminalSize terminal_size) -> bool override {
@@ -38,10 +46,12 @@ class FakePtyProcess final : public IPtyProcess {
   bool resize_result{true};
   bool terminate_result{true};
   ReadResult next_read_result{.data = "", .closed = false};
+  std::vector<ReadResult> queued_read_results;
   std::optional<int> next_exit_code{std::nullopt};
   std::optional<int> readable_fd{99};
   int start_count{0};
   int terminate_count{0};
+  int read_count{0};
   LaunchSpec last_launch_spec{
       .provider = ProviderType::Codex,
       .executable = "",
@@ -157,7 +167,10 @@ TEST(SessionRuntimeTest, ShutdownTerminatesAndMarksExitedForInteractiveSession) 
 
 TEST(SessionRuntimeTest, PollOnceAppendsOutputAndUpdatesSnapshotTail) {
   FakePtyProcess pty_process;
-  pty_process.next_read_result = ReadResult{.data = "chunk-one", .closed = false};
+  pty_process.queued_read_results = {
+      ReadResult{.data = "chunk-one", .closed = false},
+      ReadResult{.data = "", .closed = false},
+  };
   SessionRuntime runtime = MakeRuntime(pty_process);
 
   ASSERT_TRUE(runtime.Start());
@@ -168,6 +181,26 @@ TEST(SessionRuntimeTest, PollOnceAppendsOutputAndUpdatesSnapshotTail) {
   EXPECT_EQ(*latest_seq, 1);
   EXPECT_EQ(runtime.record().snapshot().current_sequence, 1U);
   EXPECT_EQ(runtime.record().snapshot().recent_terminal_tail, "chunk-one");
+}
+
+TEST(SessionRuntimeTest, PollOnceDrainsAvailableOutputBeforeReturning) {
+  FakePtyProcess pty_process;
+  pty_process.queued_read_results = {
+      ReadResult{.data = "chunk-one", .closed = false},
+      ReadResult{.data = "chunk-two", .closed = false},
+      ReadResult{.data = "", .closed = false},
+  };
+  SessionRuntime runtime = MakeRuntime(pty_process);
+
+  ASSERT_TRUE(runtime.Start());
+  runtime.PollOnce(0);
+
+  const auto latest_seq = runtime.output_buffer().latest_sequence();
+  ASSERT_TRUE(latest_seq.has_value());
+  EXPECT_EQ(*latest_seq, 2);
+  EXPECT_EQ(runtime.record().snapshot().current_sequence, 2U);
+  EXPECT_EQ(runtime.record().snapshot().recent_terminal_tail, "chunk-onechunk-two");
+  EXPECT_EQ(pty_process.read_count, 3);
 }
 
 TEST(SessionRuntimeTest, PollOnceTransitionsExitedWhenProcessReportsCleanExit) {
