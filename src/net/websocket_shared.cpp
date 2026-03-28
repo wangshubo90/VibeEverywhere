@@ -1,5 +1,7 @@
 #include "vibe/net/websocket_shared.h"
 
+#include <algorithm>
+
 namespace vibe::net {
 
 namespace {
@@ -42,6 +44,19 @@ auto ExtractQueryValue(const std::string& target, const std::string_view key) ->
 }
 
 }  // namespace
+
+auto StreamSequenceWindow::delivered_next() const -> std::uint64_t { return delivered_next_; }
+
+auto StreamSequenceWindow::next_request_sequence() const -> std::uint64_t { return reserved_next_; }
+
+void StreamSequenceWindow::ReserveThrough(const std::uint64_t next_sequence) {
+  reserved_next_ = std::max(reserved_next_, next_sequence);
+}
+
+void StreamSequenceWindow::MarkDelivered(const std::uint64_t next_sequence) {
+  delivered_next_ = next_sequence;
+  reserved_next_ = std::max(reserved_next_, delivered_next_);
+}
 
 auto IsSessionWebSocketTarget(const std::string& target) -> bool {
   const std::string path = StripQueryString(target);

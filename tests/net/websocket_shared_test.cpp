@@ -30,5 +30,24 @@ TEST(WebSocketSharedTest, ExtractsAccessToken) {
   EXPECT_TRUE(ExtractAccessTokenFromWebSocketTarget("/ws/sessions/s_123").empty());
 }
 
+TEST(WebSocketSharedTest, StreamSequenceWindowReservesUndeliveredOutput) {
+  StreamSequenceWindow window;
+
+  EXPECT_EQ(window.delivered_next(), 1U);
+  EXPECT_EQ(window.next_request_sequence(), 1U);
+
+  window.ReserveThrough(8);
+  EXPECT_EQ(window.delivered_next(), 1U);
+  EXPECT_EQ(window.next_request_sequence(), 8U);
+
+  window.MarkDelivered(4);
+  EXPECT_EQ(window.delivered_next(), 4U);
+  EXPECT_EQ(window.next_request_sequence(), 8U);
+
+  window.MarkDelivered(8);
+  EXPECT_EQ(window.delivered_next(), 8U);
+  EXPECT_EQ(window.next_request_sequence(), 8U);
+}
+
 }  // namespace
 }  // namespace vibe::net

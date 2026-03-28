@@ -444,7 +444,7 @@ class WebSocketSession final : public WebSocketSessionBase,
           self->client_id_ = "ws_" + self->session_id_ + "_" +
                              std::to_string(reinterpret_cast<std::uintptr_t>(self.get()));
           self->connected_at_unix_ms_ = CurrentUnixTimeMs();
-          self->last_sequence_ = 1;
+          self->sequence_window_ = {};
           (*self->websocket_registry_)[self->session_id_].push_back(self);
           self->QueueInitialEvents();
           self->DoRead();
@@ -458,7 +458,8 @@ class WebSocketSession final : public WebSocketSessionBase,
 
     QueueStatusEvents();
 
-    const auto output = session_manager_.GetOutputSince(session_id_, last_sequence_);
+    const auto output =
+        session_manager_.GetOutputSince(session_id_, sequence_window_.next_request_sequence());
     if (!output.has_value() || output->data.empty()) {
       return;
     }
@@ -510,7 +511,7 @@ class WebSocketSession final : public WebSocketSessionBase,
     const auto tail = session_manager_.GetTail(session_id_, 64U * 1024U);
     const vibe::session::OutputSlice initial_slice = tail.value_or(vibe::session::OutputSlice{});
     const std::uint64_t next_sequence =
-        initial_slice.seq_end > 0 ? initial_slice.seq_end + 1 : last_sequence_;
+        initial_slice.seq_end > 0 ? initial_slice.seq_end + 1 : sequence_window_.delivered_next();
     QueueFrame(ToJson(TerminalOutputEvent{
                    .session_id = session_id_,
                    .slice = initial_slice,
@@ -534,7 +535,8 @@ class WebSocketSession final : public WebSocketSessionBase,
       last_group_tags_ = summary->group_tags;
       last_controller_client_id_ = summary->controller_client_id;
       last_controller_kind_ = summary->controller_kind;
-      QueueFrame(ToJson(SessionUpdatedEvent{.summary = *summary}), last_sequence_);
+      QueueFrame(ToJson(SessionUpdatedEvent{.summary = *summary}),
+                 sequence_window_.next_request_sequence());
     }
 
     const bool activity_changed =
@@ -562,7 +564,8 @@ class WebSocketSession final : public WebSocketSessionBase,
       last_git_dirty_ = summary->git_dirty;
       last_git_branch_ = summary->git_branch;
       if (!status_changed) {
-        QueueFrame(ToJson(SessionActivityEvent{.summary = *summary}), last_sequence_);
+        QueueFrame(ToJson(SessionActivityEvent{.summary = *summary}),
+                   sequence_window_.next_request_sequence());
       }
     }
 
@@ -574,11 +577,12 @@ class WebSocketSession final : public WebSocketSessionBase,
                      .session_id = summary->id.value(),
                      .status = summary->status,
                  }),
-                 last_sequence_);
+                 sequence_window_.next_request_sequence());
     }
   }
 
   void QueueFrame(std::string payload, const std::uint64_t next_sequence) {
+    sequence_window_.ReserveThrough(next_sequence);
     pending_frames_.push_back(PendingFrame{
         .payload = std::move(payload),
         .next_sequence = next_sequence,
@@ -606,7 +610,7 @@ class WebSocketSession final : public WebSocketSessionBase,
             return;
           }
 
-          self->last_sequence_ = self->pending_frames_.front().next_sequence;
+          self->sequence_window_.MarkDelivered(self->pending_frames_.front().next_sequence);
           self->pending_frames_.pop_front();
           self->DoWrite();
         });
@@ -637,7 +641,7 @@ class WebSocketSession final : public WebSocketSessionBase,
                      .code = "invalid_command",
                      .message = "invalid websocket command",
                  }),
-                 last_sequence_);
+                 sequence_window_.next_request_sequence());
       return;
     }
 
@@ -688,7 +692,7 @@ class WebSocketSession final : public WebSocketSessionBase,
                      .code = "command_rejected",
                      .message = "command rejected for current session state",
                  }),
-                 last_sequence_);
+                 sequence_window_.next_request_sequence());
     }
   }
 
@@ -711,7 +715,7 @@ class WebSocketSession final : public WebSocketSessionBase,
   std::string session_id_;
   std::string client_id_;
   std::string client_address_;
-  std::uint64_t last_sequence_{1};
+  StreamSequenceWindow sequence_window_;
   std::optional<vibe::session::SessionStatus> last_status_;
   std::vector<std::string> last_group_tags_;
   std::optional<std::string> last_controller_client_id_;
