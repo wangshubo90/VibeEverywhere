@@ -23,6 +23,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string_view>
 #include <vector>
 #include <thread>
@@ -82,19 +83,6 @@ auto BuildWebSocketTarget(const std::string& session_id) -> std::string {
 }
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
-
-auto IsFdReadableNow(const int fd) -> bool {
-  fd_set read_fds;
-  FD_ZERO(&read_fds);
-  FD_SET(fd, &read_fds);
-
-  timeval timeout{};
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 0;
-
-  const int select_result = select(fd + 1, &read_fds, nullptr, nullptr, &timeout);
-  return select_result > 0 && FD_ISSET(fd, &read_fds);
-}
 
 void WriteAllToStdout(const std::string_view data) {
   const char* bytes = data.data();
@@ -578,6 +566,11 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
     return 1;
   }
   trace_logger.Log("ws.handshake");
+  std::mutex stream_state_mutex;
+  std::atomic<bool> stop_requested{false};
+  std::atomic<int> shared_exit_code{0};
+  std::atomic<bool> read_failed{false};
+  std::string read_error_message;
 
   auto write_command = [&ws](const std::string& command) -> bool {
     boost::system::error_code write_error;
@@ -601,54 +594,78 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
   ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
   auto last_terminal_size = DetectTerminalSize();
   bool resize_sync_pending = true;
-  beast::flat_buffer buffer;
-  int exit_code = 0;
   bool stdin_open = true;
-  const int websocket_fd = ws.next_layer().native_handle();
 
-  auto drain_websocket_frames = [&]() -> std::optional<int> {
-    bool should_continue = true;
-    while (should_continue) {
-      error_code.clear();
-      ws.read(buffer, error_code);
-      if (error_code == websocket::error::closed) {
-        return exit_code;
+  std::thread reader_thread([&]() {
+    beast::flat_buffer buffer;
+    int reader_exit_code = 0;
+    while (!stop_requested.load()) {
+      boost::system::error_code read_error;
+      ws.read(buffer, read_error);
+
+      if (read_error == websocket::error::closed) {
+        shared_exit_code.store(reader_exit_code);
+        stop_requested.store(true);
+        return;
       }
-      if (error_code) {
-        std::cerr << "websocket read failed: " << error_code.message() << '\n';
-        return 1;
+      if (read_error) {
+        read_error_message = read_error.message();
+        read_failed.store(true);
+        stop_requested.store(true);
+        return;
       }
 
       const std::string payload = beast::buffers_to_string(buffer.data());
-      trace_logger.Log(ws.got_text() ? "ws.read.text" : "ws.read.binary", payload.size());
+      const bool got_text = ws.got_text();
+      trace_logger.Log(got_text ? "ws.read.text" : "ws.read.binary", payload.size());
       buffer.consume(buffer.size());
-      if (ws.got_text()) {
-        if (!HandleServerMessage(payload, controller_kind, stream_state, exit_code)) {
-          return exit_code;
+      if (got_text) {
+        std::lock_guard<std::mutex> lock(stream_state_mutex);
+        if (!HandleServerMessage(payload, controller_kind, stream_state, reader_exit_code)) {
+          shared_exit_code.store(reader_exit_code);
+          stop_requested.store(true);
+          return;
         }
       } else {
         trace_logger.Log("stdout.write", payload.size());
         WriteAllToStdout(payload);
       }
-
-      should_continue = IsFdReadableNow(websocket_fd);
     }
-
-    return std::nullopt;
-  };
+  });
 
   while (true) {
+    if (read_failed.load()) {
+      stop_requested.store(true);
+      break;
+    }
+    if (stop_requested.load()) {
+      break;
+    }
+
+    SessionStreamState snapshot_state;
+    {
+      std::lock_guard<std::mutex> lock(stream_state_mutex);
+      snapshot_state = stream_state;
+    }
+
     if (controller_kind == vibe::session::ControllerKind::Host &&
-        !stream_state.has_control &&
-        !stream_state.control_request_pending &&
-        stream_state.active_controller_kind == "host" &&
-        !stream_state.active_controller_has_client) {
+        !snapshot_state.has_control &&
+        !snapshot_state.control_request_pending &&
+        snapshot_state.active_controller_kind == "host" &&
+        !snapshot_state.active_controller_has_client) {
       const bool requested = write_command(BuildControlRequestCommand(controller_kind));
       if (!requested) {
+        stop_requested.store(true);
+        if (reader_thread.joinable()) {
+          reader_thread.join();
+        }
         std::cerr << "failed to reclaim host control\n";
         return 1;
       }
-      stream_state.control_request_pending = true;
+      {
+        std::lock_guard<std::mutex> lock(stream_state_mutex);
+        stream_state.control_request_pending = true;
+      }
     }
 
     if (g_terminal_resize_pending != 0) {
@@ -660,9 +677,13 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
       }
     }
 
-    if (stream_state.has_control && resize_sync_pending) {
+    if (snapshot_state.has_control && resize_sync_pending) {
       const bool wrote_resize = write_command(BuildResizeCommand(last_terminal_size));
       if (!wrote_resize) {
+        stop_requested.store(true);
+        if (reader_thread.joinable()) {
+          reader_thread.join();
+        }
         std::cerr << "failed to send resize update\n";
         return 1;
       }
@@ -672,29 +693,20 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
 
     fd_set read_fds;
     FD_ZERO(&read_fds);
-    FD_SET(websocket_fd, &read_fds);
-
-    int max_fd = websocket_fd;
+    int max_fd = -1;
     if (stdin_open) {
       FD_SET(STDIN_FILENO, &read_fds);
-      if (STDIN_FILENO > max_fd) {
-        max_fd = STDIN_FILENO;
-      }
+      max_fd = STDIN_FILENO;
     }
 
     timeval timeout{};
     timeout.tv_sec = 0;
     timeout.tv_usec = 20000;
 
-    const int select_result = select(max_fd + 1, &read_fds, nullptr, nullptr, &timeout);
+    const int select_result =
+        max_fd >= 0 ? select(max_fd + 1, &read_fds, nullptr, nullptr, &timeout) : 0;
     if (select_result < 0) {
       continue;
-    }
-
-    if (FD_ISSET(websocket_fd, &read_fds)) {
-      if (const auto read_result = drain_websocket_frames(); read_result.has_value()) {
-        return *read_result;
-      }
     }
 
     if (stdin_open && FD_ISSET(STDIN_FILENO, &read_fds)) {
@@ -704,15 +716,25 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
           const bool released = write_command(BuildReleaseControlCommand());
           static_cast<void>(released);
           trace_logger.Log("ws.write.release");
-          return 0;
+          stop_requested.store(true);
+          break;
         } else if (bytes_read > 0) {
           trace_logger.Log("stdin.read", static_cast<std::size_t>(bytes_read));
-          if (!stream_state.has_control) {
+          SessionStreamState input_state;
+          {
+            std::lock_guard<std::mutex> lock(stream_state_mutex);
+            input_state = stream_state;
+          }
+          if (!input_state.has_control) {
             continue;
           }
           const bool wrote = write_command(
               BuildInputCommand(std::string(input_buffer, static_cast<std::size_t>(bytes_read))));
           if (!wrote) {
+            stop_requested.store(true);
+            if (reader_thread.joinable()) {
+              reader_thread.join();
+            }
             std::cerr << "failed to send terminal input\n";
             return 1;
           }
@@ -720,6 +742,18 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
         }
     }
   }
+
+  boost::system::error_code close_error;
+  ws.close(websocket::close_code::normal, close_error);
+  static_cast<void>(close_error);
+  if (reader_thread.joinable()) {
+    reader_thread.join();
+  }
+  if (read_failed.load()) {
+    std::cerr << "websocket read failed: " << read_error_message << '\n';
+    return 1;
+  }
+  return shared_exit_code.load();
 }
 
 }  // namespace vibe::cli
