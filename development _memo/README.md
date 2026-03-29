@@ -23,6 +23,7 @@ This folder contains initiative documents and the implementation-ready design se
 17. [host_ui_behaviors_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/host_ui_behaviors_v1.md)
 18. [remote_web_client_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_web_client_v1.md)
 19. [remote_client_behaviors_v1.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/remote_client_behaviors_v1.md)
+20. [packaging_architecture.md](/Users/shubow/dev/VibeEverywhere/development%20_memo/packaging_architecture.md)
 
 ## Purpose of Each Document
 
@@ -45,4 +46,5 @@ This folder contains initiative documents and the implementation-ready design se
 - `host_ui_behaviors_v1.md`: behavior-first host admin UI requirements
 - `remote_web_client_v1.md`: frozen remote web client v1 scope and layout
 - `remote_client_behaviors_v1.md`: behavior-first remote client requirements
+- `packaging_architecture.md`: host app packaging direction, bundled client/helper policy, and `--no-client` deployment mode
 - `session_attention_inference_v1.md`: conservative attention model and rollout plan
