@@ -288,7 +288,7 @@ void PrintUsage() {
   std::cout << "Usage:\n"
             << "  vibe-hostd serve [--admin-host HOST] [--admin-port PORT]"
                " [--remote-host HOST] [--remote-port PORT]"
-               " [--remote-cert PATH] [--remote-key PATH]\n"
+               " [--remote-cert PATH] [--remote-key PATH] [--no-discovery]\n"
             << "  vibe-hostd local-pty [command [args...]]\n"
             << "  vibe-hostd session-start [--host HOST] [--port PORT] [title]\n"
             << "  vibe-hostd list [--host HOST] [--port PORT]\n"
@@ -340,6 +340,7 @@ auto main(const int argc, char** argv) -> int {
     std::string remote_host = std::string(vibe::store::kDefaultRemoteHost);
     std::uint16_t remote_port = vibe::store::kDefaultRemotePort;
     std::optional<vibe::net::RemoteTlsFiles> remote_tls_override = std::nullopt;
+    bool enable_discovery = true;
     bool admin_host_explicit = false;
     bool admin_port_explicit = false;
     bool remote_host_explicit = false;
@@ -388,6 +389,11 @@ auto main(const int argc, char** argv) -> int {
         index += 2;
         continue;
       }
+      if (argument == "--no-discovery") {
+        enable_discovery = false;
+        index += 1;
+        continue;
+      }
       if (argc - index == 2) {
         remote_host = argv[index];
         remote_port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
@@ -417,7 +423,7 @@ auto main(const int argc, char** argv) -> int {
     }
 
     vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port,
-                                 remote_tls_override);
+                                 remote_tls_override, enable_discovery);
     sigset_t signal_set;
     sigemptyset(&signal_set);
     sigaddset(&signal_set, SIGHUP);

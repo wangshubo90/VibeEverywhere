@@ -2041,7 +2041,8 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
   }
 
   void HandleFrame(const char type, const std::string_view payload) {
-    if (!has_control_) {
+    if (!has_control_ || !session_manager_.HasControl(session_id_, client_id_)) {
+      has_control_ = false;
       ForceClose();
       return;
     }
@@ -2116,6 +2117,11 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
 
           static_cast<void>(self->session_manager_.PollSession(self->session_id_, 0));
           self->FlushOutput();
+
+          if (self->has_control_ && !self->session_manager_.HasControl(self->session_id_, self->client_id_)) {
+            self->has_control_ = false;
+            self->close_after_writes_ = true;
+          }
 
           const auto summary = self->session_manager_.GetSession(self->session_id_);
           if (!summary.has_value() || summary->status == vibe::session::SessionStatus::Exited ||
@@ -2265,20 +2271,24 @@ class LocalControllerListener final : public std::enable_shared_from_this<LocalC
 
 HttpServer::HttpServer(std::string admin_bind_address, const std::uint16_t admin_port,
                        std::string remote_bind_address, const std::uint16_t remote_port,
-                       std::optional<RemoteTlsFiles> remote_tls_override)
+                       std::optional<RemoteTlsFiles> remote_tls_override,
+                       const bool enable_discovery)
     : HttpServer(std::move(admin_bind_address), admin_port, std::move(remote_bind_address),
-                 remote_port, DefaultStorageRoot(), std::move(remote_tls_override)) {}
+                 remote_port, DefaultStorageRoot(), std::move(remote_tls_override),
+                 enable_discovery) {}
 
 HttpServer::HttpServer(std::string admin_bind_address, const std::uint16_t admin_port,
                        std::string remote_bind_address, const std::uint16_t remote_port,
                        std::filesystem::path storage_root,
-                       std::optional<RemoteTlsFiles> remote_tls_override)
+                       std::optional<RemoteTlsFiles> remote_tls_override,
+                       const bool enable_discovery)
     : admin_bind_address_(std::move(admin_bind_address)),
       admin_port_(admin_port),
       remote_bind_address_(std::move(remote_bind_address)),
       remote_port_(remote_port),
       storage_root_(std::move(storage_root)),
       remote_tls_override_(std::move(remote_tls_override)),
+      enable_discovery_(enable_discovery),
       session_store_(storage_root_),
       session_manager_(&session_store_) {
   auto auth_services = CreateLocalAuthServices(storage_root_);
@@ -2341,12 +2351,15 @@ auto HttpServer::Run() -> bool {
                                       overview_websocket_registry);
     auto local_controller_listener = std::make_shared<LocalControllerListener>(
         *io_context_, DefaultControllerSocketPath(storage_root_), session_manager_);
-    auto discovery_broadcaster = std::make_shared<UdpDiscoveryBroadcaster>(
-        [this, remote_tls_enabled = remote_tls_config.enabled]() {
-          return ToJson(ResolveDiscoveryInfo(
-              host_config_store_->LoadHostIdentity(), remote_bind_address_, remote_port_,
-              remote_tls_enabled));
-        });
+    std::shared_ptr<UdpDiscoveryBroadcaster> discovery_broadcaster;
+    if (enable_discovery_) {
+      discovery_broadcaster = std::make_shared<UdpDiscoveryBroadcaster>(
+          [this, remote_tls_enabled = remote_tls_config.enabled]() {
+            return ToJson(ResolveDiscoveryInfo(
+                host_config_store_->LoadHostIdentity(), remote_bind_address_, remote_port_,
+                remote_tls_enabled));
+          });
+    }
     auto admin_listener =
         std::make_shared<HttpListener>(*io_context_, admin_address, admin_port_, session_manager_,
                                        *authorizer_, *pairing_service_, *pairing_store_,
@@ -2359,8 +2372,10 @@ auto HttpServer::Run() -> bool {
     std::shared_ptr<HttpsListener> remote_https_listener;
     session_pump->Start();
     local_controller_listener->Start();
-    const bool discovery_started = discovery_broadcaster->Start();
-    static_cast<void>(discovery_started);
+    if (discovery_broadcaster) {
+      const bool discovery_started = discovery_broadcaster->Start();
+      static_cast<void>(discovery_started);
+    }
     admin_listener->Start();
     if (remote_tls_config.enabled) {
       remote_https_listener =
@@ -2395,7 +2410,9 @@ auto HttpServer::Run() -> bool {
                                      local_controller_listener,
                                      discovery_broadcaster, websocket_registry,
                                      overview_websocket_registry]() {
-              discovery_broadcaster->Stop();
+              if (discovery_broadcaster) {
+                discovery_broadcaster->Stop();
+              }
               session_pump->Stop();
               local_controller_listener->Stop();
               admin_listener->Stop();

@@ -29,11 +29,13 @@ class HttpServer {
  public:
   HttpServer(std::string admin_bind_address, std::uint16_t admin_port,
              std::string remote_bind_address, std::uint16_t remote_port,
-             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt);
+             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt,
+             bool enable_discovery = true);
   HttpServer(std::string admin_bind_address, std::uint16_t admin_port,
              std::string remote_bind_address, std::uint16_t remote_port,
              std::filesystem::path storage_root,
-             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt);
+             std::optional<RemoteTlsFiles> remote_tls_override = std::nullopt,
+             bool enable_discovery = true);
   ~HttpServer();
 
   [[nodiscard]] auto Run() -> bool;
@@ -46,6 +48,7 @@ class HttpServer {
   std::uint16_t remote_port_;
   std::filesystem::path storage_root_;
   std::optional<RemoteTlsFiles> remote_tls_override_;
+  bool enable_discovery_{true};
   vibe::store::FileSessionStore session_store_;
   vibe::service::SessionManager session_manager_;
   std::shared_ptr<vibe::auth::Authorizer> authorizer_;

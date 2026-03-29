@@ -630,6 +630,7 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
   ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
   auto last_terminal_size = initial_terminal_size;
   bool resize_sync_pending = false;
+  bool redraw_sync_pending = true;
   bool stdin_open = true;
 
   std::thread reader_thread([&]() {
@@ -677,6 +678,18 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
       }
       trace_logger.Log("ws.write.resize");
       resize_sync_pending = false;
+      redraw_sync_pending = true;
+    }
+
+    if (redraw_sync_pending) {
+      const auto frame = BuildLocalControllerFrame('I', std::string_view("\f", 1));
+      asio::write(socket, asio::buffer(frame), error_code);
+      if (error_code) {
+        stop_requested.store(true);
+        break;
+      }
+      trace_logger.Log("ws.write.input", 1);
+      redraw_sync_pending = false;
     }
 
     fd_set read_fds;
