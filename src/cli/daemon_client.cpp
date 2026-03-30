@@ -125,6 +125,57 @@ auto BuildLocalResizePayload(const vibe::session::TerminalSize terminal_size) ->
   return payload;
 }
 
+struct FilteredInput {
+  bool saw_reclaim{false};
+  std::string payload;
+};
+
+auto FilterLocalReclaimInput(const std::string_view input) -> FilteredInput {
+  constexpr std::array<std::string_view, 3> kReclaimSequences = {
+      std::string_view("\x1d", 1),          // classic Ctrl-]
+      std::string_view("\x1b[93;5u", 8),    // CSI-u Ctrl-]
+      std::string_view("\x1b[27;5;93~", 10) // xterm modifyOtherKeys Ctrl-]
+  };
+
+  FilteredInput result{
+      .saw_reclaim = false,
+      .payload = std::string(input),
+  };
+
+  for (const std::string_view sequence : kReclaimSequences) {
+    std::size_t position = 0;
+    while ((position = result.payload.find(sequence, position)) != std::string::npos) {
+      result.saw_reclaim = true;
+      result.payload.erase(position, sequence.size());
+    }
+  }
+
+  if (!result.saw_reclaim) {
+    return result;
+  }
+
+  // Kitty/ghostty-style enhanced keyboard sequences may include an event-type suffix.
+  constexpr std::string_view kitty_prefix = "\x1b[93;5:";
+  std::size_t position = 0;
+  while ((position = result.payload.find(kitty_prefix, position)) != std::string::npos) {
+    const std::size_t digits_begin = position + kitty_prefix.size();
+    std::size_t digits_end = digits_begin;
+    while (digits_end < result.payload.size() &&
+           result.payload[digits_end] >= '0' && result.payload[digits_end] <= '9') {
+      digits_end += 1;
+    }
+    if (digits_end > digits_begin && digits_end < result.payload.size() &&
+        result.payload[digits_end] == 'u') {
+      result.saw_reclaim = true;
+      result.payload.erase(position, digits_end - position + 1);
+      continue;
+    }
+    position = digits_begin;
+  }
+
+  return result;
+}
+
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
 
 void WriteAllToStdout(const std::string_view data) {
@@ -621,6 +672,13 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
     return 1;
   }
 
+  const auto initial_redraw = BuildLocalControllerFrame('I', std::string_view("\f", 1));
+  asio::write(socket, asio::buffer(initial_redraw), error_code);
+  if (error_code) {
+    std::cerr << "local controller initial redraw failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
   std::atomic<bool> stop_requested{false};
   std::atomic<bool> read_failed{false};
   std::string read_error_message;
@@ -630,7 +688,6 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
   ScopedSignalHandler window_resize_handler(SIGWINCH, HandleWindowResizeSignal);
   auto last_terminal_size = initial_terminal_size;
   bool resize_sync_pending = false;
-  bool redraw_sync_pending = true;
   bool stdin_open = true;
 
   std::thread reader_thread([&]() {
@@ -678,18 +735,6 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
       }
       trace_logger.Log("ws.write.resize");
       resize_sync_pending = false;
-      redraw_sync_pending = true;
-    }
-
-    if (redraw_sync_pending) {
-      const auto frame = BuildLocalControllerFrame('I', std::string_view("\f", 1));
-      asio::write(socket, asio::buffer(frame), error_code);
-      if (error_code) {
-        stop_requested.store(true);
-        break;
-      }
-      trace_logger.Log("ws.write.input", 1);
-      redraw_sync_pending = false;
     }
 
     fd_set read_fds;
@@ -722,14 +767,28 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
       }
 
       trace_logger.Log("stdin.read", static_cast<std::size_t>(bytes_read));
-      const auto frame =
-          BuildLocalControllerFrame('I', std::string_view(input_buffer, static_cast<std::size_t>(bytes_read)));
-      asio::write(socket, asio::buffer(frame), error_code);
-      if (error_code) {
-        stop_requested.store(true);
-        break;
+      const auto filtered =
+          FilterLocalReclaimInput(std::string_view(input_buffer, static_cast<std::size_t>(bytes_read)));
+
+      if (filtered.saw_reclaim) {
+        const auto reclaim_frame = BuildLocalControllerFrame('C', {});
+        asio::write(socket, asio::buffer(reclaim_frame), error_code);
+        if (error_code) {
+          stop_requested.store(true);
+          break;
+        }
+        trace_logger.Log("ws.write.reclaim", static_cast<std::size_t>(bytes_read));
       }
-      trace_logger.Log("ws.write.input", static_cast<std::size_t>(bytes_read));
+
+      if (!filtered.payload.empty()) {
+        const auto input_frame = BuildLocalControllerFrame('I', filtered.payload);
+        asio::write(socket, asio::buffer(input_frame), error_code);
+        if (error_code) {
+          stop_requested.store(true);
+          break;
+        }
+        trace_logger.Log("ws.write.input", filtered.payload.size());
+      }
     }
   }
 

@@ -446,6 +446,9 @@ Suggested payload:
 - unauthorized input attempts should return a clear error
 - only the active controller may send resize commands
 - host reclaim semantics should be explicit rather than inferred
+- host-local attach uses an explicit reclaim shortcut instead of reclaiming on arbitrary stdin
+- current local reclaim shortcut coverage targets common raw `Ctrl-]`, CSI-u, and
+  `modifyOtherKeys` terminal encodings, but not every terminal-specific keyboard protocol
 
 ## Schema Design Rules
 
@@ -453,6 +456,9 @@ Suggested payload:
 - keep incremental events small and replayable
 - prefer additive schema evolution
 - include enough sequence metadata for reconnect logic
+- automatic redraw is safe on initial local attach, but automatic redraw on every control
+  handoff is intentionally avoided because shell and TUI programs can respond with unstable
+  scrollback or large blank regions
 
 ## Testing Requirements
 
