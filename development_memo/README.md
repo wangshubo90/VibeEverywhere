@@ -14,6 +14,8 @@ This directory now tracks the implementation-facing documents that still reflect
   - canonical local build and test workflow
 - [packaging_architecture.md](/Users/shubow/dev/VibeEverywhere/development_memo/packaging_architecture.md)
   - current host packaging and bundled-client direction
+- [known_limitations.md](/Users/shubow/dev/VibeEverywhere/development_memo/known_limitations.md)
+  - current documented limitations in attach rendering and host reclaim behavior
 
 ## Current Client Docs
 
