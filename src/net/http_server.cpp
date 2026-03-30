@@ -236,11 +236,13 @@ auto MakeWebSocketAuthResponse(const HttpRequest& request, const http::status st
   return response;
 }
 
-auto MakeControllerReadyEvent(const std::string& session_id) -> std::string {
+auto MakeControllerReadyEvent(const std::string& session_id,
+                              const std::string& controller_client_id) -> std::string {
   json::object object;
   object["type"] = "controller.ready";
   object["sessionId"] = session_id;
   object["controllerKind"] = "remote";
+  object["controllerClientId"] = controller_client_id;
   return json::serialize(object);
 }
 
@@ -954,7 +956,7 @@ class RemoteControllerWebSocketSession final
           self->has_control_ = true;
           (*self->websocket_registry_)[self->session_id_].push_back(self);
           self->next_output_sequence_ = summary->current_sequence + 1;
-          self->QueueTextFrame(MakeControllerReadyEvent(self->session_id_));
+          self->QueueTextFrame(MakeControllerReadyEvent(self->session_id_, self->client_id_));
           self->DoRead();
           self->SyncReadableDescriptor();
           self->ArmReadableWait();
@@ -1945,6 +1947,7 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
                                                ? rows->as_int64()
                                                : 40),
     };
+    current_terminal_size_ = initial_terminal_size_;
     client_id_ = "local-controller-" + std::to_string(CurrentUnixTimeMs()) + "-" +
                  std::to_string(socket_.native_handle());
 
@@ -2041,13 +2044,17 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
   }
 
   void HandleFrame(const char type, const std::string_view payload) {
-    if (!has_control_ || !session_manager_.HasControl(session_id_, client_id_)) {
-      has_control_ = false;
-      ForceClose();
-      return;
-    }
-
-    if (type == 'I') {
+    if (type == 'C') {
+      if (!EnsureControlForInput()) {
+        ReadFrameHeader();
+        return;
+      }
+    } else if (type == 'I') {
+      if (!has_control_ || !session_manager_.HasControl(session_id_, client_id_)) {
+        has_control_ = false;
+        ReadFrameHeader();
+        return;
+      }
       if (!session_manager_.SendInput(session_id_, std::string(payload))) {
         ForceClose();
         return;
@@ -2057,16 +2064,13 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
         ForceClose();
         return;
       }
-
-      const vibe::session::TerminalSize terminal_size{
-          .columns = static_cast<std::uint16_t>(
-              (static_cast<unsigned char>(payload[0]) << 8) |
-              static_cast<unsigned char>(payload[1])),
-          .rows = static_cast<std::uint16_t>(
-              (static_cast<unsigned char>(payload[2]) << 8) |
-              static_cast<unsigned char>(payload[3])),
-      };
-      if (!session_manager_.ResizeSession(session_id_, terminal_size)) {
+      current_terminal_size_ = DecodeTerminalSize(payload);
+      if (!has_control_ || !session_manager_.HasControl(session_id_, client_id_)) {
+        has_control_ = false;
+        ReadFrameHeader();
+        return;
+      }
+      if (!session_manager_.ResizeSession(session_id_, current_terminal_size_)) {
         ForceClose();
         return;
       }
@@ -2120,13 +2124,21 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
 
           if (self->has_control_ && !self->session_manager_.HasControl(self->session_id_, self->client_id_)) {
             self->has_control_ = false;
-            self->close_after_writes_ = true;
           }
 
           const auto summary = self->session_manager_.GetSession(self->session_id_);
           if (!summary.has_value() || summary->status == vibe::session::SessionStatus::Exited ||
               summary->status == vibe::session::SessionStatus::Error) {
             self->close_after_writes_ = true;
+          } else if (!self->has_control_ &&
+                     summary->controller_kind == vibe::session::ControllerKind::Host &&
+                     !summary->controller_client_id.has_value()) {
+            if (self->session_manager_.RequestControl(self->session_id_, self->client_id_,
+                                                      vibe::session::ControllerKind::Host)) {
+              self->has_control_ = true;
+              static_cast<void>(
+                  self->session_manager_.ResizeSession(self->session_id_, self->current_terminal_size_));
+            }
           }
 
           self->SyncReadableDescriptor();
@@ -2193,6 +2205,35 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
     has_control_ = false;
   }
 
+  static auto DecodeTerminalSize(const std::string_view payload) -> vibe::session::TerminalSize {
+    return vibe::session::TerminalSize{
+        .columns = static_cast<std::uint16_t>(
+            (static_cast<unsigned char>(payload[0]) << 8) |
+            static_cast<unsigned char>(payload[1])),
+        .rows = static_cast<std::uint16_t>(
+            (static_cast<unsigned char>(payload[2]) << 8) |
+            static_cast<unsigned char>(payload[3])),
+    };
+  }
+
+  auto EnsureControlForInput() -> bool {
+    if (has_control_ && session_manager_.HasControl(session_id_, client_id_)) {
+      return true;
+    }
+
+    if (!session_manager_.RequestControl(session_id_, client_id_, vibe::session::ControllerKind::Host)) {
+      has_control_ = false;
+      return false;
+    }
+
+    has_control_ = true;
+    if (!session_manager_.ResizeSession(session_id_, current_terminal_size_)) {
+      has_control_ = false;
+      return false;
+    }
+    return true;
+  }
+
   local_stream::socket socket_;
   vibe::service::SessionManager& session_manager_;
   asio::streambuf handshake_buffer_;
@@ -2204,6 +2245,7 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
   std::string client_id_;
   std::string initial_tail_;
   vibe::session::TerminalSize initial_terminal_size_{};
+  vibe::session::TerminalSize current_terminal_size_{};
   std::uint64_t next_output_sequence_{1};
   bool has_control_{false};
   bool write_in_progress_{false};
