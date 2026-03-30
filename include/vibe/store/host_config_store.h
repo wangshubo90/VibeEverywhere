@@ -39,7 +39,7 @@ struct HostIdentity {
 [[nodiscard]] inline auto MakeDefaultHostIdentity() -> HostIdentity {
   return HostIdentity{
       .host_id = "local-dev-host",
-      .display_name = "VibeEverywhere Dev Host",
+      .display_name = "Sentrits Dev Host",
       .certificate_pem_path = "",
       .private_key_pem_path = "",
       .admin_host = std::string(kDefaultAdminHost),
