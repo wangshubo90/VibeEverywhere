@@ -50,6 +50,8 @@ auto SessionRecord::snapshot() const -> SessionSnapshot {
               .last_git_change_at_unix_ms = std::nullopt,
               .last_controller_change_at_unix_ms = std::nullopt,
               .attention_since_unix_ms = std::nullopt,
+              .pty_columns = std::nullopt,
+              .pty_rows = std::nullopt,
               .current_sequence = current_sequence_,
               .recent_file_change_count = recent_file_changes_.size(),
               .attention_state = AttentionState::None,

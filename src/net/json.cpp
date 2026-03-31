@@ -134,6 +134,12 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   if (summary.attention_since_unix_ms.has_value()) {
     object["attentionSinceUnixMs"] = *summary.attention_since_unix_ms;
   }
+  if (summary.pty_columns.has_value()) {
+    object["ptyCols"] = *summary.pty_columns;
+  }
+  if (summary.pty_rows.has_value()) {
+    object["ptyRows"] = *summary.pty_rows;
+  }
   object["currentSequence"] = summary.current_sequence;
   object["attachedClientCount"] = summary.attached_client_count;
   object["recentFileChangeCount"] = summary.recent_file_change_count;
@@ -204,6 +210,12 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   }
   if (snapshot.signals.attention_since_unix_ms.has_value()) {
     signals["attentionSinceUnixMs"] = *snapshot.signals.attention_since_unix_ms;
+  }
+  if (snapshot.signals.pty_columns.has_value()) {
+    signals["ptyCols"] = *snapshot.signals.pty_columns;
+  }
+  if (snapshot.signals.pty_rows.has_value()) {
+    signals["ptyRows"] = *snapshot.signals.pty_rows;
   }
   signals["currentSequence"] = snapshot.signals.current_sequence;
   signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
@@ -352,6 +364,12 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   if (event.summary.attention_since_unix_ms.has_value()) {
     object["attentionSinceUnixMs"] = *event.summary.attention_since_unix_ms;
   }
+  if (event.summary.pty_columns.has_value()) {
+    object["ptyCols"] = *event.summary.pty_columns;
+  }
+  if (event.summary.pty_rows.has_value()) {
+    object["ptyRows"] = *event.summary.pty_rows;
+  }
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
@@ -398,6 +416,12 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   }
   if (event.summary.attention_since_unix_ms.has_value()) {
     object["attentionSinceUnixMs"] = *event.summary.attention_since_unix_ms;
+  }
+  if (event.summary.pty_columns.has_value()) {
+    object["ptyCols"] = *event.summary.pty_columns;
+  }
+  if (event.summary.pty_rows.has_value()) {
+    object["ptyRows"] = *event.summary.pty_rows;
   }
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;

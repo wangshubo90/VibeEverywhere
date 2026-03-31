@@ -91,6 +91,8 @@ struct SessionSignals {
   std::optional<std::int64_t> last_git_change_at_unix_ms;
   std::optional<std::int64_t> last_controller_change_at_unix_ms;
   std::optional<std::int64_t> attention_since_unix_ms;
+  std::optional<std::uint16_t> pty_columns;
+  std::optional<std::uint16_t> pty_rows;
   std::uint64_t current_sequence{0};
   std::size_t recent_file_change_count{0};
   SupervisionState supervision_state{SupervisionState::Quiet};

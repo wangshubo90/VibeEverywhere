@@ -58,6 +58,8 @@ struct SessionSummary {
   std::optional<std::int64_t> last_git_change_at_unix_ms;
   std::optional<std::int64_t> last_controller_change_at_unix_ms;
   std::optional<std::int64_t> attention_since_unix_ms;
+  std::optional<std::uint16_t> pty_columns;
+  std::optional<std::uint16_t> pty_rows;
   std::uint64_t current_sequence{0};
   std::size_t attached_client_count{0};
   std::size_t recent_file_change_count{0};
@@ -150,6 +152,7 @@ class SessionManager {
     std::optional<std::int64_t> last_file_change_at_unix_ms;
     std::optional<std::int64_t> last_git_change_at_unix_ms;
     std::optional<std::int64_t> last_controller_change_at_unix_ms;
+    vibe::session::TerminalSize current_terminal_size{};
     vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
     std::uint64_t last_observed_sequence{0};
   };

@@ -624,6 +624,8 @@ class WebSocketSession final : public WebSocketSessionBase,
         last_output_at_unix_ms_ != summary->last_output_at_unix_ms ||
         last_activity_at_unix_ms_ != summary->last_activity_at_unix_ms ||
         last_attention_since_unix_ms_ != summary->attention_since_unix_ms ||
+        last_pty_columns_ != summary->pty_columns ||
+        last_pty_rows_ != summary->pty_rows ||
         last_current_sequence_ != summary->current_sequence ||
         last_recent_file_change_count_ != summary->recent_file_change_count ||
         last_git_dirty_ != summary->git_dirty ||
@@ -635,6 +637,8 @@ class WebSocketSession final : public WebSocketSessionBase,
       last_output_at_unix_ms_ = summary->last_output_at_unix_ms;
       last_activity_at_unix_ms_ = summary->last_activity_at_unix_ms;
       last_attention_since_unix_ms_ = summary->attention_since_unix_ms;
+      last_pty_columns_ = summary->pty_columns;
+      last_pty_rows_ = summary->pty_rows;
       last_current_sequence_ = summary->current_sequence;
       last_recent_file_change_count_ = summary->recent_file_change_count;
       last_git_dirty_ = summary->git_dirty;
@@ -862,6 +866,8 @@ class WebSocketSession final : public WebSocketSessionBase,
   std::optional<std::int64_t> last_output_at_unix_ms_;
   std::optional<std::int64_t> last_activity_at_unix_ms_;
   std::optional<std::int64_t> last_attention_since_unix_ms_;
+  std::optional<std::uint16_t> last_pty_columns_;
+  std::optional<std::uint16_t> last_pty_rows_;
   std::uint64_t last_current_sequence_{0};
   std::size_t last_recent_file_change_count_{0};
   bool last_git_dirty_{false};

@@ -75,6 +75,12 @@ auto IsInteractiveStatus(const vibe::session::SessionStatus status) -> bool {
          status == vibe::session::SessionStatus::AwaitingInput;
 }
 
+auto DefaultTerminalSizeForMetadata(const vibe::session::SessionMetadata& metadata)
+    -> vibe::session::TerminalSize {
+  const auto provider_config = vibe::session::DefaultProviderConfig(metadata.provider);
+  return vibe::session::BuildLaunchSpec(metadata, provider_config).terminal_size;
+}
+
 constexpr std::int64_t kRecentOutputWindowMs = 5'000;
 constexpr std::int64_t kWorkspaceChangedAttentionMs = 30'000;
 constexpr std::int64_t kGitChangedAttentionMs = 30'000;
@@ -370,6 +376,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .last_file_change_at_unix_ms = std::nullopt,
       .last_git_change_at_unix_ms = std::nullopt,
       .last_controller_change_at_unix_ms = std::nullopt,
+      .current_terminal_size = launch_spec.terminal_size,
       .last_observed_status = vibe::session::SessionStatus::Created,
       .last_observed_sequence = 0,
   });
@@ -450,6 +457,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .last_file_change_at_unix_ms = std::nullopt,
         .last_git_change_at_unix_ms = std::nullopt,
         .last_controller_change_at_unix_ms = std::nullopt,
+        .current_terminal_size = DefaultTerminalSizeForMetadata(snapshot.metadata),
         .last_observed_status = recovered_status,
         .last_observed_sequence = persisted.current_sequence,
     });
@@ -500,6 +508,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
           .last_git_change_at_unix_ms = entry->last_git_change_at_unix_ms,
           .last_controller_change_at_unix_ms = entry->last_controller_change_at_unix_ms,
           .attention_since_unix_ms = attention.since_unix_ms,
+          .pty_columns = entry->current_terminal_size.columns,
+          .pty_rows = entry->current_terminal_size.rows,
           .current_sequence = snapshot.current_sequence,
           .recent_file_change_count = snapshot.recent_file_changes.size(),
           .supervision_state =
@@ -526,6 +536,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
         .last_git_change_at_unix_ms = entry->last_git_change_at_unix_ms,
         .last_controller_change_at_unix_ms = entry->last_controller_change_at_unix_ms,
         .attention_since_unix_ms = attention.since_unix_ms,
+        .pty_columns = entry->current_terminal_size.columns,
+        .pty_rows = entry->current_terminal_size.rows,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .supervision_state =
@@ -758,7 +770,11 @@ auto SessionManager::ResizeSession(const std::string& session_id,
     if (entry->runtime == nullptr) {
       return false;
     }
-    return entry->runtime->ResizeTerminal(terminal_size);
+    const bool resized = entry->runtime->ResizeTerminal(terminal_size);
+    if (resized) {
+      entry->current_terminal_size = terminal_size;
+    }
+    return resized;
   }
 
   return false;
@@ -1033,6 +1049,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .last_git_change_at_unix_ms = entry.last_git_change_at_unix_ms,
         .last_controller_change_at_unix_ms = entry.last_controller_change_at_unix_ms,
         .attention_since_unix_ms = attention.since_unix_ms,
+        .pty_columns = entry.current_terminal_size.columns,
+        .pty_rows = entry.current_terminal_size.rows,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
         .git_dirty = IsGitDirty(snapshot.git_summary),
@@ -1068,6 +1086,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .last_git_change_at_unix_ms = entry.last_git_change_at_unix_ms,
       .last_controller_change_at_unix_ms = entry.last_controller_change_at_unix_ms,
       .attention_since_unix_ms = attention.since_unix_ms,
+      .pty_columns = entry.current_terminal_size.columns,
+      .pty_rows = entry.current_terminal_size.rows,
       .current_sequence = snapshot.current_sequence,
       .recent_file_change_count = snapshot.recent_file_changes.size(),
       .git_dirty = IsGitDirty(snapshot.git_summary),
