@@ -44,8 +44,8 @@ cmake --build build
 Common target-specific builds:
 
 ```bash
-cmake --build build --target vibe-hostd
-cmake --build build --target tests
+cmake --build build --target sentrits
+cmake --build build --target vibe_tests
 ```
 
 ## Test
@@ -139,4 +139,4 @@ Python is allowed for:
 - protocol simulation helpers
 - integration test harnesses when C++ alone would add disproportionate complexity
 
-Python should not become the core runtime for host daemon responsibilities that belong in `vibe-hostd`.
+Python should not become the core runtime for host daemon responsibilities that belong in `sentrits`.

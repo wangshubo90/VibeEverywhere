@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This document defines the **signal model** used by vibe-hostd to infer session lifecycle and attention state.
+This document defines the **signal model** used by sentrits to infer session lifecycle and attention state.
 
 The goal is to unify signals coming from different sources:
 
@@ -197,7 +197,7 @@ Uses:
 Source:
 
 ```
-vibe-hostd control layer
+sentrits control layer
 ```
 
 Collected fields:

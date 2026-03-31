@@ -2,4 +2,4 @@
 set -euo pipefail
 
 cd /Users/shubow/dev/VibeEverywhere
-exec ./build/vibe-hostd serve
+exec ./build/sentrits serve

@@ -14,6 +14,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include <boost/json.hpp>
+
 #include "vibe/cli/daemon_client.h"
 #include "vibe/net/http_server.h"
 #include "vibe/net/local_auth.h"
@@ -25,6 +27,8 @@
 #include "vibe/store/file_stores.h"
 
 namespace {
+
+namespace json = boost::json;
 
 volatile sig_atomic_t g_local_terminal_resize_pending = 0;
 
@@ -286,36 +290,23 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
 
 void PrintUsage() {
   std::cout << "Usage:\n"
-            << "  vibe-hostd serve [--admin-host HOST] [--admin-port PORT]"
+            << "  sentrits serve [--admin-host HOST] [--admin-port PORT]"
                " [--remote-host HOST] [--remote-port PORT]"
                " [--remote-cert PATH] [--remote-key PATH]"
                " [--no-udp-discovery|--no-discovery]\n"
-            << "  vibe-hostd local-pty [command [args...]]\n"
-            << "  vibe-hostd session-start [--host HOST] [--port PORT] [title]\n"
-            << "  vibe-hostd list [--host HOST] [--port PORT]\n"
-            << "  vibe-hostd session-attach [--host HOST] [--port PORT] <session-id>\n";
-}
-
-auto ParseEndpointArgs(const int argc, char** argv, int start_index,
-                       vibe::cli::DaemonEndpoint default_endpoint)
-    -> std::pair<vibe::cli::DaemonEndpoint, int> {
-  int index = start_index;
-  while (index < argc) {
-    const std::string argument = argv[index];
-    if (argument == "--host" && index + 1 < argc) {
-      default_endpoint.host = argv[index + 1];
-      index += 2;
-      continue;
-    }
-    if (argument == "--port" && index + 1 < argc) {
-      default_endpoint.port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
-      index += 2;
-      continue;
-    }
-    break;
-  }
-
-  return {default_endpoint, index};
+            << "  sentrits local-pty [command [args...]]\n"
+            << "  sentrits session list [--host HOST] [--port PORT] [--json]\n"
+            << "  sentrits session show [--host HOST] [--port PORT] [--json] <session-id>\n"
+            << "  sentrits session start [--host HOST] [--port PORT] [--title TITLE] [--attach]\n"
+            << "  sentrits session attach [--host HOST] [--port PORT] <session-id>\n"
+            << "  sentrits session stop [--host HOST] [--port PORT] [--json] <session-id>\n"
+            << "  sentrits session clear [--host HOST] [--port PORT] [--json]\n"
+            << "  sentrits host status [--host HOST] [--port PORT] [--json]\n"
+            << "\nCompatibility aliases:\n"
+            << "  sentrits list\n"
+            << "  sentrits session-start\n"
+            << "  sentrits session-attach\n"
+            << "  vibe-hostd ...\n";
 }
 
 auto LoadConfiguredAdminEndpoint() -> vibe::cli::DaemonEndpoint {
@@ -330,6 +321,147 @@ auto LoadConfiguredAdminEndpoint() -> vibe::cli::DaemonEndpoint {
                                                 : host_identity->admin_host,
       .port = host_identity->admin_port,
   };
+}
+
+auto PrettyPrintJson(const std::string& body) -> std::string {
+  boost::system::error_code error_code;
+  const json::value value = json::parse(body, error_code);
+  if (error_code) {
+    return body;
+  }
+  return json::serialize(value);
+}
+
+auto JsonString(const json::object& object, const std::string_view key) -> std::string {
+  if (const auto* value = object.if_contains(key); value != nullptr && value->is_string()) {
+    return json::value_to<std::string>(*value);
+  }
+  return {};
+}
+
+auto JsonUInt16(const json::object& object, const std::string_view key) -> std::optional<std::uint16_t> {
+  if (const auto* value = object.if_contains(key); value != nullptr && value->is_int64()) {
+    return static_cast<std::uint16_t>(value->as_int64());
+  }
+  return std::nullopt;
+}
+
+void PrintSessionListHuman(const std::vector<vibe::cli::ListedSession>& sessions) {
+  for (const auto& session : sessions) {
+    std::cout << session.session_id << '\t'
+              << (session.title.empty() ? "(untitled)" : session.title) << '\t'
+              << (session.activity_state.empty() ? session.status : session.activity_state)
+              << '\n';
+  }
+}
+
+auto PrintSessionSnapshotHuman(const std::string& body) -> bool {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return false;
+  }
+
+  const auto& object = parsed.as_object();
+  std::cout << "Session:        " << JsonString(object, "sessionId") << '\n'
+            << "Title:          " << JsonString(object, "title") << '\n'
+            << "Provider:       " << JsonString(object, "provider") << '\n'
+            << "Workspace:      " << JsonString(object, "workspaceRoot") << '\n'
+            << "Status:         " << JsonString(object, "status") << '\n'
+            << "Supervision:    " << JsonString(object, "supervisionState") << '\n'
+            << "Attention:      " << JsonString(object, "attentionState") << '\n'
+            << "Reason:         " << JsonString(object, "attentionReason") << '\n'
+            << "Controller:     " << JsonString(object, "controllerKind") << '\n';
+
+  if (const auto* signals = object.if_contains("signals"); signals != nullptr && signals->is_object()) {
+    const auto& signal_object = signals->as_object();
+    const auto pty_cols = JsonUInt16(signal_object, "ptyCols");
+    const auto pty_rows = JsonUInt16(signal_object, "ptyRows");
+    if (pty_cols.has_value() && pty_rows.has_value()) {
+      std::cout << "PTY Size:       " << *pty_cols << " x " << *pty_rows << '\n';
+    }
+  }
+
+  if (const auto* git = object.if_contains("git"); git != nullptr && git->is_object()) {
+    const auto& git_object = git->as_object();
+    const std::string branch = JsonString(git_object, "branch");
+    if (!branch.empty()) {
+      std::cout << "Branch:         " << branch << '\n';
+    }
+  }
+
+  return true;
+}
+
+auto PrintHostStatusHuman(const std::string& body) -> bool {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return false;
+  }
+
+  const auto& object = parsed.as_object();
+  std::cout << "Host ID:        " << JsonString(object, "hostId") << '\n'
+            << "Display Name:   " << JsonString(object, "displayName") << '\n'
+            << "Admin Listen:   " << JsonString(object, "adminHost") << ':'
+            << JsonUInt16(object, "adminPort").value_or(0) << '\n'
+            << "Remote Listen:  " << JsonString(object, "remoteHost") << ':'
+            << JsonUInt16(object, "remotePort").value_or(0) << '\n'
+            << "Version:        " << JsonString(object, "version") << '\n';
+  if (const auto* tls = object.if_contains("tls"); tls != nullptr && tls->is_object()) {
+    const auto& tls_object = tls->as_object();
+    std::cout << "TLS:            " << JsonString(tls_object, "mode") << '\n';
+  }
+  return true;
+}
+
+struct ParsedCommandOptions {
+  vibe::cli::DaemonEndpoint endpoint;
+  bool json_output{false};
+  bool attach_after_create{false};
+  std::optional<std::string> title;
+  std::vector<std::string> positionals;
+};
+
+auto ParseCommandOptions(const int argc, char** argv, int start_index,
+                         vibe::cli::DaemonEndpoint default_endpoint) -> std::optional<ParsedCommandOptions> {
+  ParsedCommandOptions options;
+  options.endpoint = default_endpoint;
+  int index = start_index;
+  while (index < argc) {
+    const std::string argument = argv[index];
+    if (argument == "--host" && index + 1 < argc) {
+      options.endpoint.host = argv[index + 1];
+      index += 2;
+      continue;
+    }
+    if (argument == "--port" && index + 1 < argc) {
+      options.endpoint.port = static_cast<std::uint16_t>(std::stoi(argv[index + 1]));
+      index += 2;
+      continue;
+    }
+    if (argument == "--json") {
+      options.json_output = true;
+      index += 1;
+      continue;
+    }
+    if (argument == "--attach") {
+      options.attach_after_create = true;
+      index += 1;
+      continue;
+    }
+    if (argument == "--title" && index + 1 < argc) {
+      options.title = argv[index + 1];
+      index += 2;
+      continue;
+    }
+    if (!argument.empty() && argument[0] == '-') {
+      return std::nullopt;
+    }
+    options.positionals.emplace_back(argument);
+    index += 1;
+  }
+  return options;
 }
 
 }  // namespace
@@ -472,57 +604,213 @@ auto main(const int argc, char** argv) -> int {
     return RunLocalPty(command);
   }
 
-  if (argc >= 2 && std::string(argv[1]) == "session-start") {
-    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
-    const std::string title = arg_index < argc ? argv[arg_index] : "host-session";
-    const auto session_id = vibe::cli::CreateSession(
-        endpoint,
-        vibe::session::ProviderType::Codex,
-        std::filesystem::current_path().string(),
-        title);
-    if (!session_id.has_value()) {
-      std::cerr << "failed to create session via daemon at " << endpoint.host << ":"
-                << endpoint.port << '\n';
-      return 1;
+  const std::string command = argc >= 2 ? std::string(argv[1]) : "";
+  if (command == "list") {
+    if (auto options = ParseCommandOptions(argc, argv, 2, LoadConfiguredAdminEndpoint());
+        options.has_value()) {
+      const auto sessions = vibe::cli::ListSessions(options->endpoint);
+      if (!sessions.has_value()) {
+        std::cerr << "failed to list sessions via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output) {
+        json::array array;
+        for (const auto& session : *sessions) {
+          json::object object;
+          object["sessionId"] = session.session_id;
+          object["title"] = session.title;
+          object["activityState"] = session.activity_state;
+          object["status"] = session.status;
+          array.push_back(std::move(object));
+        }
+        std::cout << json::serialize(array) << '\n';
+      } else {
+        PrintSessionListHuman(*sessions);
+      }
+      return 0;
     }
-
-    std::cerr << "session " << *session_id << " created\n";
-    return vibe::cli::AttachSession(endpoint, *session_id,
-                                    vibe::session::ControllerKind::Host);
+    PrintUsage();
+    return 1;
   }
 
-  if (argc >= 2 && std::string(argv[1]) == "list") {
-    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
-    if (arg_index != argc) {
-      std::cerr << "invalid list arguments\n";
-      PrintUsage();
-      return 1;
+  if (command == "session-start") {
+    if (auto options = ParseCommandOptions(argc, argv, 2, LoadConfiguredAdminEndpoint());
+        options.has_value()) {
+      const std::string title =
+          options->title.value_or(!options->positionals.empty() ? options->positionals.front() : "host-session");
+      const auto session_id = vibe::cli::CreateSession(
+          options->endpoint, vibe::session::ProviderType::Codex, std::filesystem::current_path().string(), title);
+      if (!session_id.has_value()) {
+        std::cerr << "failed to create session via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      std::cerr << "session " << *session_id << " created\n";
+      return vibe::cli::AttachSession(options->endpoint, *session_id, vibe::session::ControllerKind::Host);
     }
-
-    const auto sessions = vibe::cli::ListSessions(endpoint);
-    if (!sessions.has_value()) {
-      std::cerr << "failed to list sessions via daemon at " << endpoint.host << ":"
-                << endpoint.port << '\n';
-      return 1;
-    }
-
-    for (const auto& session : *sessions) {
-      std::cout << session.session_id << '\t'
-                << (session.title.empty() ? "(untitled)" : session.title) << '\t'
-                << (session.activity_state.empty() ? session.status : session.activity_state)
-                << '\n';
-    }
-    return 0;
+    PrintUsage();
+    return 1;
   }
 
-  if (argc >= 3 && std::string(argv[1]) == "session-attach") {
-    auto [endpoint, arg_index] = ParseEndpointArgs(argc, argv, 2, LoadConfiguredAdminEndpoint());
-    if (arg_index >= argc) {
-      std::cerr << "session id required\n";
-      return 1;
+  if (command == "session-attach") {
+    if (auto options = ParseCommandOptions(argc, argv, 2, LoadConfiguredAdminEndpoint());
+        options.has_value() && !options->positionals.empty()) {
+      return vibe::cli::AttachSession(options->endpoint, options->positionals.front(),
+                                      vibe::session::ControllerKind::Host);
     }
-    return vibe::cli::AttachSession(endpoint, argv[arg_index],
-                                    vibe::session::ControllerKind::Host);
+    std::cerr << "session id required\n";
+    return 1;
+  }
+
+  if (command == "session" && argc >= 3) {
+    const std::string subcommand = argv[2];
+    if (subcommand == "list") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value()) {
+        PrintUsage();
+        return 1;
+      }
+      const auto sessions = vibe::cli::ListSessions(options->endpoint);
+      if (!sessions.has_value()) {
+        std::cerr << "failed to list sessions via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output) {
+        json::array array;
+        for (const auto& session : *sessions) {
+          json::object object;
+          object["sessionId"] = session.session_id;
+          object["title"] = session.title;
+          object["activityState"] = session.activity_state;
+          object["status"] = session.status;
+          array.push_back(std::move(object));
+        }
+        std::cout << json::serialize(array) << '\n';
+      } else {
+        PrintSessionListHuman(*sessions);
+      }
+      return 0;
+    }
+
+    if (subcommand == "show") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value() || options->positionals.empty()) {
+        PrintUsage();
+        return 1;
+      }
+      const auto snapshot = vibe::cli::GetSessionSnapshot(options->endpoint, options->positionals.front());
+      if (!snapshot.has_value()) {
+        std::cerr << "failed to show session via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output || !PrintSessionSnapshotHuman(*snapshot)) {
+        std::cout << PrettyPrintJson(*snapshot) << '\n';
+      }
+      return 0;
+    }
+
+    if (subcommand == "start") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value()) {
+        PrintUsage();
+        return 1;
+      }
+      const std::string title =
+          options->title.value_or(!options->positionals.empty() ? options->positionals.front() : "session");
+      const auto session_id = vibe::cli::CreateSession(
+          options->endpoint, vibe::session::ProviderType::Codex, std::filesystem::current_path().string(), title);
+      if (!session_id.has_value()) {
+        std::cerr << "failed to create session via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output) {
+        json::object object;
+        object["sessionId"] = *session_id;
+        object["title"] = title;
+        std::cout << json::serialize(object) << '\n';
+      } else {
+        std::cout << "session " << *session_id << " created\n";
+      }
+      if (options->attach_after_create) {
+        return vibe::cli::AttachSession(options->endpoint, *session_id, vibe::session::ControllerKind::Host);
+      }
+      return 0;
+    }
+
+    if (subcommand == "attach") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value() || options->positionals.empty()) {
+        std::cerr << "session id required\n";
+        return 1;
+      }
+      return vibe::cli::AttachSession(options->endpoint, options->positionals.front(),
+                                      vibe::session::ControllerKind::Host);
+    }
+
+    if (subcommand == "stop") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value() || options->positionals.empty()) {
+        std::cerr << "session id required\n";
+        return 1;
+      }
+      const auto result = vibe::cli::StopSession(options->endpoint, options->positionals.front());
+      if (!result.has_value()) {
+        std::cerr << "failed to stop session via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output) {
+        std::cout << PrettyPrintJson(*result) << '\n';
+      } else {
+        std::cout << "session " << options->positionals.front() << " stopped\n";
+      }
+      return 0;
+    }
+
+    if (subcommand == "clear") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value()) {
+        PrintUsage();
+        return 1;
+      }
+      const auto result = vibe::cli::ClearInactiveSessions(options->endpoint);
+      if (!result.has_value()) {
+        std::cerr << "failed to clear inactive sessions via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output) {
+        std::cout << PrettyPrintJson(*result) << '\n';
+      } else {
+        std::cout << "cleared inactive sessions\n";
+      }
+      return 0;
+    }
+  }
+
+  if (command == "host" && argc >= 3) {
+    const std::string subcommand = argv[2];
+    if (subcommand == "status") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value()) {
+        PrintUsage();
+        return 1;
+      }
+      const auto host_info = vibe::cli::GetHostInfo(options->endpoint);
+      if (!host_info.has_value()) {
+        std::cerr << "failed to fetch host status via daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      if (options->json_output || !PrintHostStatusHuman(*host_info)) {
+        std::cout << PrettyPrintJson(*host_info) << '\n';
+      }
+      return 0;
+    }
   }
 
   PrintUsage();

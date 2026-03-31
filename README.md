@@ -10,7 +10,7 @@ The runtime is implemented in C++20 with CMake, Ninja, and Clang/LLVM.
 - PTY-backed session execution currently uses a shared POSIX `forkpty` backend behind an `IPtyProcess` factory seam
 - one PTY per session
 - many observers, one controller
-- host-local `session-start` and `session-attach` use a privileged low-latency local controller stream
+- host-local `session start --attach` and `session attach` use a privileged low-latency local controller stream
 - remote web and mobile clients use the HTTP and WebSocket observer/control API, including the dedicated remote controller WebSocket
 - supervision state is live and exposed as `active`, `quiet`, or `stopped`
 - attention state is conservative and derived from structured runtime signals
@@ -22,7 +22,7 @@ The runtime is implemented in C++20 with CMake, Ninja, and Clang/LLVM.
 The current runtime MVP is:
 
 - daemon-managed PTY sessions for AI coding CLIs
-- host-local low-latency control through `session-start` and `session-attach`
+- host-local low-latency control through `session start --attach` and `session attach`
 - remote observer and controller access for web and iOS clients
 - one-controller enforcement across host and remote clients
 - truthful session inventory with status, controller, supervision, and recent timestamps
@@ -38,7 +38,7 @@ The runtime is not yet trying to solve:
 
 ## Repository Surfaces
 
-- `vibe-hostd`
+- `sentrits`
   - runtime daemon, host-local admin/API surface, pairing, session management
 - `frontend/`
   - maintained in-repo host-admin workspace

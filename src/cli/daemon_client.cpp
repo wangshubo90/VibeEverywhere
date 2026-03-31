@@ -178,6 +178,52 @@ auto FilterLocalReclaimInput(const std::string_view input) -> FilteredInput {
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
 
+auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
+                        const std::string& target, const std::string& body = {},
+                        const std::optional<std::string>& content_type = std::nullopt)
+    -> std::optional<http::response<http::string_body>> {
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  tcp::socket socket(io_context);
+  boost::system::error_code error_code;
+  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  const auto endpoint_result = asio::connect(socket, results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  http::request<http::string_body> request{method, target, 11};
+  request.set(http::field::host, endpoint.host);
+  if (content_type.has_value()) {
+    request.set(http::field::content_type, *content_type);
+  }
+  request.body() = body;
+  request.prepare_payload();
+
+  http::write(socket, request, error_code);
+  if (error_code) {
+    std::cerr << "http write failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  beast::flat_buffer buffer;
+  http::response<http::string_body> response;
+  http::read(socket, buffer, response, error_code);
+  if (error_code) {
+    std::cerr << "http read failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  return response;
+}
+
 void WriteAllToStdout(const std::string_view data) {
   const char* bytes = data.data();
   std::size_t remaining = data.size();
@@ -543,91 +589,66 @@ auto BuildResizeCommand(const vibe::session::TerminalSize terminal_size) -> std:
 auto CreateSession(const DaemonEndpoint& endpoint, const vibe::session::ProviderType provider,
                    const std::string& workspace_root, const std::string& title)
     -> std::optional<std::string> {
-  asio::io_context io_context;
-  tcp::resolver resolver(io_context);
-  tcp::socket socket(io_context);
-  boost::system::error_code error_code;
-  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
-  if (error_code) {
-    std::cerr << "resolve failed: " << error_code.message() << '\n';
+  const auto response = PerformHttpRequest(
+      endpoint, http::verb::post, "/sessions",
+      BuildCreateSessionRequestBody(provider, workspace_root, title), "application/json");
+  if (!response.has_value()) {
     return std::nullopt;
   }
 
-  const auto endpoint_result = asio::connect(socket, results, error_code);
-  static_cast<void>(endpoint_result);
-  if (error_code) {
-    std::cerr << "connect failed: " << error_code.message() << '\n';
+  if (response->result() != http::status::created) {
     return std::nullopt;
   }
 
-  http::request<http::string_body> request{http::verb::post, "/sessions", 11};
-  request.set(http::field::host, endpoint.host);
-  request.set(http::field::content_type, "application/json");
-  request.body() = BuildCreateSessionRequestBody(provider, workspace_root, title);
-  request.prepare_payload();
-
-  http::write(socket, request, error_code);
-  if (error_code) {
-    std::cerr << "http write failed: " << error_code.message() << '\n';
-    return std::nullopt;
-  }
-
-  beast::flat_buffer buffer;
-  http::response<http::string_body> response;
-  http::read(socket, buffer, response, error_code);
-  if (error_code) {
-    std::cerr << "http read failed: " << error_code.message() << '\n';
-    return std::nullopt;
-  }
-
-  if (response.result() != http::status::created) {
-    return std::nullopt;
-  }
-
-  return ParseCreatedSessionId(response.body());
+  return ParseCreatedSessionId(response->body());
 }
 
 auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>> {
-  asio::io_context io_context;
-  tcp::resolver resolver(io_context);
-  tcp::socket socket(io_context);
-  boost::system::error_code error_code;
-  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
-  if (error_code) {
-    std::cerr << "resolve failed: " << error_code.message() << '\n';
+  const auto response = PerformHttpRequest(endpoint, http::verb::get, "/sessions");
+  if (!response.has_value()) {
     return std::nullopt;
   }
 
-  const auto endpoint_result = asio::connect(socket, results, error_code);
-  static_cast<void>(endpoint_result);
-  if (error_code) {
-    std::cerr << "connect failed: " << error_code.message() << '\n';
+  if (response->result() != http::status::ok) {
     return std::nullopt;
   }
 
-  http::request<http::string_body> request{http::verb::get, "/sessions", 11};
-  request.set(http::field::host, endpoint.host);
-  request.prepare_payload();
+  return ParseSessionList(response->body());
+}
 
-  http::write(socket, request, error_code);
-  if (error_code) {
-    std::cerr << "http write failed: " << error_code.message() << '\n';
+auto GetSessionSnapshot(const DaemonEndpoint& endpoint, const std::string& session_id)
+    -> std::optional<std::string> {
+  const auto response =
+      PerformHttpRequest(endpoint, http::verb::get, "/sessions/" + session_id + "/snapshot");
+  if (!response.has_value() || response->result() != http::status::ok) {
     return std::nullopt;
   }
+  return response->body();
+}
 
-  beast::flat_buffer buffer;
-  http::response<http::string_body> response;
-  http::read(socket, buffer, response, error_code);
-  if (error_code) {
-    std::cerr << "http read failed: " << error_code.message() << '\n';
+auto StopSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> std::optional<std::string> {
+  const auto response =
+      PerformHttpRequest(endpoint, http::verb::post, "/host/sessions/" + session_id + "/stop");
+  if (!response.has_value() || response->result() != http::status::ok) {
     return std::nullopt;
   }
+  return response->body();
+}
 
-  if (response.result() != http::status::ok) {
+auto ClearInactiveSessions(const DaemonEndpoint& endpoint) -> std::optional<std::string> {
+  const auto response = PerformHttpRequest(endpoint, http::verb::post, "/host/sessions/clear-inactive");
+  if (!response.has_value() || response->result() != http::status::ok) {
     return std::nullopt;
   }
+  return response->body();
+}
 
-  return ParseSessionList(response.body());
+auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string> {
+  const auto response = PerformHttpRequest(endpoint, http::verb::get, "/host/info");
+  if (!response.has_value() || response->result() != http::status::ok) {
+    return std::nullopt;
+  }
+  return response->body();
 }
 
 auto AttachSessionLocal(const std::string& session_id) -> int {

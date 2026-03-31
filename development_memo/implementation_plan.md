@@ -4,7 +4,7 @@ This document turns the initiative docs into an implementable plan for a C++20 c
 
 ## Project Goal
 
-Build `vibe-hostd`, a host daemon that acts as a session runtime and supervision/control plane for AI coding CLIs, exposing sessions to remote clients over REST and WebSocket without using remote desktop streaming.
+Build `sentrits`, a host daemon that acts as a session runtime and supervision/control plane for AI coding CLIs, exposing sessions to remote clients over REST and WebSocket without using remote desktop streaming.
 
 ## Delivery Priorities
 

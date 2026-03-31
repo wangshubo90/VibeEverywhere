@@ -59,7 +59,7 @@ Clients never connect to machines — they connect to **sessions**.
                       Session API / WS
                              │
                     ┌────────▼────────┐
-                    │    vibe-hostd   │
+                    │    sentrits   │
                     │ Session Runtime │
                     └────────┬────────┘
                              │
@@ -76,9 +76,9 @@ Clients never connect to machines — they connect to **sessions**.
 
 ---
 
-# 4. Host Responsibilities (vibe-hostd)
+# 4. Host Responsibilities (sentrits)
 
-`vibe-hostd` acts as the **Session Runtime**.
+`sentrits` acts as the **Session Runtime**.
 
 Responsibilities include:
 
@@ -668,7 +668,7 @@ AI agent
      │
 PTY / FS / Process signals
      │
-Session Runtime (vibe-hostd)
+Session Runtime (sentrits)
      │
 Session events + inference
      │

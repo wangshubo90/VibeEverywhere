@@ -2,7 +2,7 @@
 
 This repository currently provides:
 
-- `vibe-hostd` daemon
+- `sentrits` daemon
 - localhost-only host admin surface
 - in-repo host-admin frontend workspace under `frontend/`
 - runtime APIs used by the maintained remote client in `~/dev/VibeEverywhere-Client`
@@ -82,7 +82,7 @@ Node note for both frontend workspaces:
 ## Start The Daemon
 
 ```bash
-./build/vibe-hostd serve
+./build/sentrits serve
 ```
 
 Default listeners:
@@ -94,7 +94,7 @@ Default listeners:
 To override the HTTP listeners explicitly:
 
 ```bash
-./build/vibe-hostd serve \
+./build/sentrits serve \
   --admin-host 127.0.0.1 --admin-port 18085 \
   --remote-host 0.0.0.0 --remote-port 18086
 ```
@@ -103,13 +103,19 @@ The host admin listener should stay localhost-only. Expose only the remote liste
 
 Discovery is advisory only. Pairing and authorization still gate real access.
 
+If you want LAN access without UDP discovery broadcasts:
+
+```bash
+./build/sentrits serve --no-udp-discovery
+```
+
 ## Host Network Setup
 
 If a remote browser or device cannot reach the daemon, check host firewall rules first.
 
 ### macOS
 
-If macOS prompts for incoming connections when you first run `vibe-hostd`, allow it.
+If macOS prompts for incoming connections when you first run `sentrits`, allow it.
 
 To inspect the Application Firewall state:
 
@@ -126,8 +132,8 @@ To list app firewall rules:
 If needed, add the built daemon binary explicitly:
 
 ```bash
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ./build/vibe-hostd
-sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp ./build/vibe-hostd
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add ./build/sentrits
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp ./build/sentrits
 ```
 
 Also make sure you are binding to `0.0.0.0` or the host LAN IP, not `127.0.0.1`.
@@ -190,7 +196,7 @@ Use it to:
 Start the daemon first:
 
 ```bash
-./build/vibe-hostd serve
+./build/sentrits serve
 ```
 
 Then in another shell:
@@ -248,7 +254,7 @@ Use it as the simplest runtime reference client.
 Start the daemon first:
 
 ```bash
-./build/vibe-hostd serve
+./build/sentrits serve
 ```
 
 Then in another shell:
@@ -284,7 +290,7 @@ Pending pairing requests expire automatically after a short timeout and then can
 ## Start A Session From The Host Terminal
 
 ```bash
-./build/vibe-hostd session-start my-session
+./build/sentrits session start --attach --title my-session
 ```
 
 This creates a daemon-managed session and attaches the current terminal as the host client.
@@ -292,7 +298,7 @@ This creates a daemon-managed session and attaches the current terminal as the h
 To attach to an existing session:
 
 ```bash
-./build/vibe-hostd session-attach s_1
+./build/sentrits session attach s_1
 ```
 
 ## Create A Session From A Remote Client

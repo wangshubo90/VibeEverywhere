@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/session_types.h"
@@ -38,6 +39,11 @@ struct ListedSession {
                                  const std::string& workspace_root,
                                  const std::string& title) -> std::optional<std::string>;
 [[nodiscard]] auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>>;
+[[nodiscard]] auto GetSessionSnapshot(const DaemonEndpoint& endpoint, const std::string& session_id)
+    -> std::optional<std::string>;
+[[nodiscard]] auto StopSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> std::optional<std::string>;
+[[nodiscard]] auto ClearInactiveSessions(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
+[[nodiscard]] auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
 [[nodiscard]] auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
                                  vibe::session::ControllerKind controller_kind) -> int;
 

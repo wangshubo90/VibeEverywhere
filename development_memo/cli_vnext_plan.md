@@ -14,7 +14,7 @@ It should not introduce a second management model that diverges from the runtime
 
 ## Current CLI Baseline
 
-Current commands in `vibe-hostd`:
+Current commands in `sentrits`:
 
 - `serve`
 - `local-pty`
@@ -42,12 +42,12 @@ This is enough for local host workflows, but it is too flat and too narrow for r
 ## Proposed Top-Level Structure
 
 ```text
-vibe-hostd serve
-vibe-hostd host ...
-vibe-hostd session ...
-vibe-hostd auth ...
-vibe-hostd config ...
-vibe-hostd local-pty ...
+sentrits serve
+sentrits host ...
+sentrits session ...
+sentrits auth ...
+sentrits config ...
+sentrits local-pty ...
 ```
 
 ## Session Commands
@@ -75,7 +75,7 @@ Flags:
 
 Compatibility alias:
 
-- `vibe-hostd list`
+- `sentrits list`
 
 ### `session show <id>`
 
@@ -127,7 +127,7 @@ Flags:
 
 Compatibility alias:
 
-- `vibe-hostd session-start`
+- `sentrits session-start`
 
 Recommended behavior:
 
@@ -145,7 +145,7 @@ Flags:
 
 Compatibility alias:
 
-- `vibe-hostd session-attach <id>`
+- `sentrits session-attach <id>`
 
 ### `session stop <id>`
 
@@ -244,14 +244,14 @@ Default output should be compact and readable in terminals over SSH.
 Examples:
 
 ```text
-$ vibe-hostd session list
+$ sentrits session list
 12  build-fix      running  active   host    1 attached
 15  docs-cleanup   running  quiet    remote  2 attached
 18  test-run       exited   stopped  none    0 attached
 ```
 
 ```text
-$ vibe-hostd session show 15
+$ sentrits session show 15
 Session:        15
 Title:          docs-cleanup
 Provider:       codex

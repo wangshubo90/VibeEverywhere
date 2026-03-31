@@ -1,6 +1,6 @@
 # VibeEverywhere Agent Guide
 
-This repository is implementing `vibe-hostd`, a local-network session runtime and supervision/control plane for AI coding CLIs.
+This repository is implementing `sentrits`, a local-network session runtime and supervision/control plane for AI coding CLIs.
 
 ## Working Baseline
 

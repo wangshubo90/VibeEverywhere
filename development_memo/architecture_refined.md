@@ -22,7 +22,7 @@ The host-side terminal still participates in daemon-managed session control, but
 
 The runtime now has two distinct transport shapes:
 
-- a privileged local controller lane for host `session-start` and `session-attach`
+- a privileged local controller lane for host `session start --attach` and `session attach`
 - an observer-oriented HTTP and WebSocket lane for browsers, mobile clients, and passive host views
 
 The terminal path is important, but it is not the whole product. The daemon is a supervision-oriented session runtime and control plane, not merely a PTY forwarder.

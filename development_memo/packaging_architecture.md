@@ -8,14 +8,14 @@ It is not the final distribution spec for every platform. It is the product and 
 
 For now, package the host-side system as one installable host application that bundles:
 
-- `vibe-hostd`
+- `sentrits`
 - the host admin frontend
 - the maintained web client frontend
 - the browser discovery helper
 
 Also support a daemon-focused deployment mode:
 
-- `vibe-hostd --no-client`
+- `sentrits --no-client`
 
 That mode should suppress launching or serving bundled client-facing browser surfaces when the deployment only needs the runtime daemon.
 
@@ -92,7 +92,7 @@ The host package should be the main installable desktop product.
 
 Responsibilities:
 
-- launch and supervise `vibe-hostd`
+- launch and supervise `sentrits`
 - expose host admin UI
 - expose bundled web client UI
 - run the browser discovery helper if the bundled web client needs it
@@ -139,7 +139,7 @@ Default mode.
 
 Runs:
 
-- `vibe-hostd`
+- `sentrits`
 - host admin UI
 - bundled web client UI
 - discovery helper if enabled
@@ -155,11 +155,11 @@ Best for:
 
 Enabled with:
 
-- `vibe-hostd --no-client`
+- `sentrits --no-client`
 
 Runs:
 
-- `vibe-hostd` only
+- `sentrits` only
 
 Suppresses:
 
@@ -178,7 +178,7 @@ Best for:
 Recommended host package process structure:
 
 - host launcher process or desktop app shell
-- `vibe-hostd` runtime daemon
+- `sentrits` runtime daemon
 - optional bundled discovery helper child process
 - browser window or embedded webview for host admin and web client
 
@@ -256,9 +256,9 @@ The packaging architecture decision here is more important than the first instal
 
 For now:
 
-- bundle `vibe-hostd`, host admin UI, web client, and discovery helper together
+- bundle `sentrits`, host admin UI, web client, and discovery helper together
 - keep the helper hidden inside the host package
-- support `vibe-hostd --no-client` for daemon-only deployments
+- support `sentrits --no-client` for daemon-only deployments
 
 This fits the current product reality:
 

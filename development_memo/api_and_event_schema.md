@@ -9,7 +9,7 @@ All non-health endpoints should be designed to support bearer-token authorizatio
 Internal note:
 
 - the public remote API remains HTTP plus WebSocket on the remote listener
-- host-local `session-start` and `session-attach` now use an internal privileged controller stream for low-latency control
+- host-local `session start --attach` and `session attach` now use an internal privileged controller stream for low-latency control
 - that local controller stream is daemon-private and is not part of the web or mobile client contract
 - remote web and mobile clients should use a dedicated controller WebSocket when they become the active controller
 

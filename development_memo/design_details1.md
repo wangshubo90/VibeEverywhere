@@ -1,6 +1,6 @@
 # 25 PTY Output Streaming, Buffering, and Backpressure Design
 
-This section defines how vibe-hostd should handle terminal output from coding CLI sessions.
+This section defines how sentrits should handle terminal output from coding CLI sessions.
 
 The main goal is:
 
@@ -21,7 +21,7 @@ If output is pushed directly to WebSocket clients without buffering and rate con
 - dropped client connection
 - frozen browser UI
 
-Therefore vibe-hostd should treat terminal output as a high-throughput stream with explicit buffering and backpressure control.
+Therefore sentrits should treat terminal output as a high-throughput stream with explicit buffering and backpressure control.
 
 ---
 

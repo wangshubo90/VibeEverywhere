@@ -13,7 +13,7 @@ target_link_libraries(vibe_tests
 
 target_compile_definitions(vibe_tests
   PRIVATE
-    VIBE_HOSTD_PATH="$<TARGET_FILE:vibe-hostd>"
+    VIBE_HOSTD_PATH="$<TARGET_FILE:sentrits>"
 )
 
 include(GoogleTest)

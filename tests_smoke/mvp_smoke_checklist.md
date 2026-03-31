@@ -16,7 +16,7 @@ It does not assume multi-host grouping is complete yet.
 Start the daemon:
 
 ```bash
-./build/vibe-hostd serve
+./build/sentrits serve
 ```
 
 Confirm:
@@ -62,7 +62,7 @@ Optional UDP spot-check if you have a listener tool:
 nc -luk 18087
 ```
 
-Confirm periodic discovery payloads arrive while `vibe-hostd` is running.
+Confirm periodic discovery payloads arrive while `sentrits` is running.
 
 ## 4. Pairing
 

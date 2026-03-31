@@ -112,7 +112,7 @@ Full terminal state recovery is NOT required.
 
 Name
 
-vibe-hostd
+sentrits
 
 This is a persistent service running on the developer machine.
 
@@ -489,7 +489,7 @@ cpp httplib
 
 ---
 
-# 20 Internal Architecture of vibe-hostd
+# 20 Internal Architecture of sentrits
 
 The host daemon consists of several internal modules.
 

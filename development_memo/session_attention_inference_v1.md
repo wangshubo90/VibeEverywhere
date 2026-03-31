@@ -1,6 +1,6 @@
 # Session Attention Inference V1
 
-This document freezes the first attention model for `vibe-hostd`.
+This document freezes the first attention model for `sentrits`.
 
 It answers a different question than lifecycle:
 

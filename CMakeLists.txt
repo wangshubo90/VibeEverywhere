@@ -36,6 +36,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(vibe_core PUBLIC util)
 endif()
 
+add_executable(sentrits
+  src/main.cpp
+)
+
+target_link_libraries(sentrits
+  PRIVATE
+    vibe_core
+)
+
 add_executable(vibe-hostd
   src/main.cpp
 )
