@@ -34,6 +34,8 @@ If a document disagrees with the running code, the code is the source of truth.
   - canonical local build and test workflow
 - [packaging_architecture.md](/Users/shubow/dev/VibeEverywhere/development_memo/packaging_architecture.md)
   - current host packaging and bundled-client direction
+- [cli_vnext_plan.md](/Users/shubow/dev/VibeEverywhere/development_memo/cli_vnext_plan.md)
+  - planned headless-friendly CLI structure for runtime administration
 - [known_limitations.md](/Users/shubow/dev/VibeEverywhere/development_memo/known_limitations.md)
   - current documented limitations in attach rendering, host reclaim behavior, and first-frame fidelity
 
