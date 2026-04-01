@@ -15,6 +15,7 @@ Current host platform target:
 - macOS and Linux only
 - PTY/session runtime paths should compile on both through explicit platform seams
 - Linux-specific PTY libraries should be linked in CMake rather than assumed transitively
+- on WSL, use a native package-manager install of CMake rather than a Snap-packaged `cmake`
 
 ## Configure
 
@@ -25,6 +26,9 @@ cmake -S . -B build -G Ninja \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++
 ```
+
+On WSL specifically, make sure `cmake` resolves to a native binary such as `/usr/bin/cmake`.
+If `which cmake` returns `/snap/bin/cmake`, install a non-Snap CMake first because Snap confinement breaks both configure and build steps under WSL.
 
 If a debug profile is needed:
 
