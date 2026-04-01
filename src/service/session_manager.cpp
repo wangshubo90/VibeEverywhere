@@ -428,6 +428,8 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
                 .last_git_change_at_unix_ms = std::nullopt,
                 .last_controller_change_at_unix_ms = std::nullopt,
                 .attention_since_unix_ms = std::nullopt,
+                .pty_columns = std::nullopt,
+                .pty_rows = std::nullopt,
                 .current_sequence = persisted.current_sequence,
                 .recent_file_change_count = 0,
                 .attention_state = vibe::session::AttentionState::None,
