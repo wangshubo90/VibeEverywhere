@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { RemoteSessionSortMode, SessionSummaryView } from '../../../session-model/src/public-api';
 import { attentionTone, inventoryTone } from '../../../shared-ui/src/public-api';
 import { FitAddon } from '@xterm/addon-fit';
-import { Terminal } from 'xterm';
+import { Terminal } from '@xterm/xterm';
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 type ControllerState = 'observer' | 'host' | 'remote';
