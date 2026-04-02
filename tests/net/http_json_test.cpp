@@ -11,7 +11,8 @@ TEST(HttpJsonTest, EscapesQuotedAndControlCharacters) {
 
 TEST(HttpJsonTest, SerializesHostInfo) {
   const std::string json = ToJsonHostInfo();
-  EXPECT_NE(json.find("\"hostId\":\"local-dev-host\""), std::string::npos);
+  EXPECT_NE(json.find("\"hostId\":\"\""), std::string::npos);
+  EXPECT_NE(json.find("\"displayName\":\"Sentrits Host\""), std::string::npos);
   EXPECT_NE(json.find("\"adminHost\":\"127.0.0.1\""), std::string::npos);
   EXPECT_NE(json.find("\"adminPort\":18085"), std::string::npos);
   EXPECT_NE(json.find("\"remoteHost\":\"0.0.0.0\""), std::string::npos);
@@ -66,6 +67,8 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .last_git_change_at_unix_ms = std::nullopt,
       .last_controller_change_at_unix_ms = std::nullopt,
       .attention_since_unix_ms = 220,
+      .pty_columns = std::nullopt,
+      .pty_rows = std::nullopt,
       .current_sequence = 12,
       .attached_client_count = 1,
       .recent_file_change_count = 0,
@@ -147,6 +150,8 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .last_git_change_at_unix_ms = 111,
               .last_controller_change_at_unix_ms = 112,
               .attention_since_unix_ms = 110,
+              .pty_columns = std::nullopt,
+              .pty_rows = std::nullopt,
               .current_sequence = 42,
               .recent_file_change_count = 2,
               .supervision_state = vibe::session::SupervisionState::Active,
@@ -238,6 +243,8 @@ TEST(HttpJsonTest, SerializesSessionUpdatedEvent) {
               .last_git_change_at_unix_ms = std::nullopt,
               .last_controller_change_at_unix_ms = 220,
               .attention_since_unix_ms = 220,
+              .pty_columns = std::nullopt,
+              .pty_rows = std::nullopt,
               .current_sequence = 12,
               .attached_client_count = 1,
               .recent_file_change_count = 0,
@@ -309,6 +316,8 @@ TEST(HttpJsonTest, SerializesSessionActivityEvent) {
               .last_git_change_at_unix_ms = 220,
               .last_controller_change_at_unix_ms = std::nullopt,
               .attention_since_unix_ms = 220,
+              .pty_columns = std::nullopt,
+              .pty_rows = std::nullopt,
               .current_sequence = 12,
               .attached_client_count = 2,
               .recent_file_change_count = 3,
@@ -366,6 +375,8 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .last_git_change_at_unix_ms = std::nullopt,
                   .last_controller_change_at_unix_ms = std::nullopt,
                   .attention_since_unix_ms = std::nullopt,
+                  .pty_columns = std::nullopt,
+                  .pty_rows = std::nullopt,
                   .current_sequence = 2,
                   .recent_file_change_count = 0,
                   .git_dirty = true,
@@ -394,6 +405,8 @@ TEST(HttpJsonTest, SerializesSessionInventoryEvent) {
                   .last_git_change_at_unix_ms = std::nullopt,
                   .last_controller_change_at_unix_ms = std::nullopt,
                   .attention_since_unix_ms = std::nullopt,
+                  .pty_columns = std::nullopt,
+                  .pty_rows = std::nullopt,
                   .current_sequence = 4,
                   .recent_file_change_count = 1,
                   .git_dirty = false,

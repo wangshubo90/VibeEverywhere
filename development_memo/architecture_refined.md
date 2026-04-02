@@ -164,6 +164,8 @@ Responsibilities:
 Responsibilities:
 
 - persist host identity
+- generate and persist a stable per-host `hostId` on first runtime boot
+- treat `displayName` as user-facing metadata, not as a deduplication key
 - persist TLS certificate/key references or generated material
 - persist daemon-local configuration needed by the host web UI
 

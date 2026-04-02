@@ -30,6 +30,8 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
               .last_git_change_at_unix_ms = 111,
               .last_controller_change_at_unix_ms = 112,
               .attention_since_unix_ms = 110,
+              .pty_columns = std::nullopt,
+              .pty_rows = std::nullopt,
               .current_sequence = 42,
               .recent_file_change_count = 2,
               .attention_state = AttentionState::Info,

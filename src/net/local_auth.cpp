@@ -13,10 +13,10 @@ namespace vibe::net {
 
 auto DefaultStorageRoot() -> std::filesystem::path {
   if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-    return std::filesystem::path(home) / ".vibe-everywhere";
+    return std::filesystem::path(home) / ".sentrits";
   }
 
-  return std::filesystem::current_path() / ".vibe-everywhere";
+  return std::filesystem::current_path() / ".sentrits";
 }
 
 auto DefaultControllerSocketPath(const std::filesystem::path& storage_root)
@@ -27,6 +27,7 @@ auto DefaultControllerSocketPath(const std::filesystem::path& storage_root)
 auto CreateLocalAuthServices(const std::filesystem::path& storage_root) -> LocalAuthServices {
   auto pairing_store = std::make_shared<vibe::store::FilePairingStore>(storage_root);
   auto host_config_store = std::make_shared<vibe::store::FileHostConfigStore>(storage_root);
+  static_cast<void>(vibe::store::EnsureHostIdentity(*host_config_store));
 
   return LocalAuthServices{
       .authorizer = std::make_shared<vibe::auth::DefaultAuthorizer>(*pairing_store),

@@ -11,6 +11,7 @@ set(VIBE_CORE_SOURCES
   src/net/http_shared.cpp
   src/net/websocket_shared.cpp
   src/store/file_stores.cpp
+  src/store/host_config_store.cpp
   src/service/git_inspector.cpp
   src/service/session_manager.cpp
   src/service/workspace_file_watcher.cpp

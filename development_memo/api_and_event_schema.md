@@ -32,6 +32,12 @@ Suggested fields:
 
 This allows clients to verify a discovered host over HTTP after receiving a UDP announcement.
 
+Identity note:
+
+- `hostId` is the canonical stable identity for a host and is generated once on first runtime boot
+- `displayName` is descriptive metadata and is not required to be unique
+- client-side host deduplication and pairing state must key on `hostId`, not `displayName`
+
 ### `GET /host/info`
 
 Returns host metadata and capability flags.
@@ -44,6 +50,11 @@ Suggested fields:
 - `capabilities`
 - `pairingMode`
 - `tls`
+
+Identity note:
+
+- duplicate `displayName` values across hosts are valid
+- host trust, saved-host records, and pairing association should be keyed by `hostId`
 
 ### `GET /ui/*`
 

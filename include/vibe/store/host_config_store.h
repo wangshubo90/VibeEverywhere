@@ -13,6 +13,7 @@ inline constexpr std::string_view kDefaultAdminHost = "127.0.0.1";
 inline constexpr std::uint16_t kDefaultAdminPort = 18085;
 inline constexpr std::string_view kDefaultRemoteHost = "0.0.0.0";
 inline constexpr std::uint16_t kDefaultRemotePort = 18086;
+inline constexpr std::string_view kDefaultDisplayName = "Sentrits Host";
 
 struct ProviderCommandOverride {
   std::string executable;
@@ -38,8 +39,8 @@ struct HostIdentity {
 
 [[nodiscard]] inline auto MakeDefaultHostIdentity() -> HostIdentity {
   return HostIdentity{
-      .host_id = "local-dev-host",
-      .display_name = "Sentrits Dev Host",
+      .host_id = "",
+      .display_name = std::string(kDefaultDisplayName),
       .certificate_pem_path = "",
       .private_key_pem_path = "",
       .admin_host = std::string(kDefaultAdminHost),
@@ -58,6 +59,8 @@ class HostConfigStore {
   [[nodiscard]] virtual auto LoadHostIdentity() const -> std::optional<HostIdentity> = 0;
   [[nodiscard]] virtual auto SaveHostIdentity(const HostIdentity& identity) -> bool = 0;
 };
+
+[[nodiscard]] auto EnsureHostIdentity(HostConfigStore& store) -> std::optional<HostIdentity>;
 
 }  // namespace vibe::store
 

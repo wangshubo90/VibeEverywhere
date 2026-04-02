@@ -27,6 +27,7 @@ The current runtime MVP is:
 - one-controller enforcement across host and remote clients
 - truthful session inventory with status, controller, supervision, and recent timestamps
 - pairing and bearer-token-based remote access on the local network
+- persisted per-host `hostId` generation on first runtime boot, with `displayName` treated as editable metadata rather than identity
 
 The runtime is not yet trying to solve:
 

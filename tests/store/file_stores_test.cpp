@@ -80,6 +80,61 @@ TEST_F(FileStoresTest, HostIdentityLoadsLegacyFilesWithDefaultListenerSettings) 
   EXPECT_TRUE(loaded->claude_command.executable.empty());
 }
 
+TEST_F(FileStoresTest, EnsureHostIdentityGeneratesAndPersistsStableHostId) {
+  FileHostConfigStore store(storage_root());
+
+  const auto generated = EnsureHostIdentity(store);
+  ASSERT_TRUE(generated.has_value());
+  EXPECT_FALSE(generated->host_id.empty());
+  EXPECT_EQ(generated->display_name, std::string(kDefaultDisplayName));
+
+  const auto reloaded = store.LoadHostIdentity();
+  ASSERT_TRUE(reloaded.has_value());
+  EXPECT_EQ(reloaded, generated);
+
+  const auto ensured_again = EnsureHostIdentity(store);
+  ASSERT_TRUE(ensured_again.has_value());
+  EXPECT_EQ(ensured_again, generated);
+}
+
+TEST_F(FileStoresTest, EnsureHostIdentityPreservesExistingConfiguredFields) {
+  FileHostConfigStore store(storage_root());
+  const HostIdentity expected{
+      .host_id = "",
+      .display_name = "WSL Dev Box",
+      .certificate_pem_path = "/tmp/cert.pem",
+      .private_key_pem_path = "/tmp/key.pem",
+      .admin_host = "127.0.0.2",
+      .admin_port = 28085,
+      .remote_host = "10.0.0.8",
+      .remote_port = 28086,
+      .codex_command =
+          ProviderCommandOverride{
+              .executable = "/opt/bin/codex",
+              .args = {"--profile", "dev"},
+          },
+      .claude_command =
+          ProviderCommandOverride{
+              .executable = "/opt/bin/claude",
+              .args = {"--verbose"},
+          },
+  };
+  ASSERT_TRUE(store.SaveHostIdentity(expected));
+
+  const auto ensured = EnsureHostIdentity(store);
+  ASSERT_TRUE(ensured.has_value());
+  EXPECT_FALSE(ensured->host_id.empty());
+  EXPECT_EQ(ensured->display_name, expected.display_name);
+  EXPECT_EQ(ensured->certificate_pem_path, expected.certificate_pem_path);
+  EXPECT_EQ(ensured->private_key_pem_path, expected.private_key_pem_path);
+  EXPECT_EQ(ensured->admin_host, expected.admin_host);
+  EXPECT_EQ(ensured->admin_port, expected.admin_port);
+  EXPECT_EQ(ensured->remote_host, expected.remote_host);
+  EXPECT_EQ(ensured->remote_port, expected.remote_port);
+  EXPECT_EQ(ensured->codex_command, expected.codex_command);
+  EXPECT_EQ(ensured->claude_command, expected.claude_command);
+}
+
 TEST_F(FileStoresTest, PairingsRoundTripAcrossReloadAndSupportUpsertRemoval) {
   const vibe::auth::PairingRequest pending_a{
       .pairing_id = "pairing_a",

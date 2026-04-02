@@ -12,6 +12,7 @@ Current maintained baseline:
   - privileged local host controller lane
   - dedicated remote controller WebSocket for web and iOS
   - supervision state exposed as `active`, `quiet`, or `stopped`
+  - stable persisted `hostId` is the canonical host identity; `displayName` is descriptive only and may duplicate across hosts
 - web:
   - focused view is the live control surface
   - explorer mini views are preview-only
