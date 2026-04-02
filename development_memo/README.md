@@ -61,12 +61,16 @@ If a document disagrees with the running code, the code is the source of truth.
 
 - [future/session_terminal_multiplexer_and_semantic_runtime.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_and_semantic_runtime.md)
   - target-state refactor from shared PTY fanout to stdin ownership, multiplexed terminal views, replay, and semantic session state
+- [future/session_terminal_multiplexer_v1.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_v1.md)
+  - implementation-facing v1 multiplexer plan: one stdin owner, one canonical headless emulator, many observer viewports, current screen plus bounded scrollback
+- [future/session_terminal_multiplexer_wire_compatibility.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_wire_compatibility.md)
+  - additive migration rules that preserve current REST and WebSocket contracts for Sentrits-Web and Sentrits-IOS during rollout
 - [future/pty_semantic_extractor.md](Sentrits-Core/development_memo/future/pty_semantic_extractor.md)
   - draft semantic extraction layer for terminal-derived hints
 
 ## Notes
 
 - Deprecated daemon-served plain HTML browser assets now live under [deprecated/](Sentrits-Core/deprecated/README.md).
-- The maintained browser remote client is no longer in this repo. It lives in `Sentrits-Core-Client`.
-- The maintained iOS client lives in `Sentrits-CoreIOS`.
+- The maintained browser remote client is no longer in this repo. It lives in `Sentrits-Web`.
+- The maintained iOS client lives in `Sentrits-IOS`.
 - Remove or rewrite docs here when code changes invalidate them; implementation should remain the ground truth.

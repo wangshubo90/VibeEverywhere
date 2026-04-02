@@ -124,6 +124,23 @@ TEST(SessionRuntimeTest, InputAndResizeRequireInteractiveState) {
   EXPECT_EQ(pty_process.resizes, (std::vector<TerminalSize>{TerminalSize{.columns = 100, .rows = 40}}));
 }
 
+TEST(SessionRuntimeTest, ViewportUpdatesDoNotResizeUnderlyingPty) {
+  FakePtyProcess pty_process;
+  SessionRuntime runtime = MakeRuntime(pty_process);
+
+  ASSERT_TRUE(runtime.Start());
+  runtime.UpdateViewport("observer-1", TerminalSize{.columns = 50, .rows = 10});
+
+  const auto viewport = runtime.viewport_snapshot("observer-1");
+  ASSERT_TRUE(viewport.has_value());
+  EXPECT_EQ(viewport->columns, 50);
+  EXPECT_EQ(viewport->rows, 10);
+  EXPECT_TRUE(pty_process.resizes.empty());
+
+  runtime.RemoveViewport("observer-1");
+  EXPECT_FALSE(runtime.viewport_snapshot("observer-1").has_value());
+}
+
 TEST(SessionRuntimeTest, ExposesReadableFdFromPtyProcess) {
   FakePtyProcess pty_process;
   pty_process.readable_fd = 123;
@@ -181,6 +198,8 @@ TEST(SessionRuntimeTest, PollOnceAppendsOutputAndUpdatesSnapshotTail) {
   EXPECT_EQ(*latest_seq, 1);
   EXPECT_EQ(runtime.record().snapshot().current_sequence, 1U);
   EXPECT_EQ(runtime.record().snapshot().recent_terminal_tail, "chunk-one");
+  ASSERT_TRUE(runtime.record().snapshot().terminal_screen.has_value());
+  EXPECT_EQ(runtime.record().snapshot().terminal_screen->visible_lines.front(), "chunk-one");
 }
 
 TEST(SessionRuntimeTest, PollOnceDrainsAvailableOutputBeforeReturning) {
@@ -200,6 +219,8 @@ TEST(SessionRuntimeTest, PollOnceDrainsAvailableOutputBeforeReturning) {
   EXPECT_EQ(*latest_seq, 2);
   EXPECT_EQ(runtime.record().snapshot().current_sequence, 2U);
   EXPECT_EQ(runtime.record().snapshot().recent_terminal_tail, "chunk-onechunk-two");
+  ASSERT_TRUE(runtime.record().snapshot().terminal_screen.has_value());
+  EXPECT_EQ(runtime.record().snapshot().terminal_screen->visible_lines.front(), "chunk-onechunk-two");
   EXPECT_EQ(pty_process.read_count, 3);
 }
 

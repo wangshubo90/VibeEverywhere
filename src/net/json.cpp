@@ -191,6 +191,17 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   object["groupTags"] = json::value_from(snapshot.metadata.group_tags);
   object["currentSequence"] = snapshot.current_sequence;
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
+  if (snapshot.terminal_screen.has_value()) {
+    json::object terminal_screen;
+    terminal_screen["ptyCols"] = snapshot.terminal_screen->columns;
+    terminal_screen["ptyRows"] = snapshot.terminal_screen->rows;
+    terminal_screen["renderRevision"] = snapshot.terminal_screen->render_revision;
+    terminal_screen["cursorRow"] = snapshot.terminal_screen->cursor_row;
+    terminal_screen["cursorColumn"] = snapshot.terminal_screen->cursor_column;
+    terminal_screen["visibleLines"] = json::value_from(snapshot.terminal_screen->visible_lines);
+    terminal_screen["scrollbackLines"] = json::value_from(snapshot.terminal_screen->scrollback_lines);
+    object["terminalScreen"] = std::move(terminal_screen);
+  }
   object["recentFileChanges"] = json::value_from(snapshot.recent_file_changes);
   json::object signals;
   if (snapshot.signals.last_output_at_unix_ms.has_value()) {

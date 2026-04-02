@@ -116,12 +116,17 @@ class SessionManager {
   [[nodiscard]] auto ReadFile(const std::string& session_id, const std::string& workspace_path,
                               std::size_t max_bytes) const -> SessionFileReadResult;
   [[nodiscard]] auto SendInput(const std::string& session_id, const std::string& input) -> bool;
+  [[nodiscard]] auto GetViewportSnapshot(const std::string& session_id, const std::string& view_id) const
+      -> std::optional<vibe::session::TerminalViewportSnapshot>;
   [[nodiscard]] auto UpdateSessionGroupTags(const std::string& session_id,
                                             SessionGroupTagsUpdateMode mode,
                                             const std::vector<std::string>& tags)
       -> std::optional<SessionSummary>;
   [[nodiscard]] auto ResizeSession(const std::string& session_id,
                                    vibe::session::TerminalSize terminal_size) -> bool;
+  [[nodiscard]] auto UpdateViewport(const std::string& session_id, const std::string& view_id,
+                                    vibe::session::TerminalSize viewport_size) -> bool;
+  void RemoveViewport(const std::string& session_id, const std::string& view_id);
   [[nodiscard]] auto StopSession(const std::string& session_id) -> bool;
   [[nodiscard]] auto ClearInactiveSessions() -> std::size_t;
   [[nodiscard]] auto RequestControl(const std::string& session_id,

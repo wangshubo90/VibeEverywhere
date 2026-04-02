@@ -142,6 +142,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
           },
       .current_sequence = 42,
       .recent_terminal_tail = "tail",
+      .terminal_screen = std::nullopt,
       .signals =
           vibe::session::SessionSignals{
               .last_output_at_unix_ms = 100,

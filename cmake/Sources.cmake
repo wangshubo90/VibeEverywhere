@@ -22,6 +22,7 @@ set(VIBE_CORE_SOURCES
   src/session/session_output_buffer.cpp
   src/session/session_record.cpp
   src/session/session_runtime.cpp
+  src/session/terminal_multiplexer.cpp
   src/session/session_types.cpp
   src/session/session_lifecycle.cpp
 )
@@ -49,6 +50,7 @@ set(VIBE_TEST_SOURCES
   tests/session/session_record_test.cpp
   tests/session/session_runtime_test.cpp
   tests/session/session_snapshot_test.cpp
+  tests/session/terminal_multiplexer_test.cpp
   tests/session/session_types_test.cpp
   tests/session/session_lifecycle_test.cpp
 )

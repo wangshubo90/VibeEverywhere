@@ -9,7 +9,10 @@ SessionRuntime::SessionRuntime(SessionRecord record, LaunchSpec launch_spec, IPt
     : record_(std::move(record)),
       launch_spec_(std::move(launch_spec)),
       pty_process_(pty_process),
-      output_buffer_(output_buffer_capacity_bytes) {}
+      output_buffer_(output_buffer_capacity_bytes),
+      terminal_multiplexer_(launch_spec_.terminal_size) {
+  record_.SetTerminalScreen(terminal_multiplexer_.snapshot());
+}
 
 auto SessionRuntime::record() const -> const SessionRecord& { return record_; }
 
@@ -20,6 +23,11 @@ auto SessionRuntime::pid() const -> std::optional<ProcessId> { return pid_; }
 auto SessionRuntime::output_buffer() const -> const SessionOutputBuffer& { return output_buffer_; }
 
 auto SessionRuntime::readable_fd() const -> std::optional<int> { return pty_process_.ReadableFd(); }
+
+auto SessionRuntime::viewport_snapshot(const std::string_view view_id) const
+    -> std::optional<TerminalViewportSnapshot> {
+  return terminal_multiplexer_.viewport_snapshot(view_id);
+}
 
 auto SessionRuntime::Start() -> bool {
   if (!record_.TryTransition(SessionStatus::Starting)) {
@@ -51,7 +59,21 @@ auto SessionRuntime::ResizeTerminal(const TerminalSize terminal_size) -> bool {
   }
 
   launch_spec_.terminal_size = terminal_size;
-  return pty_process_.Resize(terminal_size);
+  if (!pty_process_.Resize(terminal_size)) {
+    return false;
+  }
+
+  terminal_multiplexer_.Resize(terminal_size);
+  record_.SetTerminalScreen(terminal_multiplexer_.snapshot());
+  return true;
+}
+
+void SessionRuntime::UpdateViewport(const std::string_view view_id, const TerminalSize viewport_size) {
+  terminal_multiplexer_.UpdateViewport(view_id, viewport_size);
+}
+
+void SessionRuntime::RemoveViewport(const std::string_view view_id) {
+  terminal_multiplexer_.RemoveViewport(view_id);
 }
 
 auto SessionRuntime::Terminate() -> bool {
@@ -144,8 +166,10 @@ void SessionRuntime::PollOnce(const int read_timeout_ms) {
 
     if (!read_result.data.empty()) {
       output_buffer_.Append(read_result.data);
+      terminal_multiplexer_.Append(read_result.data);
       record_.SetCurrentSequence(output_buffer_.next_sequence() - 1);
       record_.SetRecentTerminalTail(output_buffer_.Tail(64U * 1024U).data);
+      record_.SetTerminalScreen(terminal_multiplexer_.snapshot());
     }
 
     if (read_result.closed) {

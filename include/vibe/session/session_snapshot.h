@@ -8,6 +8,7 @@
 #include <string_view>
 #include <vector>
 
+#include "vibe/session/terminal_multiplexer.h"
 #include "vibe/session/session_types.h"
 
 namespace vibe::session {
@@ -121,6 +122,7 @@ struct SessionSnapshot {
   SessionMetadata metadata;
   std::uint64_t current_sequence{0};
   std::string recent_terminal_tail;
+  std::optional<TerminalScreenSnapshot> terminal_screen;
   SessionSignals signals;
   std::vector<std::string> recent_file_changes;
   GitSummary git_summary;

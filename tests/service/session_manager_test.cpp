@@ -636,6 +636,42 @@ TEST(SessionManagerTest, StopSetsShortLivedExitedAttention) {
   EXPECT_EQ(summary->attention_since_unix_ms, summary->last_status_at_unix_ms);
 }
 
+TEST(SessionManagerTest, ViewportResizeDoesNotChangeSessionPtySize) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "viewport-only",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  const auto before = manager.GetSession(created->id.value());
+  ASSERT_TRUE(before.has_value());
+  ASSERT_TRUE(before->pty_columns.has_value());
+  ASSERT_TRUE(before->pty_rows.has_value());
+
+  EXPECT_TRUE(manager.UpdateViewport(created->id.value(), "observer-1",
+                                     vibe::session::TerminalSize{.columns = 40, .rows = 12}));
+  const auto viewport = manager.GetViewportSnapshot(created->id.value(), "observer-1");
+  ASSERT_TRUE(viewport.has_value());
+  EXPECT_EQ(viewport->columns, 40);
+  EXPECT_EQ(viewport->rows, 12);
+
+  const auto after = manager.GetSession(created->id.value());
+  ASSERT_TRUE(after.has_value());
+  EXPECT_EQ(after->pty_columns, before->pty_columns);
+  EXPECT_EQ(after->pty_rows, before->pty_rows);
+
+  manager.RemoveViewport(created->id.value(), "observer-1");
+  EXPECT_FALSE(manager.GetViewportSnapshot(created->id.value(), "observer-1").has_value());
+  EXPECT_EQ(manager.Shutdown(), 1U);
+}
+
 TEST(SessionManagerTest, ReadFileReturnsContentWithinRecoveredWorkspaceRoot) {
   const auto temp_root =
       std::filesystem::temp_directory_path() /
