@@ -384,7 +384,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private defaultWorkspaceRoot(): string {
-    return '/Users/shubow/dev/VibeEverywhere';
+    return '/Users/shubow/dev/Sentrits-Core';
   }
 
   private parseCommand(commandText: string): string[] {

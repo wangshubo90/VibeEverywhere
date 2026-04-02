@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd Sentrits-Core
-exec ./build/sentrits serve
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+CORE_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+
+cd "${CORE_ROOT}"
+if [[ -x "./build/sentrits" ]]; then
+    exec ./build/sentrits serve
+fi
+
+if [[ -x "./build-mac-core/sentrits" ]]; then
+    exec ./build-mac-core/sentrits serve
+fi
+
+echo "sentrits binary not found in ./build or ./build-mac-core. Build the project first." >&2
+exit 1
