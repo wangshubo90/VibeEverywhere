@@ -57,6 +57,13 @@ If a document disagrees with the running code, the code is the source of truth.
 - [active_discovery_plan.md](Sentrits-Core/development_memo/active_discovery_plan.md)
 - [session_attention_inference_v1.md](Sentrits-Core/development_memo/session_attention_inference_v1.md)
 
+## Future Refactor Drafts
+
+- [future/session_terminal_multiplexer_and_semantic_runtime.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_and_semantic_runtime.md)
+  - target-state refactor from shared PTY fanout to stdin ownership, multiplexed terminal views, replay, and semantic session state
+- [future/pty_semantic_extractor.md](Sentrits-Core/development_memo/future/pty_semantic_extractor.md)
+  - draft semantic extraction layer for terminal-derived hints
+
 ## Notes
 
 - Deprecated daemon-served plain HTML browser assets now live under [deprecated/](Sentrits-Core/deprecated/README.md).
