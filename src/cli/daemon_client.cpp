@@ -799,6 +799,15 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
           break;
         }
         trace_logger.Log("ws.write.reclaim", static_cast<std::size_t>(bytes_read));
+
+        // Force the PTY app to repaint after a reclaimed controller resize invalidates the old layout.
+        const auto redraw_frame = BuildLocalControllerFrame('I', std::string_view("\f", 1));
+        asio::write(socket, asio::buffer(redraw_frame), error_code);
+        if (error_code) {
+          stop_requested.store(true);
+          break;
+        }
+        trace_logger.Log("ws.write.redraw_after_reclaim", 1);
       }
 
       if (!filtered.payload.empty()) {
@@ -1059,6 +1068,77 @@ auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id
     return 1;
   }
   return shared_exit_code.load();
+}
+
+auto ObserveSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> int {
+  AttachTraceLogger trace_logger;
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> ws(io_context);
+  boost::system::error_code error_code;
+
+  const auto results = resolver.resolve(endpoint.host, ToStringPort(endpoint.port), error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
+  const auto endpoint_result = asio::connect(ws.next_layer(), results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
+  ws.next_layer().set_option(tcp::no_delay(true), error_code);
+  error_code.clear();
+
+  ws.handshake(endpoint.host + ":" + ToStringPort(endpoint.port), BuildWebSocketTarget(session_id),
+               error_code);
+  if (error_code) {
+    std::cerr << "websocket handshake failed: " << error_code.message() << '\n';
+    return 1;
+  }
+  trace_logger.Log("ws.handshake.observe");
+
+  for (;;) {
+    beast::flat_buffer buffer;
+    ws.read(buffer, error_code);
+    if (error_code == websocket::error::closed) {
+      return 0;
+    }
+    if (error_code) {
+      std::cerr << "websocket read failed: " << error_code.message() << '\n';
+      return 1;
+    }
+
+    const std::string payload = beast::buffers_to_string(buffer.data());
+    const bool got_text = ws.got_text();
+    trace_logger.Log(got_text ? "ws.read.text.observe" : "ws.read.binary.observe", payload.size());
+
+    if (!got_text) {
+      trace_logger.Log("stdout.write.observe", payload.size());
+      WriteAllToStdout(payload);
+      continue;
+    }
+
+    boost::system::error_code parse_error;
+    const json::value parsed = json::parse(payload, parse_error);
+    if (parse_error || !parsed.is_object()) {
+      continue;
+    }
+
+    const auto& object = parsed.as_object();
+    const auto* type = object.if_contains("type");
+    if (type == nullptr || !type->is_string()) {
+      continue;
+    }
+
+    const std::string type_name = json::value_to<std::string>(*type);
+    if (type_name == "session.exited") {
+      return 0;
+    }
+  }
 }
 
 }  // namespace vibe::cli

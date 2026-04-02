@@ -299,6 +299,7 @@ void PrintUsage() {
             << "  sentrits session show [--host HOST] [--port PORT] [--json] <session-id>\n"
             << "  sentrits session start [--host HOST] [--port PORT] [--title TITLE] [--attach]\n"
             << "  sentrits session attach [--host HOST] [--port PORT] <session-id>\n"
+            << "  sentrits session observe [--host HOST] [--port PORT] <session-id>\n"
             << "  sentrits session stop [--host HOST] [--port PORT] [--json] <session-id>\n"
             << "  sentrits session clear [--host HOST] [--port PORT] [--json]\n"
             << "  sentrits host status [--host HOST] [--port PORT] [--json]\n"
@@ -749,6 +750,15 @@ auto main(const int argc, char** argv) -> int {
       }
       return vibe::cli::AttachSession(options->endpoint, options->positionals.front(),
                                       vibe::session::ControllerKind::Host);
+    }
+
+    if (subcommand == "observe") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value() || options->positionals.empty()) {
+        std::cerr << "session id required\n";
+        return 1;
+      }
+      return vibe::cli::ObserveSession(options->endpoint, options->positionals.front());
     }
 
     if (subcommand == "stop") {

@@ -46,6 +46,7 @@ struct ListedSession {
 [[nodiscard]] auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
 [[nodiscard]] auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
                                  vibe::session::ControllerKind controller_kind) -> int;
+[[nodiscard]] auto ObserveSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> int;
 
 }  // namespace vibe::cli
 
