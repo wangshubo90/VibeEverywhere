@@ -2,7 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WEB_ROOT="$(cd -- "${SCRIPT_DIR}/../../Sentrits-Web" && pwd)"
+DEV_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+WEB_ROOT="${DEV_ROOT}/Sentrits-Web"
 
 cd "${WEB_ROOT}"
 exec npm run dev
