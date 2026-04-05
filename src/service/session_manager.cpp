@@ -8,10 +8,12 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <utility>
 
 #include "vibe/service/git_inspector.h"
 #include "vibe/service/workspace_file_watcher.h"
+#include "vibe/base/debug_trace.h"
 #include "vibe/session/provider_config.h"
 #include "vibe/session/session_record.h"
 
@@ -420,6 +422,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
             },
         .current_sequence = persisted.current_sequence,
         .recent_terminal_tail = persisted.recent_terminal_tail,
+        .terminal_screen = std::nullopt,
         .signals =
             vibe::session::SessionSignals{
                 .last_output_at_unix_ms = std::nullopt,
@@ -745,6 +748,16 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
   return false;
 }
 
+auto SessionManager::GetViewportSnapshot(const std::string& session_id, const std::string& view_id) const
+    -> std::optional<vibe::session::TerminalViewportSnapshot> {
+  const SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr || entry->runtime == nullptr || view_id.empty()) {
+    return std::nullopt;
+  }
+
+  return entry->runtime->viewport_snapshot(view_id);
+}
+
 auto SessionManager::UpdateSessionGroupTags(const std::string& session_id,
                                             const SessionGroupTagsUpdateMode mode,
                                             const std::vector<std::string>& tags)
@@ -780,6 +793,32 @@ auto SessionManager::ResizeSession(const std::string& session_id,
   }
 
   return false;
+}
+
+auto SessionManager::UpdateViewport(const std::string& session_id, const std::string& view_id,
+                                    const vibe::session::TerminalSize viewport_size) -> bool {
+  SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr || entry->runtime == nullptr || view_id.empty()) {
+    return false;
+  }
+
+  {
+    std::ostringstream trace;
+    trace << "session=" << session_id << " viewId=" << view_id << " cols=" << viewport_size.columns
+          << " rows=" << viewport_size.rows;
+    vibe::base::DebugTrace("core.focus", "viewport.update", trace.str());
+  }
+  entry->runtime->UpdateViewport(view_id, viewport_size);
+  return true;
+}
+
+void SessionManager::RemoveViewport(const std::string& session_id, const std::string& view_id) {
+  SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr || entry->runtime == nullptr || view_id.empty()) {
+    return;
+  }
+
+  entry->runtime->RemoveViewport(view_id);
 }
 
 auto SessionManager::StopSession(const std::string& session_id) -> bool {

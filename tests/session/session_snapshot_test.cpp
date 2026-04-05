@@ -22,6 +22,17 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
           },
       .current_sequence = 42,
       .recent_terminal_tail = "Running tests...\nDone.\n",
+      .terminal_screen =
+          TerminalScreenSnapshot{
+              .columns = 120,
+              .rows = 40,
+              .render_revision = 7,
+              .cursor_row = 1,
+              .cursor_column = 5,
+              .visible_lines = {"Running tests...", "Done."},
+              .scrollback_lines = {"Booting"},
+              .bootstrap_ansi = "\x1b[2J\x1b[HRunning tests...\x1b[EDone.",
+          },
       .signals =
           SessionSignals{
               .last_output_at_unix_ms = 100,
@@ -60,6 +71,11 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.metadata.status, SessionStatus::Running);
   EXPECT_EQ(snapshot.current_sequence, 42U);
   EXPECT_EQ(snapshot.recent_terminal_tail, "Running tests...\nDone.\n");
+  ASSERT_TRUE(snapshot.terminal_screen.has_value());
+  EXPECT_EQ(snapshot.terminal_screen->render_revision, 7U);
+  EXPECT_EQ(snapshot.terminal_screen->visible_lines, (std::vector<std::string>{"Running tests...", "Done."}));
+  EXPECT_EQ(snapshot.terminal_screen->scrollback_lines, (std::vector<std::string>{"Booting"}));
+  EXPECT_EQ(snapshot.terminal_screen->bootstrap_ansi, "\x1b[2J\x1b[HRunning tests...\x1b[EDone.");
   EXPECT_EQ(snapshot.signals.last_output_at_unix_ms, std::optional<std::int64_t>{100});
   EXPECT_EQ(snapshot.signals.last_activity_at_unix_ms, std::optional<std::int64_t>{110});
   EXPECT_EQ(snapshot.signals.last_file_change_at_unix_ms, std::optional<std::int64_t>{110});
@@ -104,6 +120,7 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
           },
       .current_sequence = 0,
       .recent_terminal_tail = "",
+      .terminal_screen = std::nullopt,
       .signals = {},
       .recent_file_changes = {},
       .git_summary = {},
@@ -111,6 +128,7 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
 
   EXPECT_EQ(snapshot.current_sequence, 0U);
   EXPECT_TRUE(snapshot.recent_terminal_tail.empty());
+  EXPECT_FALSE(snapshot.terminal_screen.has_value());
   EXPECT_FALSE(snapshot.signals.last_output_at_unix_ms.has_value());
   EXPECT_FALSE(snapshot.signals.last_activity_at_unix_ms.has_value());
   EXPECT_FALSE(snapshot.signals.last_file_change_at_unix_ms.has_value());

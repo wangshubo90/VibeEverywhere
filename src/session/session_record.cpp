@@ -27,6 +27,10 @@ void SessionRecord::SetRecentTerminalTail(std::string recent_terminal_tail) {
   recent_terminal_tail_ = std::move(recent_terminal_tail);
 }
 
+void SessionRecord::SetTerminalScreen(TerminalScreenSnapshot terminal_screen) {
+  terminal_screen_ = std::move(terminal_screen);
+}
+
 void SessionRecord::SetRecentFileChanges(std::vector<std::string> recent_file_changes) {
   recent_file_changes_ = std::move(recent_file_changes);
 }
@@ -42,6 +46,7 @@ auto SessionRecord::snapshot() const -> SessionSnapshot {
       .metadata = metadata_,
       .current_sequence = current_sequence_,
       .recent_terminal_tail = recent_terminal_tail_,
+      .terminal_screen = terminal_screen_,
       .signals =
           SessionSignals{
               .last_output_at_unix_ms = std::nullopt,

@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <random>
 #include <sstream>
@@ -14,6 +15,7 @@
 #include "vibe/net/discovery.h"
 #include "vibe/net/json.h"
 #include "vibe/net/request_parsing.h"
+#include "vibe/base/debug_trace.h"
 
 namespace vibe::net {
 
@@ -22,6 +24,138 @@ namespace {
 namespace json = boost::json;
 
 auto MakeJsonResponse(const HttpRequest& request, http::status status, std::string body) -> HttpResponse;
+
+auto ParseUnsignedQueryValue(const std::string& target, const std::string_view key)
+    -> std::optional<std::uint16_t> {
+  const std::string raw_value = ParseQueryValue(target, key);
+  if (raw_value.empty()) {
+    return std::nullopt;
+  }
+
+  try {
+    const unsigned long parsed = std::stoul(raw_value);
+    if (parsed == 0 || parsed > std::numeric_limits<std::uint16_t>::max()) {
+      return std::nullopt;
+    }
+    return static_cast<std::uint16_t>(parsed);
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::SessionSnapshot& snapshot,
+                          const std::optional<vibe::session::TerminalViewportSnapshot>& viewport_snapshot)
+    -> HttpResponse {
+  std::ostringstream trace;
+  trace << "session=" << snapshot.metadata.id.value() << " seq=" << snapshot.current_sequence
+        << " screen=" << (snapshot.terminal_screen.has_value() ? "yes" : "no")
+        << " viewport=" << (viewport_snapshot.has_value() ? "yes" : "no");
+  if (snapshot.terminal_screen.has_value()) {
+    trace << " screenRev=" << snapshot.terminal_screen->render_revision
+          << " screenLines=" << snapshot.terminal_screen->visible_lines.size()
+          << " scrollback=" << snapshot.terminal_screen->scrollback_lines.size();
+  }
+  if (viewport_snapshot.has_value()) {
+    trace << " viewId=" << viewport_snapshot->view_id << " cols=" << viewport_snapshot->columns
+          << " rows=" << viewport_snapshot->rows << " viewRev=" << viewport_snapshot->render_revision;
+  }
+  vibe::base::DebugTrace("core.focus", "snapshot.response", trace.str());
+
+  json::object snapshot_json;
+  snapshot_json["sessionId"] = snapshot.metadata.id.value();
+  snapshot_json["provider"] = std::string(vibe::session::ToString(snapshot.metadata.provider));
+  snapshot_json["workspaceRoot"] = snapshot.metadata.workspace_root;
+  snapshot_json["title"] = snapshot.metadata.title;
+  snapshot_json["status"] = std::string(vibe::session::ToString(snapshot.metadata.status));
+  if (snapshot.metadata.conversation_id.has_value()) {
+    snapshot_json["conversationId"] = *snapshot.metadata.conversation_id;
+  }
+  snapshot_json["groupTags"] = json::value_from(snapshot.metadata.group_tags);
+  snapshot_json["currentSequence"] = snapshot.current_sequence;
+  snapshot_json["recentTerminalTail"] = snapshot.recent_terminal_tail;
+  if (snapshot.terminal_screen.has_value()) {
+    json::object terminal_screen;
+    terminal_screen["ptyCols"] = snapshot.terminal_screen->columns;
+    terminal_screen["ptyRows"] = snapshot.terminal_screen->rows;
+    terminal_screen["renderRevision"] = snapshot.terminal_screen->render_revision;
+    terminal_screen["cursorRow"] = snapshot.terminal_screen->cursor_row;
+    terminal_screen["cursorColumn"] = snapshot.terminal_screen->cursor_column;
+    terminal_screen["visibleLines"] = json::value_from(snapshot.terminal_screen->visible_lines);
+    terminal_screen["scrollbackLines"] = json::value_from(snapshot.terminal_screen->scrollback_lines);
+    terminal_screen["bootstrapAnsi"] = snapshot.terminal_screen->bootstrap_ansi;
+    snapshot_json["terminalScreen"] = std::move(terminal_screen);
+  }
+  snapshot_json["recentFileChanges"] = json::value_from(snapshot.recent_file_changes);
+
+  json::object git;
+  git["branch"] = snapshot.git_summary.branch;
+  git["modifiedCount"] = snapshot.git_summary.modified_count;
+  git["stagedCount"] = snapshot.git_summary.staged_count;
+  git["untrackedCount"] = snapshot.git_summary.untracked_count;
+  git["modifiedFiles"] = json::value_from(snapshot.git_summary.modified_files);
+  git["stagedFiles"] = json::value_from(snapshot.git_summary.staged_files);
+  git["untrackedFiles"] = json::value_from(snapshot.git_summary.untracked_files);
+  snapshot_json["git"] = std::move(git);
+
+  json::object signals;
+  if (snapshot.signals.last_output_at_unix_ms.has_value()) {
+    signals["lastOutputAtUnixMs"] = *snapshot.signals.last_output_at_unix_ms;
+  }
+  if (snapshot.signals.last_activity_at_unix_ms.has_value()) {
+    signals["lastActivityAtUnixMs"] = *snapshot.signals.last_activity_at_unix_ms;
+  }
+  if (snapshot.signals.last_file_change_at_unix_ms.has_value()) {
+    signals["lastFileChangeAtUnixMs"] = *snapshot.signals.last_file_change_at_unix_ms;
+  }
+  if (snapshot.signals.last_git_change_at_unix_ms.has_value()) {
+    signals["lastGitChangeAtUnixMs"] = *snapshot.signals.last_git_change_at_unix_ms;
+  }
+  if (snapshot.signals.last_controller_change_at_unix_ms.has_value()) {
+    signals["lastControllerChangeAtUnixMs"] = *snapshot.signals.last_controller_change_at_unix_ms;
+  }
+  if (snapshot.signals.attention_since_unix_ms.has_value()) {
+    signals["attentionSinceUnixMs"] = *snapshot.signals.attention_since_unix_ms;
+  }
+  if (snapshot.signals.pty_columns.has_value()) {
+    signals["ptyCols"] = *snapshot.signals.pty_columns;
+  }
+  if (snapshot.signals.pty_rows.has_value()) {
+    signals["ptyRows"] = *snapshot.signals.pty_rows;
+  }
+  signals["currentSequence"] = snapshot.signals.current_sequence;
+  signals["recentFileChangeCount"] = snapshot.signals.recent_file_change_count;
+  signals["supervisionState"] = std::string(vibe::session::ToString(snapshot.signals.supervision_state));
+  signals["attentionState"] = std::string(vibe::session::ToString(snapshot.signals.attention_state));
+  signals["attentionReason"] = std::string(vibe::session::ToString(snapshot.signals.attention_reason));
+  signals["gitDirty"] = snapshot.signals.git_dirty;
+  signals["gitBranch"] = snapshot.signals.git_branch;
+  signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
+  signals["gitStagedCount"] = snapshot.signals.git_staged_count;
+  signals["gitUntrackedCount"] = snapshot.signals.git_untracked_count;
+  snapshot_json["signals"] = std::move(signals);
+
+  if (viewport_snapshot.has_value()) {
+    json::object viewport;
+    viewport["viewId"] = viewport_snapshot->view_id;
+    viewport["cols"] = viewport_snapshot->columns;
+    viewport["rows"] = viewport_snapshot->rows;
+    viewport["renderRevision"] = viewport_snapshot->render_revision;
+    viewport["totalLineCount"] = viewport_snapshot->total_line_count;
+    viewport["viewportTopLine"] = viewport_snapshot->viewport_top_line;
+    viewport["horizontalOffset"] = viewport_snapshot->horizontal_offset;
+    if (viewport_snapshot->cursor_viewport_row.has_value()) {
+      viewport["cursorRow"] = *viewport_snapshot->cursor_viewport_row;
+    }
+    if (viewport_snapshot->cursor_viewport_column.has_value()) {
+      viewport["cursorColumn"] = *viewport_snapshot->cursor_viewport_column;
+    }
+    viewport["visibleLines"] = json::value_from(viewport_snapshot->visible_lines);
+    viewport["bootstrapAnsi"] = viewport_snapshot->bootstrap_ansi;
+    snapshot_json["terminalViewport"] = std::move(viewport);
+  }
+
+  return MakeJsonResponse(request, http::status::ok, json::serialize(snapshot_json));
+}
 
 auto ApplyConfiguredProviderOverride(vibe::service::CreateSessionRequest request,
                                      const vibe::store::HostConfigStore* host_config_store)
@@ -961,7 +1095,29 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
         return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
       }
 
-      return MakeJsonResponse(request, http::status::ok, ToJson(*snapshot));
+      std::optional<vibe::session::TerminalViewportSnapshot> viewport_snapshot;
+      const std::string view_id = ParseQueryValue(target, "viewId");
+      const auto cols = ParseUnsignedQueryValue(target, "cols");
+      const auto rows = ParseUnsignedQueryValue(target, "rows");
+      if (!view_id.empty() && cols.has_value() && rows.has_value()) {
+        {
+          std::ostringstream trace;
+          trace << "session=" << session_id << " viewId=" << view_id << " cols=" << *cols
+                << " rows=" << *rows;
+          vibe::base::DebugTrace("core.focus", "snapshot.request", trace.str());
+        }
+        const bool updated = session_manager.UpdateViewport(
+            session_id, view_id,
+            vibe::session::TerminalSize{
+                .columns = *cols,
+                .rows = *rows,
+            });
+        if (updated) {
+          viewport_snapshot = session_manager.GetViewportSnapshot(session_id, view_id);
+        }
+      }
+
+      return MakeSnapshotResponse(request, *snapshot, viewport_snapshot);
     }
 
     if (request.method() == http::verb::get && remainder.size() > file_suffix.size() &&

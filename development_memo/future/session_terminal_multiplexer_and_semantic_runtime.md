@@ -1,5 +1,13 @@
 # Session Terminal Multiplexer And Semantic Runtime
 
+Implementation note:
+
+- this document is the broader target-state direction
+- the implementation-facing starting point is now:
+  - [session_terminal_multiplexer_v1.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_v1.md)
+  - [session_terminal_multiplexer_wire_compatibility.md](Sentrits-Core/development_memo/future/session_terminal_multiplexer_wire_compatibility.md)
+- v1 intentionally keeps the current API compatible and defers semantic monitor work from the critical path
+
 ## Purpose
 
 This document defines the major runtime refactor needed to support:

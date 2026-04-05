@@ -22,6 +22,7 @@ class SessionRecord {
   [[nodiscard]] auto TryTransition(SessionStatus next_status) -> bool;
   void SetCurrentSequence(std::uint64_t current_sequence);
   void SetRecentTerminalTail(std::string recent_terminal_tail);
+  void SetTerminalScreen(TerminalScreenSnapshot terminal_screen);
   void SetRecentFileChanges(std::vector<std::string> recent_file_changes);
   void SetGitSummary(GitSummary git_summary);
   void SetGroupTags(std::vector<std::string> group_tags);
@@ -33,6 +34,7 @@ class SessionRecord {
   SessionLifecycle lifecycle_;
   std::uint64_t current_sequence_{0};
   std::string recent_terminal_tail_;
+  std::optional<TerminalScreenSnapshot> terminal_screen_;
   std::vector<std::string> recent_file_changes_;
   GitSummary git_summary_;
 };

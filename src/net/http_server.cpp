@@ -526,6 +526,15 @@ class WebSocketSession final : public WebSocketSessionBase,
           self->connected_at_unix_ms_ = CurrentUnixTimeMs();
           self->raw_output_mode_ = IsRawTerminalStreamRequested(self->target_);
           self->sequence_window_ = {};
+          if (const auto summary = self->session_manager_.GetSession(self->session_id_); summary.has_value()) {
+            const bool viewport_updated = self->session_manager_.UpdateViewport(
+                self->session_id_, self->client_id_,
+                vibe::session::TerminalSize{
+                    .columns = summary->pty_columns.value_or(120),
+                    .rows = summary->pty_rows.value_or(40),
+                });
+            static_cast<void>(viewport_updated);
+          }
           boost::system::error_code socket_error;
           beast::get_lowest_layer(self->websocket_).set_option(tcp::no_delay(true), socket_error);
           (*self->websocket_registry_)[self->session_id_].push_back(self);
@@ -794,10 +803,10 @@ class WebSocketSession final : public WebSocketSessionBase,
             }
             return session_manager_.SendInput(session_id_, value.data);
           } else if constexpr (std::is_same_v<T, WebSocketResizeCommand>) {
-            if (!session_manager_.HasControl(session_id_, client_id_)) {
-              return false;
+            if (session_manager_.HasControl(session_id_, client_id_)) {
+              return session_manager_.ResizeSession(session_id_, value.terminal_size);
             }
-            return session_manager_.ResizeSession(session_id_, value.terminal_size);
+            return session_manager_.UpdateViewport(session_id_, client_id_, value.terminal_size);
           } else if constexpr (std::is_same_v<T, WebSocketStopCommand>) {
             if (!session_manager_.HasControl(session_id_, client_id_)) {
               return false;
@@ -843,6 +852,7 @@ class WebSocketSession final : public WebSocketSessionBase,
 
     const bool released = session_manager_.ReleaseControl(session_id_, client_id_);
     static_cast<void>(released);
+    session_manager_.RemoveViewport(session_id_, client_id_);
   }
 
   websocket::stream<Stream> websocket_;

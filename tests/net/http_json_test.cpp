@@ -142,6 +142,17 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
           },
       .current_sequence = 42,
       .recent_terminal_tail = "tail",
+      .terminal_screen =
+          vibe::session::TerminalScreenSnapshot{
+              .columns = 80,
+              .rows = 24,
+              .render_revision = 7,
+              .cursor_row = 1,
+              .cursor_column = 2,
+              .visible_lines = {"visible"},
+              .scrollback_lines = {"history"},
+              .bootstrap_ansi = "\x1b[2J\x1b[Hvisible",
+          },
       .signals =
           vibe::session::SessionSignals{
               .last_output_at_unix_ms = 100,
@@ -181,6 +192,7 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   EXPECT_NE(json.find("\"lastOutputAtUnixMs\":100"), std::string::npos);
   EXPECT_NE(json.find("\"lastActivityAtUnixMs\":110"), std::string::npos);
   EXPECT_NE(json.find("\"currentSequence\":42"), std::string::npos);
+  EXPECT_NE(json.find("\"bootstrapAnsi\":\"\\u001b[2J\\u001b[Hvisible\""), std::string::npos);
   EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
