@@ -196,7 +196,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .workspace_root = ".",
       .title = "live-one",
       .conversation_id = std::nullopt,
-      .command_argv = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
       .group_tags = {},
   });
   ASSERT_TRUE(first_created.has_value());
@@ -211,7 +211,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .workspace_root = ".",
       .title = "live-two",
       .conversation_id = std::nullopt,
-      .command_argv = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
       .group_tags = {},
   });
   ASSERT_TRUE(second_created.has_value());

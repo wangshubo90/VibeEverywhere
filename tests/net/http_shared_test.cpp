@@ -1053,7 +1053,8 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
   create_request.target("/sessions");
   create_request.version(11);
   create_request.set(http::field::authorization, "Bearer good-token");
-  create_request.body() = R"({"provider":"codex","workspaceRoot":".","title":"managed"})";
+  create_request.body() =
+      R"({"provider":"codex","workspaceRoot":".","title":"managed","command":["/bin/sh","-c","sleep 30"]})";
   create_request.prepare_payload();
   EXPECT_EQ(HandleRequest(create_request, session_manager,
                           MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin))

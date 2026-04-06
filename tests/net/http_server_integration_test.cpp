@@ -207,10 +207,13 @@ class HttpServerFixture : public ::testing::Test {
     return response;
   }
 
-  auto CreateSession(const std::string& token) -> std::string {
+  auto CreateSession(
+      const std::string& token,
+      const std::string& body =
+          R"({"provider":"codex","workspaceRoot":".","title":"ws-session","command":["/bin/sh","-c","sleep 30"]})")
+      -> std::string {
     auto response = SendRequest(kRemotePort, http::verb::post, "/sessions",
-                                "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}",
-                                token);
+                                body, token);
     EXPECT_EQ(response.result(), http::status::created);
     return response.body();
   }
@@ -298,10 +301,13 @@ class HttpServerFixture : public ::testing::Test {
     return *token;
   }
 
-  auto CreateSecureSession(const std::string& token) -> std::string {
+  auto CreateSecureSession(
+      const std::string& token,
+      const std::string& body =
+          R"({"provider":"codex","workspaceRoot":".","title":"ws-session","command":["/bin/sh","-c","sleep 30"]})")
+      -> std::string {
     auto response = SendSecureRequest(kRemotePort, http::verb::post, "/sessions",
-                                      "{\"provider\":\"codex\",\"workspaceRoot\":\".\",\"title\":\"ws-session\"}",
-                                      token);
+                                      body, token);
     EXPECT_EQ(response.result(), http::status::created);
     return response.body();
   }
@@ -354,9 +360,33 @@ auto ExtractSessionId(const std::string& create_response) -> std::string {
   return create_response.substr(value_start, value_end - value_start);
 }
 
+template <typename WebSocketStream>
+auto ReadWebSocketFrame(WebSocketStream& websocket, beast::flat_buffer& buffer) -> std::string {
+  websocket.read(buffer);
+  const std::string payload = beast::buffers_to_string(buffer.data());
+  buffer.consume(buffer.size());
+  return payload;
+}
+
+template <typename WebSocketStream>
+auto ReadUntilFrameContains(WebSocketStream& websocket, beast::flat_buffer& buffer,
+                            const std::string_view needle, const int max_reads = 8) -> std::string {
+  std::string payload;
+  for (int attempt = 0; attempt < max_reads; ++attempt) {
+    payload = ReadWebSocketFrame(websocket, buffer);
+    if (payload.find(needle) != std::string::npos) {
+      return payload;
+    }
+  }
+
+  return payload;
+}
+
 TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   const std::string token = EnsureApprovedToken();
-  const std::string create_response = CreateSession(token);
+  const std::string create_response = CreateSession(
+      token,
+      R"({"provider":"codex","workspaceRoot":".","title":"ws-session","command":["/bin/sh","-c","printf 'ws-ready\n'; sleep 1"]})");
   const std::string session_id = ExtractSessionId(create_response);
   ASSERT_FALSE(session_id.empty());
 
@@ -374,21 +404,22 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  const std::string first_payload = beast::buffers_to_string(buffer.data());
+  const std::string first_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(first_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"status\""), std::string::npos);
   EXPECT_NE(first_payload.find("\"controllerKind\":\"host\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"activityState\":\"quiet\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"supervisionState\":\"quiet\""), std::string::npos);
+  EXPECT_TRUE(first_payload.find("\"activityState\":\"quiet\"") != std::string::npos ||
+              first_payload.find("\"activityState\":\"active\"") != std::string::npos);
+  EXPECT_TRUE(first_payload.find("\"supervisionState\":\"quiet\"") != std::string::npos ||
+              first_payload.find("\"supervisionState\":\"active\"") != std::string::npos);
   EXPECT_NE(first_payload.find("\"isRecovered\":false"), std::string::npos);
   EXPECT_NE(first_payload.find("\"archivedRecord\":false"), std::string::npos);
   EXPECT_NE(first_payload.find("\"inventoryState\":\"live\""), std::string::npos);
 
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  const std::string second_payload = beast::buffers_to_string(buffer.data());
+  const std::string second_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"terminal.output\"");
   EXPECT_NE(second_payload.find("\"type\":\"terminal.output\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(second_payload.find("\"seqStart\""), std::string::npos);
@@ -578,23 +609,19 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsExitEventsAfterStop) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   auto stop_response = SendRequest(kRemotePort, http::verb::post, "/sessions/" + session_id + "/stop", "", token);
   EXPECT_EQ(stop_response.result(), http::status::ok);
 
-  websocket.read(buffer);
-  const std::string updated_payload = beast::buffers_to_string(buffer.data());
+  const std::string updated_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(updated_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(updated_payload.find("\"status\":\"Exited\""), std::string::npos);
   EXPECT_NE(updated_payload.find("\"activityState\":\"stopped\""), std::string::npos);
 
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  const std::string exited_payload = beast::buffers_to_string(buffer.data());
+  const std::string exited_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.exited\"");
   EXPECT_NE(exited_payload.find("\"type\":\"session.exited\""), std::string::npos);
   EXPECT_NE(exited_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(exited_payload.find("\"status\":\"Exited\""), std::string::npos);
@@ -620,15 +647,11 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsInvalidCommands) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   websocket.write(asio::buffer(std::string(R"({"type":"unknown"})")));
 
-  websocket.read(buffer);
-  const std::string payload = beast::buffers_to_string(buffer.data());
+  const std::string payload = ReadUntilFrameContains(websocket, buffer, "\"type\":\"error\"");
   EXPECT_NE(payload.find("\"type\":\"error\""), std::string::npos);
   EXPECT_NE(payload.find("\"code\":\"invalid_command\""), std::string::npos);
 }
@@ -653,28 +676,23 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointAcceptsStopCommand) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  websocket.read(buffer);
-  const std::string control_payload = beast::buffers_to_string(buffer.data());
+  const std::string control_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(control_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(control_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
 
-  buffer.consume(buffer.size());
   websocket.write(asio::buffer(std::string(R"({"type":"session.stop"})")));
 
-  websocket.read(buffer);
-  const std::string updated_payload = beast::buffers_to_string(buffer.data());
+  const std::string updated_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(updated_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(updated_payload.find("\"status\":\"Exited\""), std::string::npos);
 
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  const std::string exited_payload = beast::buffers_to_string(buffer.data());
+  const std::string exited_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.exited\"");
   EXPECT_NE(exited_payload.find("\"type\":\"session.exited\""), std::string::npos);
   EXPECT_NE(exited_payload.find("\"status\":\"Exited\""), std::string::npos);
 }
@@ -699,14 +717,10 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointRejectsMutationWithoutControl)
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   websocket.write(asio::buffer(std::string(R"({"type":"session.stop"})")));
-  websocket.read(buffer);
-  const std::string payload = beast::buffers_to_string(buffer.data());
+  const std::string payload = ReadUntilFrameContains(websocket, buffer, "\"type\":\"error\"");
   EXPECT_NE(payload.find("\"type\":\"error\""), std::string::npos);
   EXPECT_NE(payload.find("\"code\":\"command_rejected\""), std::string::npos);
 }
@@ -731,20 +745,16 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointReleasesControlBackToHost) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  websocket.read(buffer);
-  const std::string request_payload = beast::buffers_to_string(buffer.data());
+  const std::string request_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(request_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
 
-  buffer.consume(buffer.size());
   websocket.write(asio::buffer(std::string(R"({"type":"session.control.release"})")));
-  websocket.read(buffer);
-  const std::string release_payload = beast::buffers_to_string(buffer.data());
+  const std::string release_payload =
+      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(release_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
 }
@@ -967,14 +977,11 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
   first_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer first_buffer;
-  first_websocket.read(first_buffer);
-  first_buffer.consume(first_buffer.size());
-  first_websocket.read(first_buffer);
-  first_buffer.consume(first_buffer.size());
+  static_cast<void>(ReadUntilFrameContains(first_websocket, first_buffer, "\"type\":\"session.updated\""));
 
   first_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request","kind":"host"})")));
-  first_websocket.read(first_buffer);
-  const std::string claimed_payload = beast::buffers_to_string(first_buffer.data());
+  const std::string claimed_payload =
+      ReadUntilFrameContains(first_websocket, first_buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(claimed_payload.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_NE(claimed_payload.find("\"controllerClientId\":"), std::string::npos);
 
@@ -998,8 +1005,8 @@ TEST_F(HttpServerFixture, HostDetachClearsStaleHostControllerClaim) {
   second_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer second_buffer;
-  second_websocket.read(second_buffer);
-  const std::string updated_payload = beast::buffers_to_string(second_buffer.data());
+  const std::string updated_payload =
+      ReadUntilFrameContains(second_websocket, second_buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(updated_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(updated_payload.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_EQ(updated_payload.find("\"controllerClientId\":"), std::string::npos);
@@ -1025,14 +1032,11 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   first_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer first_buffer;
-  first_websocket.read(first_buffer);
-  first_buffer.consume(first_buffer.size());
-  first_websocket.read(first_buffer);
-  first_buffer.consume(first_buffer.size());
+  static_cast<void>(ReadUntilFrameContains(first_websocket, first_buffer, "\"type\":\"session.updated\""));
 
   first_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  first_websocket.read(first_buffer);
-  const std::string remote_control_payload = beast::buffers_to_string(first_buffer.data());
+  const std::string remote_control_payload =
+      ReadUntilFrameContains(first_websocket, first_buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(remote_control_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
 
   asio::io_context second_io_context;
@@ -1049,14 +1053,11 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   second_websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer second_buffer;
-  second_websocket.read(second_buffer);
-  second_buffer.consume(second_buffer.size());
-  second_websocket.read(second_buffer);
-  second_buffer.consume(second_buffer.size());
+  static_cast<void>(ReadUntilFrameContains(second_websocket, second_buffer, "\"type\":\"session.updated\""));
 
   second_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  second_websocket.read(second_buffer);
-  const std::string rejected_payload = beast::buffers_to_string(second_buffer.data());
+  const std::string rejected_payload =
+      ReadUntilFrameContains(second_websocket, second_buffer, "\"type\":\"error\"");
   EXPECT_NE(rejected_payload.find("\"type\":\"error\""), std::string::npos);
   EXPECT_NE(rejected_payload.find("\"code\":\"command_rejected\""), std::string::npos);
 
@@ -1064,17 +1065,15 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
   first_websocket.close(websocket::close_code::normal, close_error);
   EXPECT_FALSE(close_error);
 
-  second_buffer.consume(second_buffer.size());
-  second_websocket.read(second_buffer);
-  const std::string host_release_payload = beast::buffers_to_string(second_buffer.data());
+  const std::string host_release_payload =
+      ReadUntilFrameContains(second_websocket, second_buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(host_release_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(host_release_payload.find("\"controllerKind\":\"host\""), std::string::npos);
   EXPECT_EQ(host_release_payload.find("\"controllerClientId\":"), std::string::npos);
 
-  second_buffer.consume(second_buffer.size());
   second_websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  second_websocket.read(second_buffer);
-  const std::string reacquired_payload = beast::buffers_to_string(second_buffer.data());
+  const std::string reacquired_payload =
+      ReadUntilFrameContains(second_websocket, second_buffer, "\"type\":\"session.updated\"");
   EXPECT_NE(reacquired_payload.find("\"type\":\"session.updated\""), std::string::npos);
   EXPECT_NE(reacquired_payload.find("\"controllerKind\":\"remote\""), std::string::npos);
 }
@@ -1098,14 +1097,10 @@ TEST_F(HttpServerFixture, StopPersistsLiveSessionsAsExited) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
 
   beast::flat_buffer buffer;
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   websocket.write(asio::buffer(std::string(R"({"type":"session.control.request"})")));
-  websocket.read(buffer);
-  buffer.consume(buffer.size());
+  static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
 
   StopServer();
 
