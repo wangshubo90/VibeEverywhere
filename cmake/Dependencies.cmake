@@ -1,4 +1,22 @@
-find_package(Boost 1.87 REQUIRED CONFIG COMPONENTS json)
+set(SENTRITS_MINIMUM_BOOST_VERSION 1.83)
+
+find_package(Boost ${SENTRITS_MINIMUM_BOOST_VERSION} QUIET CONFIG COMPONENTS json)
+if(NOT Boost_FOUND)
+  find_package(Boost ${SENTRITS_MINIMUM_BOOST_VERSION} REQUIRED COMPONENTS json)
+endif()
+
+if(NOT TARGET Boost::headers)
+  if(TARGET Boost::boost)
+    add_library(Boost::headers INTERFACE IMPORTED)
+    target_link_libraries(Boost::headers INTERFACE Boost::boost)
+  elseif(Boost_INCLUDE_DIRS)
+    add_library(Boost::headers INTERFACE IMPORTED)
+    target_include_directories(Boost::headers INTERFACE ${Boost_INCLUDE_DIRS})
+  else()
+    message(FATAL_ERROR "Boost headers target is unavailable")
+  endif()
+endif()
+
 find_package(OpenSSL REQUIRED)
 
 include(FetchContent)

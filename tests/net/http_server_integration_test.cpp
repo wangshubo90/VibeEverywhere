@@ -516,7 +516,7 @@ TEST_F(HttpServerFixture, RemoteControllerEndpointAcceptsBinaryInputAndStreamsBi
   const std::string token = EnsureApprovedToken();
   auto create_response =
       SendRequest(kRemotePort, http::verb::post, "/sessions",
-                  R"({"provider":"codex","workspaceRoot":".","title":"ws-controller","command":["/usr/bin/perl","-e","$|=1; system(q(stty -echo -icanon min 1 time 0)); while (sysread(STDIN, $c, 1)) { syswrite(STDOUT, $c); }"]})",
+                  R"({"provider":"codex","workspaceRoot":".","title":"ws-controller","command":["/usr/bin/perl","-e","$|=1; system(q(stty -echo -icanon min 1 time 0)); print qq(raw-ready\n); while (sysread(STDIN, $c, 1)) { syswrite(STDOUT, $c); }"]})",
                   token);
   EXPECT_EQ(create_response.result(), http::status::created);
   const std::string session_id = ExtractSessionId(create_response.body());
@@ -541,6 +541,12 @@ TEST_F(HttpServerFixture, RemoteControllerEndpointAcceptsBinaryInputAndStreamsBi
   const std::string ready_payload = beast::buffers_to_string(buffer.data());
   EXPECT_TRUE(websocket.got_text());
   EXPECT_NE(ready_payload.find("\"type\":\"controller.ready\""), std::string::npos);
+  buffer.consume(buffer.size());
+
+  websocket.read(buffer);
+  const std::string startup_payload = beast::buffers_to_string(buffer.data());
+  EXPECT_FALSE(websocket.got_text());
+  EXPECT_NE(startup_payload.find("raw-ready"), std::string::npos);
   buffer.consume(buffer.size());
 
   websocket.text(false);
