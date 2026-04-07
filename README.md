@@ -100,10 +100,6 @@ Sentrits currently provides:
   - activity/quiet state, session updates, and attention-oriented signals
   - useful for watch/intervene workflows where raw terminal bytes alone are not enough
 
-- **across-device agent session network**
-  - the architecture already supports a network of real running agent sessions across devices and hosts
-  - current work is focused on making that network more legible through stronger session-node, supervision, and semantic representation
-
 ---
 
 ## Architecture At A Glance
