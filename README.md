@@ -12,10 +12,21 @@ It keeps real Codex, Claude Code, Aider, Gemini CLI, and similar terminal workfl
 
 - attach and detach without losing the running session
 - observe the same session from multiple devices
-- hand control between desktop, web, and mobile clients
+- hand control between desktop, [Sentrits-Web](https://github.com/shubow-sentrits/Sentrits-Web), and [Sentrits-IOS](https://github.com/shubow-sentrits/Sentrits-IOS) clients
 - reconnect with useful terminal state instead of waiting for luck or repaint timing
 
 Sentrits is built for **supervision and intervention**, not for turning your phone into a full IDE.
+
+---
+
+## Contents
+
+- [Why Sentrits Exists](#why-sentrits-exists)
+- [What Sentrits Does Today](#what-sentrits-does-today)
+- [What Makes Sentrits Different](#what-makes-sentrits-different)
+- [Architecture At A Glance](#architecture-at-a-glance)
+- [Current Scope](#current-scope)
+- [Start Here](#start-here)
 
 ---
 
@@ -39,41 +50,7 @@ Today, most tools solve only part of that problem:
 
 In short:
 
-> SSH preserves access.  
-> Claude/Cursor-style remote experiences preserve context.  
-> **Sentrits preserves the running session itself.**
-
----
-
-## What Sentrits Does Today
-
-Sentrits currently provides:
-
-- **persistent PTY-backed sessions**
-  - start once, reattach later, keep the live process running
-
-- **multi-observer, single-controller runtime**
-  - many clients may watch a session
-  - exactly one principal owns terminal input at a time
-
-- **cross-device control handoff**
-  - switch active control between host, web, and iOS without restarting the workflow
-
-- **pairing and host identity**
-  - discover and trust hosts, then reconnect to known sessions
-
-- **session snapshot and bootstrap state**
-  - reconnect with useful state instead of relying entirely on fresh repaint behavior from the app inside the PTY
-
-- **CLI-agnostic compatibility**
-  - works with real terminal-based tools rather than one provider’s private execution model
-
-- **coarse runtime supervision**
-  - activity/quiet state, session updates, and attention-oriented signals
-
-- **across-device agent session network**
-  - the architecture already supports a network of real running agent sessions across devices and hosts
-  - current work is focused on making that network more legible through stronger session-node, supervision, and semantic representation
+* **Sentrits preserves the running session itself.**
 
 ---
 
@@ -92,46 +69,40 @@ It is a **session system** for long-lived CLI execution.
 
 ---
 
-## Typical Use Cases
+## What Sentrits Does Today
 
-### Continue a coding session from your phone
-- Start a Codex or Claude Code session on your laptop
-- Leave your desk
-- Open the same session on iPhone
-- Observe progress
-- Send a short command
-- Take control when needed
+Sentrits currently provides:
 
-### Watch long-running work without staying attached
-- Start a test/build/fix loop
-- Detach
-- Reattach later from web or mobile
-- Keep the same live process and recent terminal state
+- **persistent PTY-backed sessions**
+  - start once, reattach later, keep the live process running
+  - useful for long-running build/test/fix loops that you do not want to restart just because you changed devices
 
-### Observe first, intervene only when needed
-- Use mobile as a supervision device
-- Avoid heavy editing on small screens
-- Step in only for short commands, approvals, or recovery
+- **multi-observer, single-controller runtime**
+  - many clients may watch a session
+  - exactly one principal owns terminal input at a time
+  - useful when you want to observe first and intervene only when needed
 
-### Manage multiple active sessions
-- inspect session inventory
-- reconnect to focused sessions
-- observe without disturbing the active controller
+- **cross-device control handoff**
+  - switch active control between host, web, and iOS without restarting the workflow
+  - useful for continuing a session from phone, web, or another desktop without resetting the live process
 
----
+- **pairing and host identity**
+  - discover and trust hosts, then reconnect to known sessions
 
-## Product Shape
+- **session snapshot and bootstrap state**
+  - reconnect with useful state instead of relying entirely on fresh repaint behavior from the app inside the PTY
+  - useful when a session is already active and you need a meaningful first frame instead of an empty or half-repainted terminal
 
-Sentrits is centered on:
+- **CLI-agnostic compatibility**
+  - works with real terminal-based tools rather than one provider’s private execution model
 
-- one daemon-managed PTY-backed runtime per session
-- host-local CLI management and low-latency local attach/control
-- remote observe and remote control through REST and WebSocket APIs
-- session supervision data that remains useful even when no client is actively attached
+- **coarse runtime supervision**
+  - activity/quiet state, session updates, and attention-oriented signals
+  - useful for watch/intervene workflows where raw terminal bytes alone are not enough
 
-Clients do not connect to machines as their primary abstraction.
-
-They connect to **sessions** exposed by a host runtime.
+- **across-device agent session network**
+  - the architecture already supports a network of real running agent sessions across devices and hosts
+  - current work is focused on making that network more legible through stronger session-node, supervision, and semantic representation
 
 ---
 
@@ -176,41 +147,6 @@ More detail:
 
 ---
 
-## Observe / Control Model
-
-Sentrits uses one real PTY per live session.
-
-The key rules are:
-
-- many observers may attach
-- one active controller owns terminal input
-- the active controller owns PTY resize
-- host-local attach is a privileged low-latency control path
-- remote active control uses a dedicated controller WebSocket
-- canonical snapshot/bootstrap data helps clients reconnect cleanly
-
-This preserves PTY correctness while still allowing:
-
-- remote supervision
-- focused intervention
-- cross-device continuity
-- truthful session inventory
-
----
-
-## Maintained Repos
-
-Core runtime:
-
-- `Sentrits-Core` — this repository
-
-Maintained clients:
-
-- Web: `https://github.com/shubow-sentrits/Sentrits-Web`
-- iOS: `https://github.com/shubow-sentrits/Sentrits-IOS`
-
----
-
 ## Current Scope
 
 Sentrits is currently focused on:
@@ -220,6 +156,10 @@ Sentrits is currently focused on:
 - pairing, identity, and inventory
 - mobile-first supervision rather than heavy editing
 - packaging the daemon/runtime as the product core
+- local-network workflows built around LAN reachability and UDP discovery
+- maintained clients:
+  - Web: `https://github.com/shubow-sentrits/Sentrits-Web`
+  - iOS: `https://github.com/shubow-sentrits/Sentrits-IOS`
 
 Sentrits is **not** currently trying to solve:
 
@@ -227,25 +167,6 @@ Sentrits is **not** currently trying to solve:
 - full IDE-style editing on mobile
 - perfect semantic understanding of every terminal workflow
 - complete multi-user account systems
-
----
-
-## Platform Direction
-
-Current packaging direction is daemon-first.
-
-Target packaging shape:
-
-- daemon/runtime as the product core
-- CLI as the operator-facing management surface
-- static web assets built separately and served by the runtime
-- macOS
-- Linux (Debian first)
-- WSL/Ubuntu
-
-See:
-
-- `development_memo/packaging_architecture.md`
 
 ---
 
@@ -258,25 +179,3 @@ See:
 - `development_memo/api_and_event_schema.md`
 - `development_memo/mvp_checklist.md`
 - `development_memo/known_limitations.md`
-
----
-
-## Longer-Term Direction
-
-Near-term, Sentrits is a daemon-managed PTY runtime with pairing, inventory, observe/control, and cross-client continuity.
-
-Longer-term, the system is moving toward:
-
-- richer session-node information
-- stronger supervision and attention models
-- better notifications and watch workflows
-- semantic extraction beyond raw terminal activity
-- eventually, more agent-oriented session orchestration built on persistent CLI execution
-
-Relevant directional docs:
-
-- `development_memo/future/session_terminal_multiplexer_and_semantic_runtime.md`
-- `development_memo/future/session_signal_map.md`
-- `development_memo/future/pty_semantic_extractor.md`
-
-These future docs are directional and should not be read as claims about the full current implementation.
