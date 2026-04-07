@@ -342,6 +342,7 @@ PTY/process truth
 
 Relevant future design docs:
 
+- `future/agent_session_network_development_plan.md`
 - `future/session_terminal_multiplexer_and_semantic_runtime.md`
 - `future/session_signal_map.md`
 - `future/pty_semantic_extractor.md`
