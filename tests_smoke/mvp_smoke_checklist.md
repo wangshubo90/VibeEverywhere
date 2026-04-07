@@ -1,15 +1,6 @@
 # MVP Smoke Checklist
 
-This checklist covers the current runtime milestone:
-
-- daemon start
-- host admin
-- pairing
-- remote attach
-- terminal control
-- UDP discovery info
-
-It does not assume multi-host grouping is complete yet.
+This smoke checklist validates the current runtime-centered MVP surface.
 
 ## 1. Runtime Boot
 
@@ -24,7 +15,29 @@ Confirm:
 - `http://127.0.0.1:18085/health` returns `ok`
 - `http://127.0.0.1:18086/health` returns `ok`
 
-## 2. Host Admin
+## 2. Host Identity And Discovery
+
+Check host info:
+
+```bash
+curl http://127.0.0.1:18086/host/info
+curl http://127.0.0.1:18086/discovery/info
+```
+
+Confirm the responses include:
+
+- `hostId`
+- `displayName`
+- `remoteHost`
+- `remotePort`
+
+Optional UDP spot-check:
+
+```bash
+nc -luk 18087
+```
+
+## 3. Host Admin
 
 Open:
 
@@ -33,43 +46,17 @@ Open:
 Smoke:
 
 1. refresh host state
-2. edit and save host config
-3. create a session
-4. stop a session
-5. clear ended or archived sessions
-6. review pending pairings
-
-## 3. Discovery
-
-From another machine or terminal:
-
-```bash
-curl http://HOST_IP:18086/discovery/info
-```
-
-Confirm the response includes:
-
-- `hostId`
-- `displayName`
-- `remoteHost`
-- `remotePort`
-- `protocolVersion`
-- `tls`
-
-Optional UDP spot-check if you have a listener tool:
-
-```bash
-nc -luk 18087
-```
-
-Confirm periodic discovery payloads arrive while `sentrits` is running.
+2. create a session
+3. stop a session
+4. clear inactive sessions
+5. review pending pairings
 
 ## 4. Pairing
 
-Use either:
+Use a maintained client:
 
-- the daemon-served smoke client at `http://HOST_IP:18086/`
-- the separate remote client repo at `http://HOST_IP_OR_LOCALHOST:3000/`
+- Web: https://github.com/shubow-sentrits/Sentrits-Web
+- iOS: https://github.com/shubow-sentrits/Sentrits-IOS
 
 Smoke:
 
@@ -78,44 +65,33 @@ Smoke:
 3. confirm token claim succeeds
 4. confirm the client can list sessions
 
-## 5. Session Attach
+## 5. Observe / Control
 
 Smoke:
 
 1. create a session
-2. open a session view or tab
-3. attach websocket
-4. confirm terminal output appears
-5. request control
-6. confirm typing reaches the PTY
-7. confirm terminal resize updates the PTY correctly
-8. release control
-9. stop the session
+2. attach as observer
+3. confirm terminal output appears
+4. request control
+5. confirm typing reaches the PTY
+6. confirm resize updates the PTY
+7. release or reclaim control
+8. stop the session
 
-## 6. Snapshot And File Read
-
-Smoke:
-
-1. select a live session
-2. confirm snapshot metadata loads
-3. confirm recent file list loads when available
-4. open a recent file
-5. confirm file content displays correctly
-
-## 7. Session Inventory
+## 6. Snapshot And Inventory Truth
 
 Smoke:
 
-1. confirm session list updates after create and stop
-2. confirm controller changes appear in inventory
-3. confirm attention and lifecycle values look truthful
-4. confirm ended sessions remain inspectable until cleared
+1. fetch `/sessions`
+2. fetch `/sessions/{sessionId}/snapshot`
+3. confirm controller state appears in inventory
+4. confirm snapshot includes terminal seed data
+5. confirm ended sessions remain inspectable until cleared
 
-## 8. Current Known Boundary
+## 7. Current Known Boundary
 
 Not yet considered complete in this smoke pass:
 
-- multi-host client discovery UI
-- session grouping by tags
-- tag mutation from client
-- notification or watch workflows
+- internet relay / non-LAN connectivity
+- multi-user account systems
+- full semantic-monitoring layer

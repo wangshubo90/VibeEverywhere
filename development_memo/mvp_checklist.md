@@ -1,130 +1,136 @@
 # MVP Checklist
 
-This checklist defines the minimum end-to-end user flows that should work before calling the host daemon implementation an MVP.
+This checklist is the current runtime-centered MVP view for Sentrits.
 
-The product should now be interpreted as a supervision-oriented session runtime. Terminal attach remains important, but the MVP should increasingly validate observe/intervene/watch workflows rather than terminal transport alone.
+It separates:
 
-## Core User Flows
+- the working product baseline
+- the next-release MVP priorities
+- explicit non-goals
 
-### 1. Start Local Session
+## Current Working Baseline
 
-Acceptance:
+The current codebase already supports these baseline flows.
 
-- daemon starts successfully
-- a local terminal can create a daemon-managed session
-- the local terminal attaches as the initial host controller
-- provider output is visible and interactive locally
-
-### 2. Discover Sessions Remotely
+### 1. Daemon Boot And Host Identity
 
 Acceptance:
 
-- a remote client can fetch the active session list
-- session metadata includes id, title, provider, status, and controller state
-- a remote client can choose a session and attach without restarting the daemon
+- the daemon starts and serves both host-local and remote listeners
+- the host exposes stable `hostId` and editable `displayName`
+- host info and discovery info are reachable from clients
 
-### 3. Observe Live Terminal Output
-
-Acceptance:
-
-- a remote client receives attach-time replay of recent terminal output
-- a remote client continues receiving incremental terminal output
-- terminal transport is binary-safe and does not fail on non-UTF-8 PTY bytes
-
-### 4. Remote Control Handoff
+### 2. Session Lifecycle
 
 Acceptance:
 
-- a remote client can request control
-- the host becomes a follower view while remote control is active
-- remote input and resize drive the session PTY
-- the host does not spuriously steal control back
+- the daemon can create, list, inspect, stop, and clear sessions
+- session inventory remains truthful across create/stop/recovery flows
+- ended sessions remain visible until cleared
 
-### 5. Return Control to Host
-
-Acceptance:
-
-- a remote client can release control
-- the host reclaims active control without restarting the session
-- host input works again after reclaim
-- resizing back to the host terminal restores a coherent local layout
-
-### 6. Clean Session Termination
+### 3. Host-Local CLI Observe / Control
 
 Acceptance:
 
-- provider self-exit transitions the session to `Exited` or `Error`
-- explicit stop via API/client terminates the session cleanly
-- attached clients receive session lifecycle updates and exit notification
+- `session start --attach` works as the local host control path
+- `session attach` and `session observe` work through the daemon
+- host-local attach remains low-latency and controller-aware
 
-### 7. Runtime Observability
-
-Acceptance:
-
-- a session exposes basic runtime signals beyond raw terminal transport
-- clients can see recent activity state clearly enough to distinguish active, waiting, idle, and ended sessions
-- session summaries remain usable even when no terminal is currently attached
-
-### 8. Truthful Session Inventory
+### 4. Remote Pairing And Authorization
 
 Acceptance:
 
-- session list and overview subscription stay accurate without manual refresh
-- attached-client counts and controller state are operationally trustworthy
-- `lastActivity` and `lastStateChange` reflect meaningful changes rather than internal polling noise
-- ended or archived records can be cleared without losing active supervision state
+- a remote client can request pairing
+- pairing can be approved from the host-local admin surface
+- approved clients receive bearer-token access
+- unauthorized clients cannot observe or control sessions
 
-### 9. Minimum Supervision Signals
-
-Acceptance:
-
-- the architecture exposes a place for future `SessionPhase`
-- clients receive at least coarse attention-oriented state without parsing raw PTY output themselves
-- attention is modeled separately from lifecycle status
-- `awaiting_input` is surfaced as a first-class attention condition
-- waiting-for-input and ended-session conditions are easy to surface in clients
-
-### 10. File and Git Inspection
+### 5. Remote Observer Flow
 
 Acceptance:
 
-- recent file changes are backed by real file-watcher data
-- session summaries can surface coarse file/git hints
-- clients can inspect changed files and git state in read-only mode
-- file inspection remains safely scoped to the session workspace root
+- a paired client can list sessions
+- a paired client can fetch a session snapshot
+- observer WebSocket attach provides session updates and terminal output
+- remote inventory can remain useful without local terminal access
 
-### 11. Lightweight Recovery
-
-Acceptance:
-
-- after daemon restart, session metadata records are available again
-- recent terminal tail for persisted records is still accessible
-- the system does not pretend that pre-restart live PTY processes survived
-
-### 12. Minimum Access Control
+### 6. Remote Controller Flow
 
 Acceptance:
 
-- a minimal pairing/auth mechanism exists for remote access
-- a local host web UI can approve pairing requests
-- a paired client can reconnect with its issued token
-- unpaired or unauthorized clients cannot control sessions
-- controller actions remain single-owner at a time
+- a paired client can request control
+- only one controller is active at a time
+- remote controller WebSocket drives input and resize
+- release and reclaim behavior is surfaced in session state
 
-## Explicit Non-Goals for MVP
+### 7. Canonical Snapshot / Bootstrap Data
 
-- full IDE-like file editing
-- arbitrary attach to unrelated local terminals
-- polished native mobile clients
-- advanced multi-controller arbitration beyond one controller plus observers
-- rich git authoring or file editing workflows
-- deep provider-specific `SessionPhase` tuning
-- full timeline/history analytics
+Acceptance:
 
-## Recommended Next Build Order
+- snapshots expose terminal bootstrap data suitable for client seeding
+- snapshot fields include current terminal state, not only raw tail text
+- client continuity no longer depends entirely on fresh PTY repaint
 
-1. implement real file watching and expose truthful recent-file session state
-2. tighten session inventory truthfulness and overview subscriptions
-3. add conservative attention/watch signals on top of `SessionSignals`
-4. expose read-only file/git inspection cleanly in host and remote web clients
-5. keep the web clients thin until runtime/event shape stabilizes
+### 8. Supervision Signals
+
+Acceptance:
+
+- session summaries expose controller, lifecycle, timestamps, and coarse attention signals
+- supervision state remains distinct from raw transport bytes
+- inventory views can surface meaningful session status even when the terminal is not focused
+
+## Next-Release MVP Priorities
+
+These are the next practical priorities rather than speculative redesign work.
+
+### 1. Packaging Pipeline
+
+Acceptance:
+
+- `Sentrits-Core` owns the release pipeline
+- runtime build and tests run first
+- packaged static web assets are staged from `https://github.com/shubow-sentrits/Sentrits-Web`
+- macOS and Debian packaging paths are documented and exercised
+
+### 2. Cleaner Runtime Docs And Operator Onboarding
+
+Acceptance:
+
+- landing page, quickstart, architecture, and packaging docs match the code
+- stale client shadow docs are removed from `Sentrits-Core`
+- `get_started.md` remains a clean build/test/CLI document
+
+### 3. Stronger Session Inventory Truth
+
+Acceptance:
+
+- controller, attention, and session state remain operationally trustworthy
+- host and remote inventory remain consistent under attach/reclaim/release flows
+- recovery after daemon restart is explicit and non-misleading
+
+### 4. Better Supervision Layer
+
+Acceptance:
+
+- file, git, and controller-change signals remain consistent enough for clients
+- attention modeling continues to improve without forcing clients to parse raw PTY bytes
+- session summaries remain useful for watch/intervene workflows
+
+## Explicit Non-Goals For This MVP
+
+- multi-user account systems
+- internet relay or brokered remote transport
+- perfect semantic understanding of every CLI/TUI workflow
+- IDE-style editing in clients
+- full native desktop-shell packaging as the primary product shape
+- replacing the daemon/CLI model with a GUI-app-first architecture
+
+## Notes
+
+Future semantic-monitoring and session-node work is important, but it should be treated as the next design horizon, not as a claim that the current MVP already provides full semantic understanding.
+
+See:
+
+- `system_architecture.md`
+- `future/session_terminal_multiplexer_and_semantic_runtime.md`
+- `future/session_signal_map.md`

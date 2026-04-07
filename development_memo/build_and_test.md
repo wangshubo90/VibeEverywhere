@@ -69,12 +69,11 @@ ctest --test-dir build --output-on-failure -R session
 
 ## Frontend Workspace
 
-The maintained in-repo host-admin frontend lives under `frontend/` as an Angular workspace.
+The in-repo frontend workspace is the host-admin surface under `frontend/`.
 
 Recommended baseline:
 
 - use an LTS Node release for day-to-day frontend work
-- odd-numbered Node releases may build locally but are not the preferred baseline
 
 Run from `frontend/`:
 
@@ -82,21 +81,19 @@ Run from `frontend/`:
 npm install
 npm run build:libs
 npm run build:host-admin
-npm run build:remote-client
 ```
 
 For local development:
 
 ```bash
 npm run start:host-admin
-npm run start:remote-client
 ```
 
 Notes:
 
-- the maintained browser remote client product now lives in `Sentrits-Web`
+- the maintained browser remote client lives in https://github.com/shubow-sentrits/Sentrits-Web
 - the daemon-served plain HTML browser assets are deprecated and now live under `deprecated/web/`
-- keep `frontend/` documentation and commands aligned with what still builds in this repo
+- keep `frontend/` documentation aligned with the host-admin role that still exists in this repo
 
 ## TDD Workflow
 
@@ -125,7 +122,7 @@ Before a change is considered ready:
 - platform-facing assumptions remain explicit enough to review
 - all relevant automated tests pass
 - full `ctest` run passes locally
-- any design-impacting change updates the corresponding markdown under [development_memo](Sentrits-Core/development_memo/README.md)
+- any design-impacting change updates the corresponding markdown under [development_memo/README.md](README.md)
 
 Platform guardrails for this repo:
 

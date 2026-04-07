@@ -1,364 +1,233 @@
-# Refined Architecture
+# Runtime Architecture
 
-This document refines the initiative-level architecture into implementation-oriented boundaries.
+This document focuses on the current runtime-side architecture inside `Sentrits-Core`.
 
-## System Boundary
+For the full runtime + client picture, start with:
 
-The system is organized around sessions, not machines.
+- `system_architecture.md`
 
-A session is defined by:
+## Current Runtime Boundary
 
-- session id
-- workspace root
-- provider type
-- runtime status
-- lightweight persisted metadata
+The runtime is organized around sessions.
 
-The host is the owner of session execution and observation. Clients are subscribers, watchers, and optional controllers.
+A session currently owns:
 
-There is one PTY per session. The PTY belongs to the session runtime, not to any specific UI surface.
+- one provider process
+- one PTY
+- session metadata
+- controller state
+- bounded recent output state
+- canonical terminal snapshot state
+- coarse supervision and attention signals
 
-The host-side terminal still participates in daemon-managed session control, but it no longer uses the same delivery lane as observers.
+The runtime is the source of truth for session execution, session inventory, and session control ownership.
 
-The runtime now has two distinct transport shapes:
+## Main Runtime Components
 
-- a privileged local controller lane for host `session start --attach` and `session attach`
-- an observer-oriented HTTP and WebSocket lane for browsers, mobile clients, and passive host views
-
-The terminal path is important, but it is not the whole product. The daemon is a supervision-oriented session runtime and control plane, not merely a PTY forwarder.
-
-## Primary Runtime Components
-
-### API Layer
+### `HttpServer`
 
 Responsibilities:
 
-- expose REST routes
-- authenticate requests
-- expose a local host web app for approval and configuration
-- manage WebSocket session subscriptions
-- translate between wire schema and internal service calls
+- serve host-local and remote listeners
+- terminate REST routes
+- terminate observer and controller WebSockets
+- integrate pairing/auth checks
+- deliver session inventory snapshots and per-session updates
 
-### SessionManager
+Primary implementation:
 
-Responsibilities:
+- `src/net/http_server.cpp`
+- `src/net/http_shared.cpp`
+- `src/net/websocket_shared.cpp`
 
-- create, load, list, stop, and inspect sessions
-- own session registry
-- arbitrate controller assignment
-- coordinate SessionRuntime, SnapshotStore, FileWatcher, GitInspector, and future ProcessInspector / ResourceMonitor components
-- manage return-of-control behavior when the active controller yields or disconnects
-- aggregate low-level runtime signals into session-observable state
-- keep session inventory fields truthful enough for host and remote supervision views
-
-### SessionInference
+### `SessionManager`
 
 Responsibilities:
 
-- consume PTY, filesystem, process, and resource signals
-- infer higher-level supervisory state
-- derive attention state separately from process lifecycle
-- expose `attentionState`, `attentionReason`, and later `attentionSince`
-- expose a coarse `SessionPhase` only as a future seam
-- remain provider-agnostic by default
-- avoid treating raw terminal activity alone as the whole product signal
+- own the in-memory session registry
+- create and recover session runtimes
+- list sessions and produce summaries
+- arbitrate controller ownership
+- produce full session snapshots
+- track timestamps and supervision/attention state
 
-`SessionPhase` should be supported by the architecture now, but not overfit too early. The first implementation should keep the phase model coarse and tunable because some detection logic may vary by provider and prompt style.
+Primary implementation:
 
-Attention should be the first production supervisory layer before deep phase inference. It should be conservative, time-aware, and based primarily on structured signals such as lifecycle, output/activity timestamps, file changes, git transitions, and controller changes.
+- `src/service/session_manager.cpp`
+- `include/vibe/service/session_manager.h`
 
-### SessionRuntime
-
-Responsibilities:
-
-- manage a single provider process through PTY
-- capture raw output
-- append to SessionOutputBuffer
-- accept terminal input and resize requests
-- report lifecycle changes
-- maintain the currently active PTY size
-
-### SessionOutputBuffer
+### `SessionRuntime`
 
 Responsibilities:
 
-- store bounded recent terminal bytes
-- assign monotonic sequence numbers
-- assemble replayable tail views
-- expose efficient reads for live delivery and catch-up
+- own the PTY-backed provider process
+- poll PTY output
+- accept controller input and resize
+- maintain the current session record and output state
 
-### ClientDispatcher
+Primary implementation:
 
-Responsibilities:
+- `src/session/session_runtime.cpp`
+- `include/vibe/session/session_runtime.h`
 
-- track per-client delivery state
-- batch output frames
-- enforce slow-client degradation rules
-- isolate client backpressure from PTY reading
-- broadcast controller changes to observers
-- support both per-session streams and host-wide inventory subscriptions
-
-### LocalControllerStream
+### Terminal Multiplexer
 
 Responsibilities:
 
-- provide the active host controller with a low-latency full-duplex PTY bridge
-- forward raw terminal input and resize requests without observer-oriented framing
-- forward live PTY bytes back to the active host controller immediately
-- claim and release controller ownership for the local host attach path
-- stay isolated from observer replay, batching, and degradation rules
+- maintain canonical terminal state derived from PTY output
+- keep bounded history and visible lines
+- generate current screen and viewport snapshots
+- generate `bootstrapAnsi` for clients
 
-### SnapshotStore
+Primary implementation:
 
-Responsibilities:
+- `src/session/terminal_multiplexer.cpp`
 
-- persist lightweight session metadata
-- persist recent terminal tail when needed
-- restore session registry after host restart
-
-### FileWatcher
+### Persistence
 
 Responsibilities:
 
-- observe workspace file changes
-- aggregate noisy change bursts
-- produce normalized file-change events
-- maintain a recent changed-file set suitable for session summaries and snapshots
-- feed both supervision signals and read-only client inspection surfaces
+- persist host config and stable `hostId`
+- persist pairing state
+- persist lightweight session state for recovery
 
-### ProcessInspector
+Primary implementation:
 
-Responsibilities:
+- `src/store/file_stores.cpp`
+- `src/store/host_config_store.cpp`
 
-- observe child-process tree shape
-- summarize spawned commands
-- provide signals for long-running task detection
-
-### ResourceMonitor
+### Auth And Pairing
 
 Responsibilities:
 
-- sample CPU and memory usage
-- provide optional resource-alert signals
+- pairing request / approval / claim
+- approved device/token persistence
+- authorization for observe/control/admin actions
 
-### GitInspector
+Primary implementation:
 
-Responsibilities:
+- `src/auth/default_pairing_service.cpp`
+- `src/auth/default_authorizer.cpp`
+- `src/net/local_auth.cpp`
 
-- sample repository status periodically or on demand
-- emit summarized git state
-- provide stable dirty/clean and file-count semantics for session inventory views
-
-### AuthManager
-
-Responsibilities:
-
-- device pairing
-- token validation
-- authorization policy checks
-- host-local approval of pairing requests
-- host identity and certificate management
-
-### HostConfigStore
-
-Responsibilities:
-
-- persist host identity
-- generate and persist a stable per-host `hostId` on first runtime boot
-- treat `displayName` as user-facing metadata, not as a deduplication key
-- persist TLS certificate/key references or generated material
-- persist daemon-local configuration needed by the host web UI
-
-## Recommended Internal Flow
+## Current Data Flow
 
 ```text
-Client
-  -> API Layer
-  -> SessionManager
-  -> SessionRuntime / SessionInference / SnapshotStore / AuthManager
-
-Provider Process
+provider process
   -> PTY
   -> SessionRuntime
-  -> SessionOutputBuffer
-  -> SessionInference
-  -> ClientDispatcher
-  -> WebSocket subscribers
+  -> TerminalMultiplexer
+  -> SessionManager
+  -> REST snapshots / WS events
 
-Workspace
-  -> FileWatcher / GitInspector
-  -> SessionInference / SessionManager
-  -> API Layer / WebSocket subscribers
+workspace file changes
+  -> WorkspaceFileWatcher
+  -> SessionManager
+  -> session summaries / snapshots
 
-Process Tree / Resource Signals
-  -> ProcessInspector / ResourceMonitor
-  -> SessionInference
-  -> API Layer / WebSocket subscribers
-
-Pairing Client
-  -> API Layer
-  -> AuthManager
-  -> HostConfigStore / PairingStore
-  -> local host approval UI
+pairing + auth state
+  -> Auth services + file stores
+  -> HTTP / WS authorization gates
 ```
 
-## Threading Model
+## Observe / Control Model
 
-Recommended first implementation:
+Current product rule:
 
-- one async event loop for network and timers
-- one PTY reader task or thread per active session
-- bounded queues or direct append path into `SessionOutputBuffer`
-- dispatcher work scheduled independently from PTY reads
-- the privileged local controller lane must not compete with observer maintenance polling for the same session
+- many observers
+- one active controller
+- controller owns PTY input and resize
+- host-local attach is privileged
+- remote control uses a dedicated controller WebSocket
 
-This gives a clean separation between high-priority PTY ingestion and comparatively lower-priority client delivery.
+### Observer Lane
 
-## Control Model
+Observer clients use:
 
-Recommended product rule:
+- `GET /sessions`
+- `GET /sessions/{sessionId}/snapshot`
+- `ws://.../ws/sessions/{sessionId}`
 
-- many observers may attach to a session
-- one controller may mutate a session at a time
-- controller owns terminal input and PTY resize
-- if no controller is active, the session uses a configured default PTY size
-- if a remote client takes control, host views follow the resulting byte stream
-- host may explicitly reclaim control
+Observer lane responsibilities:
 
-This rule keeps PTY semantics correct because the provider process only ever sees one terminal size at a time.
+- session inventory and metadata
+- attach-time replay/bootstrap
+- live session updates
+- passive terminal output consumption
 
-Implementation refinement:
+### Controller Lane
 
-- the active local host controller is privileged
-- its input and return output should be treated as one full-duplex control lane
-- observers attached to the same session still receive replayable session events and terminal output through the observer dispatcher
-- observer batching, replay, and degradation logic must not sit in front of the active controller
+Remote control uses:
 
-## Platform Abstractions
+- `ws://.../ws/sessions/{sessionId}/controller`
 
-Keep these behind narrow interfaces:
+Host-local control uses:
 
-- PTY allocation and child launch
-- signal/termination behavior
-- file system watching
-- secure credential storage if later required
+- CLI attach paths backed by the local controller stream
 
-This project can start with a strong macOS/Linux path while still avoiding platform-specific leakage into session orchestration logic.
+Controller lane responsibilities:
 
-## Persistence Model
+- claim control
+- send input
+- send resize
+- release control
+- receive control-oriented terminal output
 
-Persist:
+## Snapshot Model
 
-- session metadata
-- workspace root
-- provider type
-- last known status
-- recent file changes
-- git summary
-- bounded recent terminal tail
-- paired device records
-- host identity and TLS material references
-- lightweight signal summaries and last-observed supervisory state when useful for recovery
+Current runtime snapshots are additive and intended to seed clients without relying solely on raw replay.
 
-Do not persist:
+Current snapshot fields include:
 
-- active PTY handles
-- full process state
-- full terminal history
-- overconfident inferred phase history in MVP
+- `recentTerminalTail`
+- `terminalScreen`
+- `terminalViewport`
+- `bootstrapAnsi`
+- recent file and git state
+- signals and controller metadata
 
-## Failure Containment Rules
+Current JSON encoding lives in:
 
-- a slow or broken client must not impact other clients
-- a file watcher fault must not terminate active sessions
-- a provider process crash should transition only its own session to `Exited` or `Error`
-- persistence failures should degrade recovery guarantees, not break live session execution
+- `src/net/http_shared.cpp`
+- `src/net/json.cpp`
 
-## Session State Layers
+## Control Ownership And Truthfulness
 
-The runtime should keep two distinct state layers:
+`SessionManager` is responsible for keeping controller truth coherent.
 
-1. Low-level runtime state
-- process status
-- PTY connectivity
-- controller ownership
-- websocket/client attachment state
+Important current behaviors:
 
-2. Supervisory state
-- recent filesystem activity
-- PTY output rate
-- attention level and reason
-- attention decay/cooldown timestamps
-- child-process activity
-- resource signals
-- coarse `SessionPhase`
-- attention flags such as waiting-input, idle-too-long, or long-task
+- one controller at a time
+- remote controller can claim active ownership
+- host-local control is privileged
+- release returns the session toward host ownership semantics
+- controller changes update session summaries and timestamps
 
-The first supervision implementation should bias toward truthful, inspectable fields over ambitious inference. File-change counts, git-dirty transitions, attached-client counts, and meaningful activity timestamps are more important than a deep phase taxonomy in the near term.
+## Current Platform Shape
 
-Clients should not need to infer these from raw signals themselves.
+Current supported runtime shape:
 
-## Web Product Direction
+- macOS
+- Linux
+- POSIX `forkpty` backend selected through a factory seam
 
-Near-term web work should stay intentionally light:
+Important note:
 
-- local host admin UI remains a small operational interface
-- remote web client remains a focused session client for observe/control/watch flows
-- avoid introducing a full frontend framework until runtime state, event schema, and supervision workflows stabilize
+- there are wider seams for monitoring and richer platform integration
+- but many of those remain partial or future-oriented rather than fully complete subsystems today
 
-This keeps product iteration centered on runtime correctness rather than frontend churn.
+## Future Direction
 
-## MVP Security Model
+The next meaningful architecture layer is not more raw PTY forwarding.
 
-Recommended MVP flow:
+The next layer is:
 
-- daemon serves a local host web app for configuration and pairing approval
-- remote clients know or enter a host address manually
-- remote client requests pairing
-- daemon shows a short pairing code in the local host UI
-- local user approves the request after confirming the code
-- daemon issues a long-lived paired-device token
-- subsequent REST and WebSocket requests require that token
-- transport should move to HTTPS/WSS with a host-generated self-signed certificate
+- richer session-node information
+- more reliable semantic monitoring
+- stronger supervision summaries
 
-This deliberately avoids depending on mDNS or a complex custom pairing protocol in the MVP.
+Relevant future docs:
 
-## Frozen Parallelization Seams
-
-To reduce merge conflicts, freeze these boundaries before parallel implementation:
-
-### `vibe::auth`
-
-Suggested stable responsibilities:
-
-- pairing request lifecycle
-- paired-device record lifecycle
-- bearer-token validation
-- authorization decisions
-
-Suggested stable types:
-
-- `DeviceId`
-- `PairingRequest`
-- `PairingRecord`
-- `AuthResult`
-- `PairingService`
-- `Authorizer`
-
-### `vibe::store`
-
-Suggested stable responsibilities:
-
-- host identity persistence
-- pairing persistence
-- persisted session metadata and recent tail persistence
-
-Suggested stable types:
-
-- `HostConfigStore`
-- `PairingStore`
-- `SessionStore`
-
-### `vibe::service`
-
-Freeze `SessionManager` as the owner of live session runtime state, but keep auth and persistence concerns outside it except through narrow interfaces.
+- `future/session_terminal_multiplexer_and_semantic_runtime.md`
+- `future/session_signal_map.md`
+- `future/pty_semantic_extractor.md`

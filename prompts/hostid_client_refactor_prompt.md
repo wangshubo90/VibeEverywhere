@@ -2,9 +2,9 @@
 
 Work across these repos on macOS:
 
-- `../Sentrits-Web`
-- `../Sentrits-IOS`
-- `../Sentrits-Core` only if runtime API or docs need small follow-up changes
+- `https://github.com/shubow-sentrits/Sentrits-Web`
+- `https://github.com/shubow-sentrits/Sentrits-IOS`
+- `https://github.com/shubow-sentrits/Sentrits-Core` only if runtime API or docs need small follow-up changes
 
 Context:
 
@@ -21,16 +21,16 @@ Goal:
 What to inspect first:
 
 - Web:
-  - `../Sentrits-Web/src/lib/host-store.ts`
-  - `../Sentrits-Web/src/lib/app-flows.ts`
-  - `../Sentrits-Web/src/types/index.ts`
-  - `../Sentrits-Web/scripts/discovery-helper.ts`
+  - `https://github.com/shubow-sentrits/Sentrits-Web/blob/main/src/lib/host-store.ts`
+  - `https://github.com/shubow-sentrits/Sentrits-Web/blob/main/src/lib/app-flows.ts`
+  - `https://github.com/shubow-sentrits/Sentrits-Web/blob/main/src/types/index.ts`
+  - `https://github.com/shubow-sentrits/Sentrits-Web/blob/main/scripts/discovery-helper.ts`
 - iOS:
-  - `../Sentrits-IOS/VibeEverywhereIOS/Models/HostModels.swift`
-  - `../Sentrits-IOS/VibeEverywhereIOS/Services/HostsStore.swift`
-  - `../Sentrits-IOS/VibeEverywhereIOS/Services/KeychainTokenStore.swift`
-  - `../Sentrits-IOS/VibeEverywhereIOS/ViewModels/PairingViewModel.swift`
-  - `../Sentrits-IOS/VibeEverywhereIOS/Services/DiscoveryListener.swift`
+  - `https://github.com/shubow-sentrits/Sentrits-IOS/blob/main/SentritsIOS/Models/HostModels.swift`
+  - `https://github.com/shubow-sentrits/Sentrits-IOS/blob/main/SentritsIOS/Services/HostsStore.swift`
+  - `https://github.com/shubow-sentrits/Sentrits-IOS/blob/main/SentritsIOS/Services/KeychainTokenStore.swift`
+  - `https://github.com/shubow-sentrits/Sentrits-IOS/blob/main/SentritsIOS/ViewModels/PairingViewModel.swift`
+  - `https://github.com/shubow-sentrits/Sentrits-IOS/blob/main/SentritsIOS/Services/DiscoveryListener.swift`
 
 Required outcomes:
 

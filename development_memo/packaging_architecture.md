@@ -1,267 +1,161 @@
 # Packaging Architecture
 
-This document defines how Sentrits should be packaged across host and client surfaces.
+This document defines the current packaging direction for Sentrits.
 
-It is not the final distribution spec for every platform. It is the product and systems decision that should guide the next implementation phase.
+It is intentionally focused on the real near-term packaging shape, not on speculative desktop-shell ideas.
 
-## Current Decision
+## Current Direction
 
-For now, package the host-side system as one installable host application that bundles:
+Sentrits is packaging toward a daemon-first product.
 
-- `sentrits`
-- the host admin frontend
-- the maintained web client frontend
-- the browser discovery helper
+The runtime daemon is the product core.
 
-Also support a daemon-focused deployment mode:
+Packaging should center around:
 
-- `sentrits --no-client`
+- the `sentrits` daemon
+- the CLI as the operator-facing management surface
+- static web assets built separately and served by the runtime
 
-That mode should suppress launching or serving bundled client-facing browser surfaces when the deployment only needs the runtime daemon.
+This direction matches the current codebase and the current runtime/client split.
 
-## Why This Is The Right Near-Term Shape
+## Product Shape
 
-### 1. iOS Is Already The Clean Client Story
-
-The iOS client is the easiest standalone client:
-
-- true native app
-- App Store distribution
-- native UDP discovery
-- direct remote session control
-
-That means we do not need to over-optimize the browser client as a long-term universal answer right now.
-
-### 2. Browser Discovery Is Still Architecturally Awkward
-
-The web client cannot receive UDP discovery directly.
-
-That means browser active discovery needs a helper bridge.
-
-Bundling that helper into the host-side package is acceptable for now because:
-
-- it hides operational complexity from users
-- it preserves the current web client workflow
-- it avoids pretending the browser can do true native discovery
-
-### 3. Single-User Home Network Is The Primary Near-Term Case
-
-For home or personal LAN use, the easiest operational model is:
-
-- install one host app on each host device
-- run one client surface from one machine when needed
-- pair once and reuse
-
-This does not require a multi-user browser account system yet.
-
-### 4. Multi-User Intranet Browser Identity Is Expensive
-
-If multiple users share one browser client surface, we would need one of these:
-
-- per-user login and credential model
-- per-user device auth and token management inside the browser client
-- stronger host/user separation across sessions
-
-That is much more setup and policy complexity than we need right now.
-
-So the near-term choice should avoid forcing full browser multi-user management too early.
-
-### 5. Internet Or Tunnel Support Likely Changes Discovery Anyway
-
-If we later add:
-
-- internet access
-- tunnels
-- brokered connectivity
-
-then UDP active discovery becomes less important for the browser client.
-
-At that point the browser client may evolve toward:
-
-- known-host management
-- paired-host inventory
-- remote control over authenticated network routes
-
-That is another reason not to over-invest in browser-local discovery semantics as a permanent architecture.
-
-## Product Packaging Model
-
-## Host Package
-
-The host package should be the main installable desktop product.
+### 1. Runtime Daemon
 
 Responsibilities:
 
-- launch and supervise `sentrits`
-- expose host admin UI
-- expose bundled web client UI
-- run the browser discovery helper if the bundled web client needs it
-- own logs, storage, certificates, pairing store, and daemon lifecycle
+- own session lifecycle
+- own pairing and authorization
+- own session inventory and snapshots
+- own observer and controller WebSocket surfaces
+- serve runtime-facing HTTP APIs
+- serve static client assets packaged with the host install
 
-User mental model:
-
-- one app per host machine
-- not separate daemon, helper, and frontend processes the user must manage manually
-
-## iOS Client
-
-The iOS client remains separate.
+### 2. CLI
 
 Responsibilities:
 
-- discover hosts directly over UDP
-- pair and reconnect
-- observe and control sessions remotely
+- start and inspect the daemon
+- manage sessions locally
+- provide host-local observe/control paths
+- act as the primary operator/admin surface outside the host web UI
 
-The iOS app should not depend on the browser helper or the bundled web client.
+### 3. Web Assets
 
-## Web Client
+The maintained browser remote client is built outside this repo:
 
-The bundled web client should be treated as:
+- https://github.com/shubow-sentrits/Sentrits-Web
 
-- a practical remote or host-local browser surface
-- useful for current intranet workflows
-- potentially temporary or secondary long-term compared with native clients
+Packaging direction:
 
-It should still remain a maintained product surface, but we should avoid forcing the whole system architecture to revolve around browser constraints.
+- build the web client into static assets
+- stage those assets into the runtime package layout
+- let the runtime serve them
 
-Current repo split:
+The in-repo `frontend/` workspace remains the host-admin surface.
 
-- maintained browser remote client: `../Sentrits-Web`
-- maintained in-repo host-admin workspace: `frontend/`
-- deprecated daemon-served plain HTML browser assets: `deprecated/web/`
+## Why This Direction
 
-## Deployment Modes
+This shape is the best fit for the current system because:
 
-### Mode A: Full Host App
+- the daemon already owns the real runtime truth
+- the CLI already exists as a real management surface
+- remote observe/control already depends on runtime-served APIs
+- static client assets are a deployment concern, not a separate product core
 
-Default mode.
+It also avoids prematurely coupling runtime lifecycle to a GUI shell.
 
-Runs:
+## Deployment Targets
 
-- `sentrits`
-- host admin UI
-- bundled web client UI
-- discovery helper if enabled
+Primary near-term targets:
 
-Best for:
+- macOS
+- Debian first on Linux
 
-- personal machines
-- home LAN
-- development
-- demos
+### macOS
 
-### Mode B: Daemon Only
+Target shape:
 
-Enabled with:
+- installed runtime binary
+- packaged static assets
+- `launchd` service integration
+- optional higher-level app shell later, but not required for the core product
 
-- `sentrits --no-client`
+### Debian
 
-Runs:
+Target shape:
 
-- `sentrits` only
+- installed runtime binary
+- packaged static assets
+- `systemd` service unit
+- `.deb` package first
 
-Suppresses:
+## Filesystem Model
 
-- bundled client UI launch
-- bundled browser helper launch
-- any host-side browser auto-open behavior
+Representative install layout:
 
-Best for:
+- binary:
+  - `/usr/bin/sentrits` on Debian
+- static web assets:
+  - runtime-owned packaged asset directory
+- config:
+  - daemon-owned config location
+- state:
+  - daemon-owned persistent state location
+- logs:
+  - system-managed logging by default
 
-- intranet deployments where one separate client machine is used
-- headless or service-style setups
-- future brokered/tunneled environments
+Exact install paths can vary by platform, but the split between binary, assets, config, and state should stay explicit.
 
-## Process Model
+## CI / Release Flow
 
-Recommended host package process structure:
+The recommended release pipeline is owned by `Sentrits-Core`.
 
-- host launcher process or desktop app shell
-- `sentrits` runtime daemon
-- optional bundled discovery helper child process
-- browser window or embedded webview for host admin and web client
+High-level flow:
 
-Important rule:
+1. build and test `Sentrits-Core`
+2. fetch the pinned `Sentrits-Web` revision
+3. build the web client static assets
+4. copy those assets into the runtime packaging/staging tree
+5. generate platform installer artifacts
 
-- the launcher owns process supervision
-- users should not have to manually run the helper as a visible tool
+Recommended revision model:
 
-## Frontend Serving Model
+- keep a manifest or pinned ref in `Sentrits-Core`
+- package a specific `Sentrits-Web` revision deliberately
 
-Near-term recommendation:
+Do not make GitHub release zips or submodules the required default packaging dependency.
 
-- keep host admin UI and bundled web client assets shipped with the host package
-- let the host package expose them through the daemon or a tightly coupled local server
+## What Packaging Is Not Doing Yet
 
-Practical behavior:
+This packaging direction is not choosing:
 
-- host admin remains localhost-oriented
-- bundled web client can still connect to remote listeners and paired hosts
-- `--no-client` disables client-facing bundle behavior for daemon-only deployments
+- a GUI-app-first desktop shell as the primary product
+- a browser-only product model
+- multi-user browser account management
+- internet relay packaging
 
-## Discovery Helper Position
+Those may come later, but they are not the current packaging center of gravity.
 
-For now:
+## Relationship To Maintained Clients
 
-- keep the helper
-- bundle it with the host package
-- hide it from users
+Maintained client repos:
 
-Do not treat it as a standalone end-user product.
+- Web: https://github.com/shubow-sentrits/Sentrits-Web
+- iOS: https://github.com/shubow-sentrits/Sentrits-IOS
 
-Longer-term possibilities:
+Current packaging implication:
 
-- remove it if browser active discovery becomes less important
-- replace it if the host package gains a better integrated discovery bridge
-
-## Multi-User Position
-
-We are explicitly not solving full browser multi-user auth yet.
-
-Near-term assumptions:
-
-- one trusted user or one small trusted operator group
-- per-device pairing remains the primary auth model
-- browser client identity management stays simple
-
-If we later need:
-
-- true per-user roles
-- shared browser client deployments
-- centrally managed identities
-
-that should be a separate auth and product milestone, not hidden inside packaging work.
-
-## Installer Direction
-
-Platform direction for later implementation:
-
-- macOS:
-  - `.app` bundle first
-  - optional `.dmg` wrapper
-- Linux:
-  - service plus AppImage, deb, or rpm later
-
-The packaging architecture decision here is more important than the first installer format.
-
-## Immediate Follow-Up Work
-
-1. define the host launcher/app-shell process model
-2. document storage/layout for bundled runtime, helper, and frontend assets
-3. decide whether host admin and bundled web client are opened in browser tabs or an embedded webview
-4. keep iOS fully independent from any browser-helper assumptions
+- the web client is part of host packaging through staged static assets
+- the iOS client remains independently packaged and distributed
 
 ## Bottom Line
 
-For now:
+The near-term Sentrits package should be:
 
-- bundle `sentrits`, host admin UI, web client, and discovery helper together
-- keep the helper hidden inside the host package
-- support `sentrits --no-client` for daemon-only deployments
+- daemon-first
+- CLI-managed
+- static-web-asset-backed
+- service-friendly on macOS and Debian
 
-This fits the current product reality:
-
-- iOS is the clean native client
-- browser discovery is still a compromise
-- single-user and small-LAN operation matter more than enterprise multi-user browser setup today
+That is the cleanest path aligned with the current code and current product architecture.

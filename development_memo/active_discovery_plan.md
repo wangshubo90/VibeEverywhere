@@ -1,153 +1,82 @@
-# Active Discovery Plan
+# Active Discovery
 
-## Current Truth
+This document records the current discovery shape in the product.
 
-The runtime host is ready to advertise itself:
+It is no longer a speculative plan. It should describe what exists and where the remaining boundaries are.
 
-- `GET /discovery/info` is live
-- UDP broadcast is live on port `18087`
-- discovery payload is already stable enough for clients:
-  - `hostId`
-  - `displayName`
-  - `remoteHost`
-  - `remotePort`
-  - `protocolVersion`
-  - `tls`
+## Current Runtime Truth
 
-What is **not** ready is true client-side automatic discovery in the maintained web client.
+The runtime currently supports:
 
-## Constraint
+- UDP discovery broadcast on port `18087`
+- `GET /discovery/info`
+- stable `hostId` in discovery and host-info payloads
+- advertised remote host/port and TLS flags
 
-The maintained client in `Sentrits-Web` is a browser app built on Vite/React.
+Relevant implementation:
 
-Browsers do not expose raw UDP sockets for LAN broadcast receive. That means:
+- `src/net/discovery_broadcaster.cpp`
+- `src/net/http_shared.cpp`
+- `src/net/json.cpp`
 
-- the browser client cannot directly listen for host UDP discovery advertisements
-- true automatic discovery is not implementable as a pure frontend change in the current web client
+## Current Client Consumption
 
-This is an architecture boundary, not just a missing feature.
+### iOS
 
-## What "True Active Discovery" Means
+The maintained iOS client can consume discovery natively.
 
-Real active discovery means:
+Client repo:
 
-1. the host broadcasts discovery advertisements over UDP
-2. the client receives those advertisements directly
-3. the client builds a discovered-device list without manual host entry
-4. the client optionally verifies a selected device via `GET /discovery/info`
-5. the client starts pairing from that discovered device record
+- https://github.com/shubow-sentrits/Sentrits-IOS
 
-The runtime already implements step 1 and step 4.
+### Web
 
-## Feasible Client Paths
+The maintained browser client cannot consume UDP directly.
 
-### Path A: Native Client Discovery
+Current browser path:
 
-Best long-term path.
+- a local discovery helper listens for UDP
+- the helper exposes an HTTP feed the browser can poll
+- the browser verifies hosts and persists trusted/manual/paired records separately
 
-- iOS / Android / desktop native client listens on UDP port `18087`
-- client stores discovery candidates locally
-- user pairs directly from discovered devices
+Client repo:
 
-This is the correct solution for the future mobile app.
+- https://github.com/shubow-sentrits/Sentrits-Web
 
-### Path B: Local Discovery Helper For Web Client
+## Discovery Identity Rules
 
-Pragmatic bridge if the web client must support discovery.
+Current identity rules:
 
-- run a tiny local helper process on the same machine as the browser
-- helper listens for UDP discovery
-- helper exposes a local HTTP/WebSocket endpoint the browser can read
-- browser consumes helper output as a discovered-device feed
+- `hostId` is the canonical host identity
+- `displayName` is descriptive only
+- wildcard bind addresses must not become the client-facing connect address
+- clients should dedupe by `hostId` whenever present
 
-This keeps the runtime protocol unchanged, but introduces local app/helper complexity.
+## Browser Boundary
 
-### Path C: Discovery Relay Through A Known Host
+Important architecture boundary:
 
-Useful as a fallback, but not true zero-entry discovery.
+- browsers do not receive raw UDP discovery directly
+- browser discovery therefore depends on a helper bridge or on explicit known-host flows
 
-- browser already knows at least one reachable host
-- that host can expose recently observed discovery advertisements
-- browser lists those relayed devices
+That is a real platform boundary, not a missing frontend polish item.
 
-This is not first-contact discovery, but it may still be useful operationally.
+## What Discovery Is For
 
-## Recommended Direction
+Discovery is used to:
 
-### For current web client
+- find hosts on the local network
+- verify them through `GET /discovery/info`
+- start or simplify pairing flows
 
-Do **not** pretend the browser can do raw UDP discovery.
+Discovery is not itself authorization.
 
-Instead:
+Pairing and bearer-token authorization still gate real session access.
 
-- keep manual host entry + `/discovery/info` verification as the current web baseline
-- improve that UX if needed
-- do not label it as true automatic discovery
+## Packaging Implication
 
-### For the next real discovery milestone
+For daemon-first packaging, browser discovery helper behavior should be treated as packaging/runtime integration work rather than as a browser-only feature.
 
-Implement true active discovery in the native/mobile client first.
+See:
 
-That is the cleanest and most honest path.
-
-If browser discovery becomes important before the native client is ready, use Path B with a local helper.
-
-## Suggested Parallel Split
-
-### Track A: Runtime Discovery Hardening
-
-Repo:
-
-- runtime repo
-
-Scope:
-
-- confirm discovery payload stability
-- document broadcast cadence / TTL expectations
-- add any missing test coverage for discovery lifecycle
-
-### Track B: Native Client Discovery Consumption
-
-Repo:
-
-- native/mobile client repo
-
-Scope:
-
-- UDP listener
-- discovered-device store
-- verify-and-pair flow from discovered devices
-
-### Track C: Web Client Discovery UX Clarification
-
-Repo:
-
-- `~/dev/Sentrits-Web`
-
-Scope:
-
-- relabel current flow as manual verify/add
-- avoid implying raw LAN auto-discovery exists
-- keep saved devices / pairing clean
-
-### Track D: Optional Browser Helper Spike
-
-Repo:
-
-- separate helper repo or small utility module
-
-Scope:
-
-- local UDP listener
-- local HTTP/WebSocket feed for browser consumption
-- prove whether browser discovery is worth supporting
-
-## Green-Light Criteria For True Discovery Smoke
-
-Do not call discovery "ready to smoke" until all are true:
-
-1. client receives advertisements without manual host entry
-2. discovered device list is stable across repeated broadcasts
-3. selecting a discovered device can verify and pair successfully
-4. duplicate hosts are deduped by `hostId`
-5. wildcard bind addresses do not poison the client-facing connect address
+- `packaging_architecture.md`

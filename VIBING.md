@@ -1,24 +1,30 @@
 # Sentrits Agent Guide
 
-This repository is implementing `sentrits`, a local-network session runtime and supervision/control plane for AI coding CLIs.
+This repository implements `sentrits`, a local-network session runtime and supervision/control plane for AI coding CLIs.
 
 ## Working Baseline
 
 - Language: C++20
 - Build system: CMake + Ninja
 - Preferred compiler: Clang/LLVM
-- Secondary scripting language: Python, only for tooling or test helpers when it materially simplifies support work
-- Development style: test-driven development by default
+- Python is acceptable only for tooling, fixtures, and helper scripts when it clearly reduces complexity
+- Test-driven development is the default engineering style
 
 ## Primary References
 
-- Product and implementation docs live in [development_memo](Sentrits-Core/development_memo/README.md).
-- Runtime architecture is defined in [architecture_refined.md](Sentrits-Core/development_memo/architecture_refined.md) and [session_runtime_and_pty.md](Sentrits-Core/development_memo/session_runtime_and_pty.md).
-- Current REST and WebSocket contracts are defined in [api_and_event_schema.md](Sentrits-Core/development_memo/api_and_event_schema.md).
-- iOS-facing API and architecture notes are in [client_api_ios.md](Sentrits-Core/development_memo/client_api_ios.md) and [ios_client_architecture.md](Sentrits-Core/development_memo/ios_client_architecture.md).
-- Browser remote-client notes are in [remote_web_client_v1.md](Sentrits-Core/development_memo/remote_web_client_v1.md) and [privileged_remote_controller_plan.md](Sentrits-Core/development_memo/privileged_remote_controller_plan.md).
-- Build and test workflow is defined in [build_and_test.md](Sentrits-Core/development_memo/build_and_test.md).
-- TDD expectations are defined in [tdd_policy.md](Sentrits-Core/development_memo/tdd_policy.md).
+- Product and implementation docs live in [development_memo/README.md](development_memo/README.md).
+- Full runtime/client architecture lives in [development_memo/system_architecture.md](development_memo/system_architecture.md).
+- Runtime internals live in [development_memo/architecture_refined.md](development_memo/architecture_refined.md) and [development_memo/session_runtime_and_pty.md](development_memo/session_runtime_and_pty.md).
+- REST and WebSocket contracts live in [development_memo/api_and_event_schema.md](development_memo/api_and_event_schema.md).
+- Build and test workflow lives in [development_memo/build_and_test.md](development_memo/build_and_test.md).
+- Packaging direction lives in [development_memo/packaging_architecture.md](development_memo/packaging_architecture.md).
+- MVP scope lives in [development_memo/mvp_checklist.md](development_memo/mvp_checklist.md).
+- TDD expectations live in [development_memo/tdd_policy.md](development_memo/tdd_policy.md).
+
+Maintained client docs live in their own repos:
+
+- Web: https://github.com/shubow-sentrits/Sentrits-Web
+- iOS: https://github.com/shubow-sentrits/Sentrits-IOS
 
 ## Build Expectations
 
@@ -39,41 +45,26 @@ cmake --build build
 ## Test Expectations
 
 - New behavior should start with a failing automated test whenever practical.
-- Every feature should add or update unit, integration, or end-to-end coverage at the appropriate layer.
-- Run the full test suite with:
+- Every change should add or update coverage at the right layer.
+- Run the full suite with:
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-- For targeted development, run a narrowed subset first, then rerun the full suite before handing off.
+- For targeted development, run a narrowed subset first, then rerun the full suite before handoff.
 
 ## Implementation Bias
 
 - Keep platform-specific code isolated behind narrow interfaces.
-- Favor explicit ownership and bounded-memory structures for PTY and output buffering work.
-- Treat terminal output as raw bytes; preserve ANSI data and defer rendering semantics to clients.
-- Avoid designs where slow network clients can interfere with PTY ingestion.
-- Treat the host terminal as another daemon-attached session client, not as a special out-of-band runtime.
-- Preserve the invariant: one session PTY, many views, one controller.
-- Bias new work toward runtime observability, supervision events, and session-state quality before investing in larger frontend rewrites.
-- Keep `SessionPhase` support extensible but conservative; do not hard-code provider-specific heuristics too early.
-- Treat file watching and git inspection as both observability inputs and read-only client data surfaces.
-- Prioritize truthful inventory data and watch flows over deeper terminal/client polish.
-
-## Expected Early Project Layout
-
-The repository is still being bootstrapped. As code is added, prefer this shape unless a better reason emerges:
-
-- `CMakeLists.txt`
-- `cmake/`
-- `src/`
-- `include/`
-- `tests/`
-- `tools/`
-- `development_memo/`
+- Preserve the invariant: one session PTY, many observers, one active controller.
+- Keep PTY ingestion independent from slow clients.
+- Treat the runtime as the source of truth for session inventory and control ownership.
+- Prefer improving runtime truthfulness and supervision signals before large client-side rewrites.
+- Keep file watching and git inspection as observability inputs and read-only client data surfaces.
+- Treat future semantic-monitoring layers as additive over runtime truth, not replacements for it.
 
 ## Before Changing Architecture
 
-- Check whether the change affects session identity, PTY handling, buffering, client control semantics, host-attach behavior, or recovery guarantees.
-- Update the relevant detailed design markdown in [development_memo](Sentrits-Core/development_memo/README.md) when the implementation direction changes materially.
+- Check whether the change affects session identity, PTY handling, buffering, snapshot/bootstrap generation, controller semantics, host attach behavior, or recovery guarantees.
+- Update the relevant docs in [development_memo/README.md](development_memo/README.md) when implementation direction changes materially.

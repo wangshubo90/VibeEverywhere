@@ -1,45 +1,41 @@
 # Frontend Workspace
 
-This directory contains the Angular workspace for the maintained web frontends.
+This directory contains the in-repo host-admin frontend workspace.
 
-## Projects
+It is not the maintained browser remote client product.
 
-- `projects/host-admin`
-  - localhost-only host control room
-  - pairing, trusted devices, config, session creation, session management
+Maintained browser client repo:
 
-- `projects/remote-client`
-  - paired remote supervision client
-  - compact inventory, in-page session tabs, terminal observe/control, read-only inspection
+- https://github.com/shubow-sentrits/Sentrits-Web
 
-- `projects/shared-ui`
-  - shared presentation helpers and later reusable UI primitives
+## Current Role
 
-- `projects/session-model`
-  - shared frontend-facing types and temporary mock data
+This workspace is for the host-local admin surface:
+
+- pairing approval
+- trusted device management
+- host configuration
+- session creation and cleanup
+- host-side session supervision
 
 ## Commands
 
-Run from `frontend/`.
+Run from `frontend/`:
 
 ```bash
 npm install
 npm run build:libs
 npm run build:host-admin
-npm run build:remote-client
 ```
 
-Development servers:
+Development server:
 
 ```bash
 npm run start:host-admin
-npm run start:remote-client
 ```
-
-Tests:
 
 ## Notes
 
 - use an LTS Node release for normal frontend development
-- the current scaffold builds on newer odd-numbered Node releases, but that is not the preferred baseline
-- deprecated daemon-served plain HTML browser assets now live under `../deprecated/web/`
+- deprecated daemon-served plain HTML browser assets live under `../deprecated/web/`
+- the packaged remote browser client should be built from `https://github.com/shubow-sentrits/Sentrits-Web`, not from this workspace

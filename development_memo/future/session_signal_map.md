@@ -1,4 +1,4 @@
-# Vibe Session Signal Map
+# Sentrits Session Signal Map
 
 ## 1. Purpose
 

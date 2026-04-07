@@ -211,8 +211,8 @@ Acceptance criteria:
 
 ## Immediate Next Docs to Consult
 
-- [architecture_refined.md](Sentrits-Core/development%20_memo/architecture_refined.md)
-- [session_attention_inference_v1.md](Sentrits-Core/development%20_memo/session_attention_inference_v1.md)
-- [session_runtime_and_pty.md](Sentrits-Core/development%20_memo/session_runtime_and_pty.md)
-- [api_and_event_schema.md](Sentrits-Core/development%20_memo/api_and_event_schema.md)
-- [implementation_milestones.md](Sentrits-Core/development%20_memo/implementation_milestones.md)
+- [architecture_refined.md](architecture_refined.md)
+- [session_attention_inference_v1.md](session_attention_inference_v1.md)
+- [session_runtime_and_pty.md](session_runtime_and_pty.md)
+- [api_and_event_schema.md](api_and_event_schema.md)
+- [implementation_milestones.md](implementation_milestones.md)

@@ -813,7 +813,7 @@ The Terminal Semantic Extractor should become:
 
 It should not be the source of truth.
 
-But it can become one of the most powerful differentiators in Vibe, because most systems stop at:
+But it can become one of the most powerful differentiators in Sentrits, because most systems stop at:
 
 - PTY bytes
 - xterm rendering
