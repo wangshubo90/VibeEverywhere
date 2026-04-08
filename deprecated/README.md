@@ -6,8 +6,6 @@ Current contents:
 
 - `web/host_ui`
   - legacy daemon-served plain HTML host admin UI
-- `web/remote_client`
-  - legacy daemon-served plain HTML remote client
 
 The maintained browser client now lives in `Sentrits-Web`.
 The maintained host-admin workspace in this repo lives under `frontend/`.
