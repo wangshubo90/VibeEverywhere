@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -239,6 +240,48 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
       .remote_tls_certificate_path = "",
       .listener_role = listener_role,
   };
+}
+
+class ScopedEnvVar {
+ public:
+  ScopedEnvVar(const char* name, const std::string& value) : name_(name) {
+    if (const char* existing = std::getenv(name_); existing != nullptr) {
+      previous_value_ = std::string(existing);
+    }
+    if (setenv(name_, value.c_str(), 1) != 0) {
+      throw std::runtime_error("failed to set environment variable");
+    }
+  }
+
+  ScopedEnvVar(const ScopedEnvVar&) = delete;
+  auto operator=(const ScopedEnvVar&) -> ScopedEnvVar& = delete;
+
+  ~ScopedEnvVar() {
+    if (previous_value_.has_value()) {
+      setenv(name_, previous_value_->c_str(), 1);
+    } else {
+      unsetenv(name_);
+    }
+  }
+
+ private:
+  const char* name_;
+  std::optional<std::string> previous_value_;
+};
+
+auto MakeTempDir(const std::string& test_name) -> std::filesystem::path {
+  const auto path = std::filesystem::temp_directory_path() / test_name;
+  std::filesystem::remove_all(path);
+  std::filesystem::create_directories(path);
+  return path;
+}
+
+void WriteTextFile(const std::filesystem::path& path, const std::string& content) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(output.is_open());
+  output << content;
+  ASSERT_TRUE(output.good());
 }
 
 TEST(HttpSharedTest, ReturnsHealthResponse) {
@@ -1039,6 +1082,80 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
   EXPECT_EQ(vendor_script_response.result(), http::status::ok);
   EXPECT_EQ(vendor_script_response[http::field::content_type], "application/javascript; charset=utf-8");
   EXPECT_NE(vendor_script_response.body().find("Terminal"), std::string::npos);
+}
+
+TEST(HttpSharedTest, ServesPackagedAssetsFromPackagedWebRoot) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  const auto temp_dir = MakeTempDir("sentrits-http-shared-packaged-web-root");
+  WriteTextFile(temp_dir / "host-admin" / "index.html", "<html>Packaged Host Admin</html>");
+  WriteTextFile(temp_dir / "remote-client" / "index.html", "<html>Packaged Remote Client</html>");
+  WriteTextFile(temp_dir / "vendor" / "xterm" / "xterm.css", ".xterm{color:red;}");
+  ScopedEnvVar web_root("SENTRITS_WEB_ROOT", temp_dir.string());
+
+  HttpRequest admin_request;
+  admin_request.method(http::verb::get);
+  admin_request.target("/ui");
+  admin_request.version(11);
+  const HttpResponse admin_response =
+      HandleRequest(admin_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(admin_response.result(), http::status::ok);
+  EXPECT_NE(admin_response.body().find("Packaged Host Admin"), std::string::npos);
+
+  HttpRequest remote_request;
+  remote_request.method(http::verb::get);
+  remote_request.target("/");
+  remote_request.version(11);
+  const HttpResponse remote_response = HandleRequest(
+      remote_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(remote_response.result(), http::status::ok);
+  EXPECT_NE(remote_response.body().find("Packaged Remote Client"), std::string::npos);
+
+  HttpRequest vendor_request;
+  vendor_request.method(http::verb::get);
+  vendor_request.target("/assets/xterm/xterm.css");
+  vendor_request.version(11);
+  const HttpResponse vendor_response = HandleRequest(
+      vendor_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(vendor_response.result(), http::status::ok);
+  EXPECT_NE(vendor_response.body().find("color:red"), std::string::npos);
+
+  std::filesystem::remove_all(temp_dir);
+}
+
+TEST(HttpSharedTest, ExplicitAssetRootsOverridePackagedWebRoot) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  const auto packaged_root = MakeTempDir("sentrits-http-shared-packaged-root");
+  const auto explicit_host_root = MakeTempDir("sentrits-http-shared-explicit-host-root");
+  WriteTextFile(packaged_root / "host-admin" / "index.html", "<html>Wrong Host Admin</html>");
+  WriteTextFile(explicit_host_root / "index.html", "<html>Explicit Host Admin</html>");
+  ScopedEnvVar web_root("SENTRITS_WEB_ROOT", packaged_root.string());
+  ScopedEnvVar host_root("SENTRITS_HOST_UI_ROOT", explicit_host_root.string());
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/ui");
+  request.version(11);
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("Explicit Host Admin"), std::string::npos);
+  EXPECT_EQ(response.body().find("Wrong Host Admin"), std::string::npos);
+
+  std::filesystem::remove_all(packaged_root);
+  std::filesystem::remove_all(explicit_host_root);
 }
 
 TEST(HttpSharedTest, ServesHostManagementRoutes) {
