@@ -8,6 +8,7 @@ It focuses on:
 - test
 - running the daemon
 - basic CLI usage
+- Debian packaging, install, smoke test, and uninstall
 
 For architecture and product docs, start from `README.md` or `development_memo/README.md`.
 
@@ -52,6 +53,45 @@ Linux note:
 
 - the PTY runtime depends on standard PTY headers and `libutil`
 - if your distro splits PTY development headers from the base libc toolchain, install the corresponding development package before configuring
+
+## Debian Package
+
+The current Linux packaging path builds a `.deb` from this repo and stages the maintained remote client from the neighboring `../Sentrits-Web` checkout.
+
+Prerequisites:
+
+- `../Sentrits-Web` exists beside this repo
+- that checkout is on `main`
+- its production assets are built into `dist/`
+
+Build the maintained web client bundle:
+
+```bash
+cd ../Sentrits-Web
+npm install
+npm run build
+cd ../core-packaging
+```
+
+Configure the runtime build:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++
+```
+
+Build the Debian package:
+
+```bash
+cmake --build build --target sentrits_package_deb
+```
+
+Expected package artifact:
+
+- `build/sentrits_0.1.0_amd64.deb`
 
 ## Test
 
@@ -157,6 +197,57 @@ Use it for:
 - session creation and cleanup
 - session and client supervision
 
+## Debian Install
+
+Install the generated package:
+
+```bash
+sudo dpkg -i ./build/sentrits_0.1.0_amd64.deb
+```
+
+Install and enable the user-scoped service file:
+
+```bash
+sentrits service install
+systemctl --user daemon-reload
+systemctl --user enable sentrits.service
+systemctl --user start sentrits.service
+```
+
+What this installs:
+
+- binary: `/usr/bin/sentrits`
+- packaged web assets: `/usr/lib/sentrits/www`
+- user unit template: `/usr/lib/systemd/user/sentrits.service`
+
+## Debian Smoke Test
+
+Check binary and service state:
+
+```bash
+which sentrits
+systemctl --user status sentrits.service --no-pager
+```
+
+Check local daemon reachability:
+
+```bash
+curl http://127.0.0.1:18085/health
+curl http://127.0.0.1:18085/host/info
+```
+
+Check the packaged web revision:
+
+```bash
+cat /usr/lib/sentrits/www/_metadata/sentrits-web-revision.txt
+```
+
+Optional package inventory check:
+
+```bash
+dpkg -L sentrits
+```
+
 ## Remote Clients
 
 Maintained clients live in separate repos:
@@ -190,6 +281,33 @@ If local attach or remote control behaves unexpectedly:
 ```bash
 ./build/sentrits session list
 ./build/sentrits session show s_1
+```
+
+If the Debian service does not start:
+
+- re-run:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user status sentrits.service --no-pager
+journalctl --user -u sentrits.service --no-pager
+```
+
+## Debian Uninstall
+
+Stop and disable the user service:
+
+```bash
+systemctl --user stop sentrits.service
+systemctl --user disable sentrits.service
+rm -f ~/.config/systemd/user/sentrits.service
+systemctl --user daemon-reload
+```
+
+Remove the package:
+
+```bash
+sudo dpkg -r sentrits
 ```
 
 Further docs:
