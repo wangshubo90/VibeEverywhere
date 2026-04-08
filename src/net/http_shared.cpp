@@ -5,11 +5,13 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "vibe/net/discovery.h"
@@ -23,7 +25,69 @@ namespace {
 
 namespace json = boost::json;
 
+#ifndef SENTRITS_DEFAULT_PACKAGED_WEB_ROOT
+#define SENTRITS_DEFAULT_PACKAGED_WEB_ROOT ""
+#endif
+
 auto MakeJsonResponse(const HttpRequest& request, http::status status, std::string body) -> HttpResponse;
+
+auto EnvPath(const char* name) -> std::optional<std::filesystem::path> {
+  const char* value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return std::nullopt;
+  }
+
+  return std::filesystem::path(value);
+}
+
+void AppendCandidatePath(std::vector<std::filesystem::path>& candidates,
+                         std::vector<std::string>& seen_paths,
+                         const std::filesystem::path& candidate) {
+  if (candidate.empty()) {
+    return;
+  }
+
+  const std::string key = candidate.lexically_normal().string();
+  if (std::find(seen_paths.begin(), seen_paths.end(), key) != seen_paths.end()) {
+    return;
+  }
+
+  seen_paths.push_back(key);
+  candidates.push_back(candidate);
+}
+
+auto ResolvePackagedWebRoot() -> std::optional<std::filesystem::path> {
+  if (const auto web_root = EnvPath("SENTRITS_WEB_ROOT"); web_root.has_value()) {
+    return web_root;
+  }
+
+  constexpr std::string_view compiled_root = SENTRITS_DEFAULT_PACKAGED_WEB_ROOT;
+  if (!compiled_root.empty()) {
+    return std::filesystem::path(compiled_root);
+  }
+
+  return std::nullopt;
+}
+
+auto BuildAssetCandidates(const std::optional<std::filesystem::path>& explicit_root,
+                          const std::optional<std::filesystem::path>& packaged_subdir,
+                          const std::vector<std::filesystem::path>& development_roots,
+                          const std::string_view relative_path) -> std::vector<std::filesystem::path> {
+  std::vector<std::filesystem::path> candidates;
+  std::vector<std::string> seen_paths;
+
+  if (explicit_root.has_value()) {
+    AppendCandidatePath(candidates, seen_paths, *explicit_root / relative_path);
+  }
+  if (packaged_subdir.has_value()) {
+    AppendCandidatePath(candidates, seen_paths, *packaged_subdir / relative_path);
+  }
+  for (const auto& root : development_roots) {
+    AppendCandidatePath(candidates, seen_paths, root / relative_path);
+  }
+
+  return candidates;
+}
 
 auto ParseUnsignedQueryValue(const std::string& target, const std::string_view key)
     -> std::optional<std::uint16_t> {
@@ -202,14 +266,22 @@ auto ReadFile(const std::filesystem::path& path) -> std::optional<std::string> {
 
 auto LoadHostUiAsset(const std::string_view relative_path) -> std::optional<std::string> {
   const auto cwd = std::filesystem::current_path();
-  const std::vector<std::filesystem::path> candidates = {
-      cwd / "deprecated" / "web" / "host_ui" / relative_path,
-      cwd.parent_path() / "deprecated" / "web" / "host_ui" / relative_path,
-      cwd.parent_path().parent_path() / "deprecated" / "web" / "host_ui" / relative_path,
-      cwd / "web" / "host_ui" / relative_path,
-      cwd.parent_path() / "web" / "host_ui" / relative_path,
-      cwd.parent_path().parent_path() / "web" / "host_ui" / relative_path,
+  const auto packaged_web_root = ResolvePackagedWebRoot();
+  const auto explicit_root = EnvPath("SENTRITS_HOST_UI_ROOT");
+  const std::vector<std::filesystem::path> development_roots = {
+      cwd / "deprecated" / "web" / "host_ui",
+      cwd.parent_path() / "deprecated" / "web" / "host_ui",
+      cwd.parent_path().parent_path() / "deprecated" / "web" / "host_ui",
+      cwd / "web" / "host_ui",
+      cwd.parent_path() / "web" / "host_ui",
+      cwd.parent_path().parent_path() / "web" / "host_ui",
   };
+  const std::vector<std::filesystem::path> candidates =
+      BuildAssetCandidates(explicit_root,
+                           packaged_web_root.has_value()
+                               ? std::optional<std::filesystem::path>(*packaged_web_root / "host-admin")
+                               : std::nullopt,
+                           development_roots, relative_path);
 
   for (const auto& candidate : candidates) {
     if (const auto file = ReadFile(candidate); file.has_value()) {
@@ -222,17 +294,19 @@ auto LoadHostUiAsset(const std::string_view relative_path) -> std::optional<std:
 
 auto LoadRemoteUiAsset(const std::string_view relative_path) -> std::optional<std::string> {
   const auto cwd = std::filesystem::current_path();
-  const std::vector<std::filesystem::path> candidates = {
-      cwd / "deprecated" / "web" / "remote_client" / relative_path,
-      cwd.parent_path() / "deprecated" / "web" / "remote_client" / relative_path,
-      cwd.parent_path().parent_path() / "deprecated" / "web" / "remote_client" / relative_path,
-      cwd / "web" / "remote_client" / relative_path,
-      cwd.parent_path() / "web" / "remote_client" / relative_path,
-      cwd.parent_path().parent_path() / "web" / "remote_client" / relative_path,
-      cwd / "tests_smoke" / "websocket_terminal.html",
-      cwd.parent_path() / "tests_smoke" / "websocket_terminal.html",
-      cwd.parent_path().parent_path() / "tests_smoke" / "websocket_terminal.html",
+  const auto packaged_web_root = ResolvePackagedWebRoot();
+  const auto explicit_root = EnvPath("SENTRITS_REMOTE_UI_ROOT");
+  const std::vector<std::filesystem::path> development_roots = {
+      cwd / "web" / "remote_client",
+      cwd.parent_path() / "web" / "remote_client",
+      cwd.parent_path().parent_path() / "web" / "remote_client",
   };
+  auto candidates = BuildAssetCandidates(
+      explicit_root,
+      packaged_web_root.has_value()
+          ? std::optional<std::filesystem::path>(*packaged_web_root / "remote-client")
+          : std::nullopt,
+      development_roots, relative_path);
 
   for (const auto& candidate : candidates) {
     if (const auto file = ReadFile(candidate); file.has_value()) {
@@ -245,11 +319,19 @@ auto LoadRemoteUiAsset(const std::string_view relative_path) -> std::optional<st
 
 auto LoadVendorAsset(const std::string_view relative_path) -> std::optional<std::string> {
   const auto cwd = std::filesystem::current_path();
-  const std::vector<std::filesystem::path> candidates = {
-      cwd / "web" / "vendor" / relative_path,
-      cwd.parent_path() / "web" / "vendor" / relative_path,
-      cwd.parent_path().parent_path() / "web" / "vendor" / relative_path,
+  const auto packaged_web_root = ResolvePackagedWebRoot();
+  const auto explicit_root = EnvPath("SENTRITS_VENDOR_ROOT");
+  const std::vector<std::filesystem::path> development_roots = {
+      cwd / "web" / "vendor",
+      cwd.parent_path() / "web" / "vendor",
+      cwd.parent_path().parent_path() / "web" / "vendor",
   };
+  const std::vector<std::filesystem::path> candidates =
+      BuildAssetCandidates(explicit_root,
+                           packaged_web_root.has_value()
+                               ? std::optional<std::filesystem::path>(*packaged_web_root / "vendor")
+                               : std::nullopt,
+                           development_roots, relative_path);
 
   for (const auto& candidate : candidates) {
     if (const auto file = ReadFile(candidate); file.has_value()) {

@@ -175,3 +175,8 @@ Sentrits is **not** currently trying to solve:
 - `development_memo/api_and_event_schema.md`
 - `development_memo/mvp_checklist.md`
 - `development_memo/known_limitations.md`
+
+Packaging/bootstrap note:
+
+- `sentrits service print` shows the user-scoped service definition for the current platform
+- `sentrits service install` writes that service file into the current user's home directory

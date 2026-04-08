@@ -1,5 +1,7 @@
 #include <csignal>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <pthread.h>
@@ -16,6 +18,10 @@
 
 #include <boost/json.hpp>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #include "vibe/cli/daemon_client.h"
 #include "vibe/net/http_server.h"
 #include "vibe/net/local_auth.h"
@@ -29,6 +35,10 @@
 namespace {
 
 namespace json = boost::json;
+
+#ifndef SENTRITS_DEFAULT_PACKAGED_WEB_ROOT
+#define SENTRITS_DEFAULT_PACKAGED_WEB_ROOT ""
+#endif
 
 volatile sig_atomic_t g_local_terminal_resize_pending = 0;
 
@@ -288,12 +298,219 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
   }
 }
 
+auto HomeDirectory() -> std::optional<std::filesystem::path> {
+  if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+    return std::filesystem::path(home);
+  }
+  return std::nullopt;
+}
+
+auto ResolveExecutablePath() -> std::optional<std::filesystem::path> {
+#ifdef __APPLE__
+  uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  if (size == 0) {
+    return std::nullopt;
+  }
+  std::string buffer(size, '\0');
+  if (_NSGetExecutablePath(buffer.data(), &size) != 0) {
+    return std::nullopt;
+  }
+  return std::filesystem::weakly_canonical(std::filesystem::path(buffer.c_str()));
+#else
+  std::vector<char> buffer(1024);
+  while (true) {
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size());
+    if (length < 0) {
+      return std::nullopt;
+    }
+    if (static_cast<std::size_t>(length) < buffer.size()) {
+      return std::filesystem::weakly_canonical(
+          std::filesystem::path(std::string(buffer.data(), static_cast<std::size_t>(length))));
+    }
+    buffer.resize(buffer.size() * 2U);
+  }
+#endif
+}
+
+auto ResolvePackagedWebRootForServices() -> std::filesystem::path {
+  if (const char* web_root = std::getenv("SENTRITS_WEB_ROOT"); web_root != nullptr && *web_root != '\0') {
+    return std::filesystem::path(web_root);
+  }
+
+  constexpr std::string_view compiled_root = SENTRITS_DEFAULT_PACKAGED_WEB_ROOT;
+  if (!compiled_root.empty()) {
+    return std::filesystem::path(compiled_root);
+  }
+
+  return std::filesystem::path();
+}
+
+#ifdef __APPLE__
+auto EscapeLaunchdString(const std::string& value) -> std::string {
+  std::string escaped;
+  escaped.reserve(value.size());
+  for (const char ch : value) {
+    switch (ch) {
+      case '&':
+        escaped += "&amp;";
+        break;
+      case '<':
+        escaped += "&lt;";
+        break;
+      case '>':
+        escaped += "&gt;";
+        break;
+      default:
+        escaped.push_back(ch);
+        break;
+    }
+  }
+  return escaped;
+}
+
+auto BuildLaunchdAgentContent(const std::filesystem::path& executable_path,
+                              const std::filesystem::path& web_root) -> std::string {
+  std::ostringstream output;
+  output << R"(<?xml version="1.0" encoding="UTF-8"?>)"
+         << "\n"
+         << R"(<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">)"
+         << "\n"
+         << R"(<plist version="1.0">)"
+         << "\n"
+         << "<dict>\n"
+         << "  <key>Label</key>\n"
+         << "  <string>io.sentrits.agent</string>\n"
+         << "  <key>ProgramArguments</key>\n"
+         << "  <array>\n"
+         << "    <string>" << EscapeLaunchdString(executable_path.string()) << "</string>\n"
+         << "    <string>serve</string>\n"
+         << "    <string>--admin-host</string>\n"
+         << "    <string>127.0.0.1</string>\n"
+         << "  </array>\n"
+         << "  <key>EnvironmentVariables</key>\n"
+         << "  <dict>\n"
+         << "    <key>SENTRITS_WEB_ROOT</key>\n"
+         << "    <string>" << EscapeLaunchdString(web_root.string()) << "</string>\n"
+         << "  </dict>\n"
+         << "  <key>KeepAlive</key>\n"
+         << "  <true/>\n"
+         << "  <key>RunAtLoad</key>\n"
+         << "  <true/>\n"
+         << "  <key>ProcessType</key>\n"
+         << "  <string>Interactive</string>\n"
+         << "</dict>\n"
+         << "</plist>\n";
+  return output.str();
+}
+#endif
+
+auto BuildSystemdUserUnitContent(const std::filesystem::path& executable_path,
+                                 const std::filesystem::path& web_root) -> std::string {
+  std::ostringstream output;
+  output << "[Unit]\n"
+         << "Description=Sentrits user session daemon\n"
+         << "After=default.target\n\n"
+         << "[Service]\n"
+         << "Type=simple\n"
+         << "ExecStart=" << executable_path.string() << " serve --admin-host 127.0.0.1\n"
+         << "Restart=on-failure\n"
+         << "RestartSec=2\n";
+  if (!web_root.empty()) {
+    output << "Environment=SENTRITS_WEB_ROOT=" << web_root.string() << "\n";
+  }
+  output << "\n[Install]\n"
+         << "WantedBy=default.target\n";
+  return output.str();
+}
+
+auto WriteFileWithParents(const std::filesystem::path& path, const std::string& content) -> bool {
+  std::error_code error;
+  std::filesystem::create_directories(path.parent_path(), error);
+  if (error) {
+    return false;
+  }
+
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output.is_open()) {
+    return false;
+  }
+
+  output << content;
+  return output.good();
+}
+
+void PrintServiceUsage() {
+  std::cout << "Usage:\n"
+            << "  sentrits service install\n"
+            << "  sentrits service print\n";
+}
+
+auto HandleServiceCommand(const int argc, char** argv) -> int {
+  if (argc < 3) {
+    PrintServiceUsage();
+    return 1;
+  }
+
+  const std::string action = argv[2];
+  const auto executable_path = ResolveExecutablePath();
+  if (!executable_path.has_value()) {
+    std::cerr << "failed to resolve sentrits executable path\n";
+    return 1;
+  }
+
+  const auto home = HomeDirectory();
+  if (!home.has_value()) {
+    std::cerr << "HOME is not set\n";
+    return 1;
+  }
+
+  const std::filesystem::path web_root = ResolvePackagedWebRootForServices();
+#ifdef __APPLE__
+  const std::filesystem::path service_path = *home / "Library" / "LaunchAgents" / "io.sentrits.agent.plist";
+  const std::string content = BuildLaunchdAgentContent(*executable_path, web_root);
+#else
+  const std::filesystem::path service_path =
+      *home / ".config" / "systemd" / "user" / "sentrits.service";
+  const std::string content = BuildSystemdUserUnitContent(*executable_path, web_root);
+#endif
+
+  if (action == "print") {
+    std::cout << "# path: " << service_path.string() << "\n" << content;
+    return 0;
+  }
+
+  if (action != "install") {
+    PrintServiceUsage();
+    return 1;
+  }
+
+  if (!WriteFileWithParents(service_path, content)) {
+    std::cerr << "failed to write service file: " << service_path.string() << "\n";
+    return 1;
+  }
+
+  std::cout << "installed service file: " << service_path.string() << "\n";
+#ifdef __APPLE__
+  std::cout << "next:\n"
+            << "  launchctl unload " << service_path.string() << " 2>/dev/null || true\n"
+            << "  launchctl load " << service_path.string() << "\n";
+#else
+  std::cout << "next:\n"
+            << "  systemctl --user daemon-reload\n"
+            << "  systemctl --user enable sentrits.service\n"
+            << "  systemctl --user start sentrits.service\n";
+#endif
+  return 0;
+}
+
 void PrintUsage() {
   std::cout << "Usage:\n"
             << "  sentrits serve [--admin-host HOST] [--admin-port PORT]"
                " [--remote-host HOST] [--remote-port PORT]"
                " [--remote-cert PATH] [--remote-key PATH]"
                " [--no-udp-discovery|--no-discovery]\n"
+            << "  sentrits service install|print\n"
             << "  sentrits local-pty [command [args...]]\n"
             << "  sentrits session list [--host HOST] [--port PORT] [--json]\n"
             << "  sentrits session show [--host HOST] [--port PORT] [--json] <session-id>\n"
@@ -306,8 +523,7 @@ void PrintUsage() {
             << "\nCompatibility aliases:\n"
             << "  sentrits list\n"
             << "  sentrits session-start\n"
-            << "  sentrits session-attach\n"
-            << "  vibe-hostd ...\n";
+            << "  sentrits session-attach\n";
 }
 
 auto LoadConfiguredAdminEndpoint() -> vibe::cli::DaemonEndpoint {
@@ -468,6 +684,10 @@ auto ParseCommandOptions(const int argc, char** argv, int start_index,
 }  // namespace
 
 auto main(const int argc, char** argv) -> int {
+  if (argc >= 2 && std::string(argv[1]) == "service") {
+    return HandleServiceCommand(argc, argv);
+  }
+
   if (argc >= 2 && std::string(argv[1]) == "serve") {
     std::string admin_host = std::string(vibe::store::kDefaultAdminHost);
     std::uint16_t admin_port = vibe::store::kDefaultAdminPort;
