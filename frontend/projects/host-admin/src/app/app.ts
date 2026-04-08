@@ -321,7 +321,7 @@ export class App implements OnInit, OnDestroy {
 
   async copyCliCommand(sessionId: string): Promise<void> {
     const command =
-      `./build/vibe-hostd session-attach --host ${this.hostConfig.adminHost} ` +
+      `./build/sentrits session-attach --host ${this.hostConfig.adminHost} ` +
       `--port ${this.hostConfig.adminPort} ${sessionId}`;
     await this.copyText(command, `copied attach command for ${sessionId}`);
   }
