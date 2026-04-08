@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.sentrits.agent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@SENTRITS_BIN@</string>
+    <string>serve</string>
+    <string>--admin-host</string>
+    <string>127.0.0.1</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SENTRITS_WEB_ROOT</key>
+    <string>@SENTRITS_WEB_ROOT@</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>
