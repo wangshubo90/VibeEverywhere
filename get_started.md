@@ -54,45 +54,6 @@ Linux note:
 - the PTY runtime depends on standard PTY headers and `libutil`
 - if your distro splits PTY development headers from the base libc toolchain, install the corresponding development package before configuring
 
-## Debian Package
-
-The current Linux packaging path builds a `.deb` from this repo and stages the maintained remote client from the neighboring `../Sentrits-Web` checkout.
-
-Prerequisites:
-
-- `../Sentrits-Web` exists beside this repo
-- that checkout is on `main`
-- its production assets are built into `dist/`
-
-Build the maintained web client bundle:
-
-```bash
-cd ../Sentrits-Web
-npm install
-npm run build
-cd ../core-packaging
-```
-
-Configure the runtime build:
-
-```bash
-cmake -S . -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
-  -DCMAKE_C_COMPILER=clang \
-  -DCMAKE_CXX_COMPILER=clang++
-```
-
-Build the Debian package:
-
-```bash
-cmake --build build --target sentrits_package_deb
-```
-
-Expected package artifact:
-
-- `build/sentrits_0.1.0_amd64.deb`
-
 ## Test
 
 Run the full registered test suite:
@@ -183,19 +144,66 @@ Current commonly used commands:
 ./build/sentrits session clear-inactive
 ```
 
-## Host Admin UI
+## Debian Package
 
-Open the host-local admin surface:
+The current Linux packaging path builds a `.deb` from this repo and stages the maintained browser remote client from the neighboring `../Sentrits-Web` checkout.
 
-- `http://127.0.0.1:18085/`
+Prerequisites:
 
-Use it for:
+- `../Sentrits-Web` exists beside this repo
+- that checkout is on `main`
+- its production assets are built into `dist/`
 
-- pairing approval
-- trusted device management
-- host configuration
-- session creation and cleanup
-- session and client supervision
+Build the maintained web client bundle:
+
+```bash
+cd ../Sentrits-Web
+npm install
+npm run build
+cd ../core-packaging
+```
+
+Configure the runtime build:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=TRUE \
+  -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++
+```
+
+Build the Debian package:
+
+```bash
+cmake --build build --target sentrits_package_deb
+```
+
+Expected package artifact:
+
+- `build/sentrits_0.1.0_amd64.deb`
+
+## Debian Package Contents
+
+The Debian package installs:
+
+- binary: `/usr/bin/sentrits`
+- packaged web assets: `/usr/lib/sentrits/www`
+- user unit template: `/usr/lib/systemd/user/sentrits.service`
+
+Packaged web UI layout:
+
+- host admin UI: `/usr/lib/sentrits/www/host-admin`
+- maintained browser remote client: `/usr/lib/sentrits/www/remote-client`
+- staged web revision marker: `/usr/lib/sentrits/www/_metadata/sentrits-web-revision.txt`
+
+Runtime serving model after install:
+
+- host-local admin UI is served on the admin listener:
+  - `http://127.0.0.1:18085/`
+- remote browser client is served on the remote listener:
+  - `http://HOST_IP:18086/`
+  - `http://HOST_IP:18086/remote`
 
 ## Debian Install
 
@@ -214,12 +222,6 @@ systemctl --user enable sentrits.service
 systemctl --user start sentrits.service
 ```
 
-What this installs:
-
-- binary: `/usr/bin/sentrits`
-- packaged web assets: `/usr/lib/sentrits/www`
-- user unit template: `/usr/lib/systemd/user/sentrits.service`
-
 ## Debian Smoke Test
 
 Check binary and service state:
@@ -234,11 +236,14 @@ Check local daemon reachability:
 ```bash
 curl http://127.0.0.1:18085/health
 curl http://127.0.0.1:18085/host/info
+curl http://127.0.0.1:18085/
 ```
 
-Check the packaged web revision:
+Check the packaged web client and packaged web revision:
 
 ```bash
+curl http://127.0.0.1:18086/
+curl http://127.0.0.1:18086/remote
 cat /usr/lib/sentrits/www/_metadata/sentrits-web-revision.txt
 ```
 
@@ -247,6 +252,20 @@ Optional package inventory check:
 ```bash
 dpkg -L sentrits
 ```
+
+## Host Admin UI
+
+Open the host-local admin surface:
+
+- `http://127.0.0.1:18085/`
+
+Use it for:
+
+- pairing approval
+- trusted device management
+- host configuration
+- session creation and cleanup
+- session and client supervision
 
 ## Remote Clients
 
