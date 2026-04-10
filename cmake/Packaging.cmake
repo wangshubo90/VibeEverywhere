@@ -11,8 +11,13 @@ function(sentrits_configure_packaging)
   file(MAKE_DIRECTORY "${SENTRITS_GENERATED_MACOS_DIR}")
   file(MAKE_DIRECTORY "${SENTRITS_GENERATED_SYSTEMD_DIR}")
 
-  set(SENTRITS_BIN "${CMAKE_INSTALL_FULL_BINDIR}/sentrits")
-  set(SENTRITS_WEB_ROOT "${SENTRITS_PACKAGED_WEB_ROOT}")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(SENTRITS_BIN "/usr/bin/sentrits")
+    set(SENTRITS_WEB_ROOT "/usr/${CMAKE_INSTALL_LIBDIR}/sentrits/www")
+  else()
+    set(SENTRITS_BIN "${CMAKE_INSTALL_FULL_BINDIR}/sentrits")
+    set(SENTRITS_WEB_ROOT "${SENTRITS_PACKAGED_WEB_ROOT}")
+  endif()
 
   configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/packaging/macos/io.sentrits.agent.plist.in"
@@ -49,7 +54,7 @@ function(sentrits_configure_packaging)
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SENTRITS_STAGED_WEB_ROOT}/host-admin"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SENTRITS_STAGED_WEB_ROOT}/vendor"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/deprecated/web/host_ui"
+            "${CMAKE_CURRENT_SOURCE_DIR}/frontend/dist/host-admin/browser"
             "${SENTRITS_STAGED_WEB_ROOT}/host-admin"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/web/vendor"
