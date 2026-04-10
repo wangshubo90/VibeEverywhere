@@ -1033,6 +1033,14 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
   FakeAuthorizer authorizer;
   FakePairingService pairing_service;
   FakeHostConfigStore host_config_store;
+  const auto temp_dir = MakeTempDir("sentrits-http-shared-remote-ui");
+  WriteTextFile(temp_dir / "remote-client" / "index.html",
+                R"(<html><head><script type="module" src="/assets/index-test.js"></script><link rel="stylesheet" href="/assets/index-test.css"></head><body>Remote Client</body></html>)");
+  WriteTextFile(temp_dir / "remote-client" / "assets" / "index-test.css", ".terminal-shell{display:grid;}");
+  WriteTextFile(temp_dir / "remote-client" / "assets" / "index-test.js",
+                "console.log('loadSelectedSnapshot');");
+  WriteTextFile(temp_dir / "vendor" / "xterm" / "xterm.js", "const Terminal = function() {};");
+  ScopedEnvVar web_root("SENTRITS_WEB_ROOT", temp_dir.string());
 
   HttpRequest request;
   request.method(http::verb::get);
@@ -1049,7 +1057,7 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
 
   HttpRequest stylesheet_request;
   stylesheet_request.method(http::verb::get);
-  stylesheet_request.target("/remote/app.css");
+  stylesheet_request.target("/assets/index-test.css");
   stylesheet_request.version(11);
   const HttpResponse stylesheet_response = HandleRequest(
       stylesheet_request, session_manager,
@@ -1061,7 +1069,7 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
 
   HttpRequest script_request;
   script_request.method(http::verb::get);
-  script_request.target("/remote/app.js");
+  script_request.target("/assets/index-test.js");
   script_request.version(11);
   const HttpResponse script_response = HandleRequest(
       script_request, session_manager,
@@ -1082,6 +1090,8 @@ TEST(HttpSharedTest, ServesRemoteClientUiFromRemoteListener) {
   EXPECT_EQ(vendor_script_response.result(), http::status::ok);
   EXPECT_EQ(vendor_script_response[http::field::content_type], "application/javascript; charset=utf-8");
   EXPECT_NE(vendor_script_response.body().find("Terminal"), std::string::npos);
+
+  std::filesystem::remove_all(temp_dir);
 }
 
 TEST(HttpSharedTest, ServesPackagedAssetsFromPackagedWebRoot) {
@@ -1091,7 +1101,9 @@ TEST(HttpSharedTest, ServesPackagedAssetsFromPackagedWebRoot) {
   FakeHostConfigStore host_config_store;
   const auto temp_dir = MakeTempDir("sentrits-http-shared-packaged-web-root");
   WriteTextFile(temp_dir / "host-admin" / "index.html", "<html>Packaged Host Admin</html>");
+  WriteTextFile(temp_dir / "host-admin" / "main-test.js", "console.log('host-admin');");
   WriteTextFile(temp_dir / "remote-client" / "index.html", "<html>Packaged Remote Client</html>");
+  WriteTextFile(temp_dir / "remote-client" / "assets" / "index-test.js", "console.log('remote-client');");
   WriteTextFile(temp_dir / "vendor" / "xterm" / "xterm.css", ".xterm{color:red;}");
   ScopedEnvVar web_root("SENTRITS_WEB_ROOT", temp_dir.string());
 
@@ -1105,6 +1117,17 @@ TEST(HttpSharedTest, ServesPackagedAssetsFromPackagedWebRoot) {
   EXPECT_EQ(admin_response.result(), http::status::ok);
   EXPECT_NE(admin_response.body().find("Packaged Host Admin"), std::string::npos);
 
+  HttpRequest admin_script_request;
+  admin_script_request.method(http::verb::get);
+  admin_script_request.target("/main-test.js");
+  admin_script_request.version(11);
+  const HttpResponse admin_script_response =
+      HandleRequest(admin_script_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(admin_script_response.result(), http::status::ok);
+  EXPECT_EQ(admin_script_response[http::field::content_type], "application/javascript; charset=utf-8");
+  EXPECT_NE(admin_script_response.body().find("host-admin"), std::string::npos);
+
   HttpRequest remote_request;
   remote_request.method(http::verb::get);
   remote_request.target("/");
@@ -1115,6 +1138,18 @@ TEST(HttpSharedTest, ServesPackagedAssetsFromPackagedWebRoot) {
                       ListenerRole::RemoteClient));
   EXPECT_EQ(remote_response.result(), http::status::ok);
   EXPECT_NE(remote_response.body().find("Packaged Remote Client"), std::string::npos);
+
+  HttpRequest remote_asset_request;
+  remote_asset_request.method(http::verb::get);
+  remote_asset_request.target("/assets/index-test.js");
+  remote_asset_request.version(11);
+  const HttpResponse remote_asset_response = HandleRequest(
+      remote_asset_request, session_manager,
+      MakeAuthContext(authorizer, pairing_service, host_config_store, nullptr, nullptr,
+                      ListenerRole::RemoteClient));
+  EXPECT_EQ(remote_asset_response.result(), http::status::ok);
+  EXPECT_EQ(remote_asset_response[http::field::content_type], "application/javascript; charset=utf-8");
+  EXPECT_NE(remote_asset_response.body().find("remote-client"), std::string::npos);
 
   HttpRequest vendor_request;
   vendor_request.method(http::verb::get);

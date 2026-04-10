@@ -30,6 +30,8 @@ namespace json = boost::json;
 #endif
 
 auto MakeJsonResponse(const HttpRequest& request, http::status status, std::string body) -> HttpResponse;
+auto MakeTextResponse(const HttpRequest& request, http::status status, std::string_view content_type,
+                      std::string body) -> HttpResponse;
 
 auto EnvPath(const char* name) -> std::optional<std::filesystem::path> {
   const char* value = std::getenv(name);
@@ -269,6 +271,9 @@ auto LoadHostUiAsset(const std::string_view relative_path) -> std::optional<std:
   const auto packaged_web_root = ResolvePackagedWebRoot();
   const auto explicit_root = EnvPath("SENTRITS_HOST_UI_ROOT");
   const std::vector<std::filesystem::path> development_roots = {
+      cwd / "frontend" / "dist" / "host-admin" / "browser",
+      cwd.parent_path() / "frontend" / "dist" / "host-admin" / "browser",
+      cwd.parent_path().parent_path() / "frontend" / "dist" / "host-admin" / "browser",
       cwd / "deprecated" / "web" / "host_ui",
       cwd.parent_path() / "deprecated" / "web" / "host_ui",
       cwd.parent_path().parent_path() / "deprecated" / "web" / "host_ui",
@@ -340,6 +345,54 @@ auto LoadVendorAsset(const std::string_view relative_path) -> std::optional<std:
   }
 
   return std::nullopt;
+}
+
+auto StripQueryString(const std::string_view target) -> std::string_view {
+  const auto query_index = target.find('?');
+  return query_index == std::string_view::npos ? target : target.substr(0, query_index);
+}
+
+auto IsUiStaticAssetPath(const std::string_view path) -> bool {
+  const auto filename_index = path.find_last_of('/');
+  const auto filename = filename_index == std::string_view::npos ? path : path.substr(filename_index + 1);
+  return filename.find('.') != std::string_view::npos;
+}
+
+auto GuessContentType(const std::string_view path) -> std::string_view {
+  const auto extension = std::filesystem::path(path).extension().string();
+  if (extension == ".css") {
+    return "text/css; charset=utf-8";
+  }
+  if (extension == ".js" || extension == ".mjs") {
+    return "application/javascript; charset=utf-8";
+  }
+  if (extension == ".html") {
+    return "text/html; charset=utf-8";
+  }
+  if (extension == ".json") {
+    return "application/json; charset=utf-8";
+  }
+  if (extension == ".png") {
+    return "image/png";
+  }
+  if (extension == ".ico") {
+    return "image/x-icon";
+  }
+  if (extension == ".svg") {
+    return "image/svg+xml";
+  }
+  if (extension == ".map") {
+    return "application/json; charset=utf-8";
+  }
+  return "application/octet-stream";
+}
+
+auto MakeStaticAssetResponse(const HttpRequest& request, const std::string_view asset_path,
+                             const std::optional<std::string>& asset) -> HttpResponse {
+  if (!asset.has_value()) {
+    return MakeJsonResponse(request, http::status::service_unavailable, "{\"error\":\"ui asset missing\"}");
+  }
+  return MakeTextResponse(request, http::status::ok, GuessContentType(asset_path), *asset);
 }
 
 auto MakeRandomHexToken(const std::size_t bytes) -> std::string {
@@ -776,6 +829,9 @@ auto MakeSessionGroupTagsResponse(const vibe::service::SessionSummary& summary) 
 
 auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& session_manager,
                    const HttpRouteContext& context) -> HttpResponse {
+  const std::string target_string = std::string(request.target());
+  const std::string_view target_path = StripQueryString(target_string);
+
   if (request.method() == http::verb::options) {
     return MakeTextResponse(request, http::status::no_content, "application/json; charset=utf-8", "");
   }
@@ -784,7 +840,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/plain; charset=utf-8", "ok\n");
   }
 
-  if (request.method() == http::verb::get && request.target() == "/") {
+  if (request.method() == http::verb::get && target_path == "/") {
     const auto asset = context.listener_role == ListenerRole::AdminLocal
                            ? LoadHostUiAsset("index.html")
                            : LoadRemoteUiAsset("index.html");
@@ -799,7 +855,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/ui") {
+  if (request.method() == http::verb::get && target_path == "/ui") {
     if (context.listener_role != ListenerRole::AdminLocal) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -814,8 +870,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get &&
-      (request.target() == "/client" || request.target() == "/remote")) {
+  if (request.method() == http::verb::get && (target_path == "/client" || target_path == "/remote")) {
     if (context.listener_role != ListenerRole::RemoteClient) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -827,7 +882,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/remote/app.js") {
+  if (request.method() == http::verb::get && target_path == "/remote/app.js") {
     if (context.listener_role != ListenerRole::RemoteClient) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -839,7 +894,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/remote/app.css") {
+  if (request.method() == http::verb::get && target_path == "/remote/app.css") {
     if (context.listener_role != ListenerRole::RemoteClient) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -851,7 +906,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/assets/xterm/xterm.css") {
+  if (request.method() == http::verb::get && target_path == "/assets/xterm/xterm.css") {
     const auto asset = LoadVendorAsset("xterm/xterm.css");
     if (!asset.has_value()) {
       return MakeJsonResponse(request, http::status::service_unavailable,
@@ -860,7 +915,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/assets/xterm/xterm.js") {
+  if (request.method() == http::verb::get && target_path == "/assets/xterm/xterm.js") {
     const auto asset = LoadVendorAsset("xterm/xterm.js");
     if (!asset.has_value()) {
       return MakeJsonResponse(request, http::status::service_unavailable,
@@ -869,7 +924,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/assets/xterm/addon-fit.js") {
+  if (request.method() == http::verb::get && target_path == "/assets/xterm/addon-fit.js") {
     const auto asset = LoadVendorAsset("xterm/addon-fit.js");
     if (!asset.has_value()) {
       return MakeJsonResponse(request, http::status::service_unavailable,
@@ -878,10 +933,28 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
   }
 
-  const std::string target_string = std::string(request.target());
+  if (request.method() == http::verb::get && context.listener_role == ListenerRole::RemoteClient &&
+      target_path.rfind("/assets/", 0) == 0) {
+    const auto relative_path = std::string(target_path.substr(1));
+    if (const auto asset = LoadRemoteUiAsset(relative_path); asset.has_value()) {
+      return MakeStaticAssetResponse(request, relative_path, asset);
+    }
+    const auto vendor_relative_path = std::string(target_path.substr(std::string_view("/assets/").size()));
+    return MakeStaticAssetResponse(request, relative_path, LoadVendorAsset(vendor_relative_path));
+  }
+
+  if (request.method() == http::verb::get && context.listener_role == ListenerRole::AdminLocal &&
+      target_path != "/" && target_path != "/ui" && IsUiStaticAssetPath(target_path)) {
+    if (const auto auth_response = RequireLocalHostAdmin(request, context); auth_response.has_value()) {
+      return *auth_response;
+    }
+    const std::string asset_relative_path =
+        target_path.rfind("/ui/", 0) == 0 ? std::string(target_path.substr(4)) : std::string(target_path.substr(1));
+    return MakeStaticAssetResponse(request, asset_relative_path, LoadHostUiAsset(asset_relative_path));
+  }
 
   if (request.method() == http::verb::get &&
-      (target_string == "/ui/terminal" || target_string.rfind("/ui/terminal?", 0) == 0)) {
+      (target_path == "/ui/terminal" || target_string.rfind("/ui/terminal?", 0) == 0)) {
     if (context.listener_role != ListenerRole::AdminLocal) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -896,7 +969,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/html; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/ui/app.js") {
+  if (request.method() == http::verb::get && target_path == "/ui/app.js") {
     if (context.listener_role != ListenerRole::AdminLocal) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -911,7 +984,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "application/javascript; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/ui/app.css") {
+  if (request.method() == http::verb::get && target_path == "/ui/app.css") {
     if (context.listener_role != ListenerRole::AdminLocal) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
@@ -926,7 +999,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeTextResponse(request, http::status::ok, "text/css; charset=utf-8", *asset);
   }
 
-  if (request.method() == http::verb::get && request.target() == "/ui/terminal.js") {
+  if (request.method() == http::verb::get && target_path == "/ui/terminal.js") {
     if (context.listener_role != ListenerRole::AdminLocal) {
       return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
     }
