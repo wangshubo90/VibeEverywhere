@@ -16,7 +16,7 @@ if(DEFINED VIBE_BUILD_TESTS AND NOT DEFINED SENTRITS_BUILD_TESTS)
 endif()
 
 option(SENTRITS_BUILD_TESTS "Build automated tests" ON)
-set(SENTRITS_PACKAGED_WEB_ROOT "${CMAKE_INSTALL_FULL_LIBDIR}/sentrits/www" CACHE PATH
+set(SENTRITS_PACKAGED_WEB_ROOT "/${CMAKE_INSTALL_LIBDIR}/sentrits/www" CACHE PATH
     "Default packaged web asset root used by the runtime")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
