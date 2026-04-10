@@ -422,6 +422,7 @@ auto BuildLaunchdAgentContent(const std::filesystem::path& executable_path,
 }
 #endif
 
+#ifndef __APPLE__
 auto BuildSystemdUserUnitContent(const std::filesystem::path& executable_path,
                                  const std::filesystem::path& web_root) -> std::string {
   std::ostringstream output;
@@ -441,6 +442,7 @@ auto BuildSystemdUserUnitContent(const std::filesystem::path& executable_path,
          << "WantedBy=default.target\n";
   return output.str();
 }
+#endif
 
 auto WriteFileWithParents(const std::filesystem::path& path, const std::string& content) -> bool {
   std::error_code error;

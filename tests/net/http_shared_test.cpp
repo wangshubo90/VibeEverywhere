@@ -878,7 +878,8 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(ui_response.result(), http::status::ok);
   EXPECT_EQ(ui_response[http::field::content_type], "text/html; charset=utf-8");
-  EXPECT_NE(ui_response.body().find("Host Admin"), std::string::npos);
+  EXPECT_NE(ui_response.body().find("<app-root>"), std::string::npos);
+  EXPECT_NE(ui_response.body().find("HostAdmin"), std::string::npos);
 
   HttpRequest root_ui_request;
   root_ui_request.method(http::verb::get);
@@ -890,7 +891,8 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin, &pairing_store));
   EXPECT_EQ(root_ui_response.result(), http::status::ok);
   EXPECT_EQ(root_ui_response[http::field::content_type], "text/html; charset=utf-8");
-  EXPECT_NE(root_ui_response.body().find("Host Admin"), std::string::npos);
+  EXPECT_NE(root_ui_response.body().find("<app-root>"), std::string::npos);
+  EXPECT_NE(root_ui_response.body().find("HostAdmin"), std::string::npos);
 
   HttpRequest terminal_ui_request;
   terminal_ui_request.method(http::verb::get);
