@@ -4,7 +4,7 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=@SENTRITS_BIN@ serve --admin-host 127.0.0.1
+ExecStart=@SENTRITS_BIN@ serve --admin-host 127.0.0.1 --remote-host 0.0.0.0
 Restart=on-failure
 RestartSec=2
 Environment=SENTRITS_WEB_ROOT=@SENTRITS_WEB_ROOT@

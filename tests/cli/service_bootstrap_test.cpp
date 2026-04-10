@@ -104,7 +104,7 @@ TEST(ServiceBootstrapTest, PrintEmitsPlatformServiceDefinition) {
   EXPECT_NE(result.output.find("# path: " + (home_dir / ".config" / "systemd" / "user" / "sentrits.service").string()),
             std::string::npos);
   EXPECT_NE(result.output.find("ExecStart="), std::string::npos);
-  EXPECT_NE(result.output.find("serve --admin-host 127.0.0.1"), std::string::npos);
+  EXPECT_NE(result.output.find("serve --admin-host 127.0.0.1 --remote-host 0.0.0.0"), std::string::npos);
   EXPECT_NE(result.output.find("Environment=SENTRITS_WEB_ROOT=/tmp/sentrits-test-www"), std::string::npos);
 #endif
 
@@ -123,6 +123,8 @@ TEST(ServiceBootstrapTest, InstallWritesServiceFileUnderUserHome) {
   ASSERT_TRUE(std::filesystem::exists(service_path));
   const std::string content = ReadFile(service_path);
   EXPECT_NE(content.find("<string>io.sentrits.agent</string>"), std::string::npos);
+  EXPECT_NE(content.find("<string>--remote-host</string>"), std::string::npos);
+  EXPECT_NE(content.find("<string>0.0.0.0</string>"), std::string::npos);
   EXPECT_NE(content.find("/tmp/sentrits-install-www"), std::string::npos);
   EXPECT_NE(result.output.find("launchctl load"), std::string::npos);
 #else
@@ -130,6 +132,7 @@ TEST(ServiceBootstrapTest, InstallWritesServiceFileUnderUserHome) {
   ASSERT_TRUE(std::filesystem::exists(service_path));
   const std::string content = ReadFile(service_path);
   EXPECT_NE(content.find("Description=Sentrits user session daemon"), std::string::npos);
+  EXPECT_NE(content.find("serve --admin-host 127.0.0.1 --remote-host 0.0.0.0"), std::string::npos);
   EXPECT_NE(content.find("Environment=SENTRITS_WEB_ROOT=/tmp/sentrits-install-www"), std::string::npos);
   EXPECT_NE(result.output.find("systemctl --user daemon-reload"), std::string::npos);
 #endif

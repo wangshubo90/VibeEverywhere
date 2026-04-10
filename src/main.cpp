@@ -333,9 +333,24 @@ auto ResolveExecutablePath() -> std::optional<std::filesystem::path> {
 #endif
 }
 
+auto ResolveSiblingPackagedWebRoot(const std::filesystem::path& executable_path) -> std::filesystem::path {
+#ifdef __APPLE__
+  return executable_path.parent_path() / ".." / "lib" / "sentrits" / "www";
+#else
+  return executable_path.parent_path() / ".." / "lib" / "sentrits" / "www";
+#endif
+}
+
 auto ResolvePackagedWebRootForServices() -> std::filesystem::path {
   if (const char* web_root = std::getenv("SENTRITS_WEB_ROOT"); web_root != nullptr && *web_root != '\0') {
     return std::filesystem::path(web_root);
+  }
+
+  if (const auto executable_path = ResolveExecutablePath(); executable_path.has_value()) {
+    const auto sibling_root = ResolveSiblingPackagedWebRoot(*executable_path).lexically_normal();
+    if (std::filesystem::exists(sibling_root)) {
+      return sibling_root;
+    }
   }
 
   constexpr std::string_view compiled_root = SENTRITS_DEFAULT_PACKAGED_WEB_ROOT;
@@ -387,6 +402,8 @@ auto BuildLaunchdAgentContent(const std::filesystem::path& executable_path,
          << "    <string>serve</string>\n"
          << "    <string>--admin-host</string>\n"
          << "    <string>127.0.0.1</string>\n"
+         << "    <string>--remote-host</string>\n"
+         << "    <string>0.0.0.0</string>\n"
          << "  </array>\n"
          << "  <key>EnvironmentVariables</key>\n"
          << "  <dict>\n"
@@ -413,7 +430,8 @@ auto BuildSystemdUserUnitContent(const std::filesystem::path& executable_path,
          << "After=default.target\n\n"
          << "[Service]\n"
          << "Type=simple\n"
-         << "ExecStart=" << executable_path.string() << " serve --admin-host 127.0.0.1\n"
+         << "ExecStart=" << executable_path.string()
+         << " serve --admin-host 127.0.0.1 --remote-host 0.0.0.0\n"
          << "Restart=on-failure\n"
          << "RestartSec=2\n";
   if (!web_root.empty()) {

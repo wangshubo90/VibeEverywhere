@@ -10,6 +10,8 @@
     <string>serve</string>
     <string>--admin-host</string>
     <string>127.0.0.1</string>
+    <string>--remote-host</string>
+    <string>0.0.0.0</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
