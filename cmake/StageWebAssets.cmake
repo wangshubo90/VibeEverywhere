@@ -1,0 +1,72 @@
+if(NOT DEFINED SENTRITS_SOURCE_DIR OR SENTRITS_SOURCE_DIR STREQUAL "")
+  message(FATAL_ERROR "SENTRITS_SOURCE_DIR is required")
+endif()
+
+if(NOT DEFINED SENTRITS_WEB_REPO OR SENTRITS_WEB_REPO STREQUAL "")
+  message(FATAL_ERROR "SENTRITS_WEB_REPO is required")
+endif()
+
+if(NOT DEFINED SENTRITS_STAGED_WEB_ROOT OR SENTRITS_STAGED_WEB_ROOT STREQUAL "")
+  message(FATAL_ERROR "SENTRITS_STAGED_WEB_ROOT is required")
+endif()
+
+string(REPLACE "\"" "" SENTRITS_SOURCE_DIR "${SENTRITS_SOURCE_DIR}")
+string(REPLACE "\"" "" SENTRITS_WEB_REPO "${SENTRITS_WEB_REPO}")
+string(REPLACE "\"" "" SENTRITS_STAGED_WEB_ROOT "${SENTRITS_STAGED_WEB_ROOT}")
+
+set(SENTRITS_WEB_DIST "${SENTRITS_WEB_REPO}/dist")
+set(SENTRITS_HOST_ADMIN_DIST "${SENTRITS_SOURCE_DIR}/frontend/dist/host-admin/browser")
+set(SENTRITS_REMOTE_STAGE "${SENTRITS_STAGED_WEB_ROOT}/remote-client")
+set(SENTRITS_HOST_STAGE "${SENTRITS_STAGED_WEB_ROOT}/host-admin")
+set(SENTRITS_VENDOR_STAGE "${SENTRITS_STAGED_WEB_ROOT}/vendor")
+set(SENTRITS_METADATA_DIR "${SENTRITS_STAGED_WEB_ROOT}/_metadata")
+set(SENTRITS_REVISION_FILE "${SENTRITS_METADATA_DIR}/sentrits-web-revision.txt")
+
+if(NOT EXISTS "${SENTRITS_WEB_REPO}/package.json")
+  message(FATAL_ERROR "Sentrits-Web repo not found at ${SENTRITS_WEB_REPO}")
+endif()
+
+execute_process(
+  COMMAND git -C "${SENTRITS_WEB_REPO}" rev-parse --abbrev-ref HEAD
+  RESULT_VARIABLE SENTRITS_WEB_BRANCH_RESULT
+  OUTPUT_VARIABLE SENTRITS_WEB_BRANCH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT SENTRITS_WEB_BRANCH_RESULT EQUAL 0)
+  message(FATAL_ERROR "failed to resolve Sentrits-Web branch")
+endif()
+if(NOT SENTRITS_WEB_BRANCH STREQUAL "main")
+  message(FATAL_ERROR "Sentrits-Web staging requires the current checkout to be on main; found ${SENTRITS_WEB_BRANCH}")
+endif()
+
+execute_process(
+  COMMAND git -C "${SENTRITS_WEB_REPO}" rev-parse HEAD
+  RESULT_VARIABLE SENTRITS_WEB_REVISION_RESULT
+  OUTPUT_VARIABLE SENTRITS_WEB_REVISION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT SENTRITS_WEB_REVISION_RESULT EQUAL 0)
+  message(FATAL_ERROR "failed to resolve Sentrits-Web revision")
+endif()
+
+if(NOT EXISTS "${SENTRITS_WEB_DIST}/index.html")
+  message(FATAL_ERROR
+    "Sentrits-Web dist output is missing at ${SENTRITS_WEB_DIST}. Build ../Sentrits-Web first with `npm install` and `npm run build`.")
+endif()
+if(NOT EXISTS "${SENTRITS_HOST_ADMIN_DIST}/index.html")
+  message(FATAL_ERROR
+    "Host admin dist output is missing at ${SENTRITS_HOST_ADMIN_DIST}. Build ./frontend first with `npm install` and `npm run build:host-admin`.")
+endif()
+
+file(REMOVE_RECURSE "${SENTRITS_STAGED_WEB_ROOT}")
+file(MAKE_DIRECTORY "${SENTRITS_REMOTE_STAGE}")
+file(MAKE_DIRECTORY "${SENTRITS_HOST_STAGE}")
+file(MAKE_DIRECTORY "${SENTRITS_VENDOR_STAGE}")
+file(MAKE_DIRECTORY "${SENTRITS_METADATA_DIR}")
+
+file(COPY "${SENTRITS_WEB_DIST}/" DESTINATION "${SENTRITS_REMOTE_STAGE}")
+file(COPY "${SENTRITS_HOST_ADMIN_DIST}/" DESTINATION "${SENTRITS_HOST_STAGE}")
+file(COPY "${SENTRITS_SOURCE_DIR}/web/vendor/" DESTINATION "${SENTRITS_VENDOR_STAGE}")
+
+file(WRITE "${SENTRITS_REVISION_FILE}" "${SENTRITS_WEB_REVISION}\n")
+message(STATUS "Staged Sentrits-Web revision ${SENTRITS_WEB_REVISION} into ${SENTRITS_STAGED_WEB_ROOT}")

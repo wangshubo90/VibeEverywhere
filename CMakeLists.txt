@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.28)
 
 project(SentritsCore VERSION 0.1.0 LANGUAGES C CXX)
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -14,12 +16,15 @@ if(DEFINED VIBE_BUILD_TESTS AND NOT DEFINED SENTRITS_BUILD_TESTS)
 endif()
 
 option(SENTRITS_BUILD_TESTS "Build automated tests" ON)
+set(SENTRITS_PACKAGED_WEB_ROOT "/${CMAKE_INSTALL_LIBDIR}/sentrits/www" CACHE PATH
+    "Default packaged web asset root used by the runtime")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(Dependencies)
 include(ProjectOptions)
 include(Sources)
+include(Packaging)
 
 add_library(vibe_core
   ${VIBE_CORE_SOURCES}
@@ -28,6 +33,11 @@ add_library(vibe_core
 target_include_directories(vibe_core
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_definitions(vibe_core
+  PUBLIC
+    SENTRITS_DEFAULT_PACKAGED_WEB_ROOT="${SENTRITS_PACKAGED_WEB_ROOT}"
 )
 
 target_link_libraries(vibe_core
@@ -53,14 +63,7 @@ target_link_libraries(sentrits
     vibe_core
 )
 
-add_executable(vibe-hostd
-  src/main.cpp
-)
-
-target_link_libraries(vibe-hostd
-  PRIVATE
-    vibe_core
-)
+sentrits_configure_packaging()
 
 if(SENTRITS_BUILD_TESTS)
   include(Testing)
