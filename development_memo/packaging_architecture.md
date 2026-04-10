@@ -42,17 +42,26 @@ Responsibilities:
 
 ### 3. Web Assets
 
-The maintained browser remote client is built outside this repo:
+The maintained Remote Web Client is built outside this repo:
 
 - https://github.com/shubow-sentrits/Sentrits-Web
 
 Packaging direction:
 
-- build the web client into static assets
+- build the Remote Web Client into static assets
 - stage those assets into the runtime package layout
 - let the runtime serve them
 
-The in-repo `frontend/` workspace remains the host-admin surface.
+The in-repo `frontend/` workspace remains the Host Admin UI surface.
+
+Current web-surface split:
+
+- Host Admin UI:
+  - host-local administration surface
+  - pairing approval, trusted-device management, host configuration, session cleanup and supervision
+- Remote Web Client:
+  - full browser client
+  - host discovery/manual host entry, pairing, session inventory, session attach, and terminal interaction
 
 ## Why This Direction
 
@@ -175,6 +184,7 @@ Maintained client repos:
 Current packaging implication:
 
 - the web client is part of host packaging through staged static assets
+- the Host Admin UI and Remote Web Client remain intentionally separate surfaces even when both are packaged with the host
 - the iOS client remains independently packaged and distributed
 
 ## Bottom Line

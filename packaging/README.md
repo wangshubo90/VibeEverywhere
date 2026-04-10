@@ -6,13 +6,14 @@ Current intent:
 
 - install the `sentrits` binary as a shared runtime artifact
 - stage packaged web assets under a single web root
+- keep the Host Admin UI and Remote Web Client as distinct web surfaces
 - ship user-service templates for macOS `launchd` and Debian `systemd --user`
 - let the logged-in user enable the service explicitly after install
 
 Representative staged layout:
 
-- `www/host-admin`
-- `www/remote-client`
+- `www/host-admin` for the host-local admin surface
+- `www/remote-client` for the full browser client
 - `www/vendor`
 - `macos/io.sentrits.agent.plist.in`
 - `systemd/sentrits.service.in`
@@ -41,7 +42,9 @@ Web staging behavior:
 - the stage reads from `../Sentrits-Web`
 - the checkout must be on `main`
 - the staged package records the exact `Sentrits-Web` revision in `www/_metadata/sentrits-web-revision.txt`
-- host-admin and vendor assets still come from this repo
+- host-admin assets still come from this repo
+- remote web client assets come from `Sentrits-Web`
+- vendor assets come from this repo
 
 The runtime now supports packaged asset lookup via:
 
