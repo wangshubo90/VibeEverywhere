@@ -5,10 +5,8 @@
     "ng": "ng",
     "start": "ng serve",
     "start:host-admin": "ng serve host-admin",
-    "start:remote-client": "ng serve remote-client",
     "build": "ng build",
     "build:host-admin": "ng build host-admin",
-    "build:remote-client": "ng build remote-client",
     "build:libs": "ng build shared-ui && ng build session-model",
     "watch": "ng build --watch --configuration development"
   },
