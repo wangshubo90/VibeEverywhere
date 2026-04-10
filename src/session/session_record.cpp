@@ -61,9 +61,22 @@ auto SessionRecord::snapshot() const -> SessionSnapshot {
               .recent_file_change_count = recent_file_changes_.size(),
               .attention_state = AttentionState::None,
               .attention_reason = AttentionReason::None,
+              .interaction_kind = SessionInteractionKind::Unknown,
               .git_dirty = !git_summary_.modified_files.empty() || !git_summary_.staged_files.empty() ||
                            !git_summary_.untracked_files.empty(),
               .git_branch = git_summary_.branch,
+          },
+      .node_summary =
+          SessionNodeSummary{
+              .session_id = metadata_.id.value(),
+              .lifecycle_status = metadata_.status,
+              .interaction_kind = SessionInteractionKind::Unknown,
+              .attention_state = AttentionState::None,
+              .semantic_preview = "",
+              .recent_file_change_count = recent_file_changes_.size(),
+              .git_dirty = !git_summary_.modified_files.empty() || !git_summary_.staged_files.empty() ||
+                           !git_summary_.untracked_files.empty(),
+              .last_activity_at_unix_ms = std::nullopt,
           },
       .recent_file_changes = recent_file_changes_,
       .git_summary = git_summary_,

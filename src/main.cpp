@@ -351,7 +351,14 @@ void PrintSessionListHuman(const std::vector<vibe::cli::ListedSession>& sessions
   for (const auto& session : sessions) {
     std::cout << session.session_id << '\t'
               << (session.title.empty() ? "(untitled)" : session.title) << '\t'
-              << (session.activity_state.empty() ? session.status : session.activity_state)
+              << (session.activity_state.empty() ? session.status : session.activity_state);
+    if (!session.interaction_kind.empty()) {
+      std::cout << '\t' << session.interaction_kind;
+    }
+    if (!session.semantic_preview.empty()) {
+      std::cout << '\t' << session.semantic_preview;
+    }
+    std::cout
               << '\n';
   }
 }
@@ -372,6 +379,8 @@ auto PrintSessionSnapshotHuman(const std::string& body) -> bool {
             << "Supervision:    " << JsonString(object, "supervisionState") << '\n'
             << "Attention:      " << JsonString(object, "attentionState") << '\n'
             << "Reason:         " << JsonString(object, "attentionReason") << '\n'
+            << "Interaction:    " << JsonString(object, "interactionKind") << '\n'
+            << "Summary:        " << JsonString(object, "semanticPreview") << '\n'
             << "Controller:     " << JsonString(object, "controllerKind") << '\n';
 
   if (const auto* signals = object.if_contains("signals"); signals != nullptr && signals->is_object()) {

@@ -21,6 +21,8 @@ struct ListedSession {
   std::string title;
   std::string activity_state;
   std::string status;
+  std::string interaction_kind;
+  std::string semantic_preview;
 };
 
 [[nodiscard]] auto BuildCreateSessionRequestBody(vibe::session::ProviderType provider,

@@ -569,6 +569,31 @@ This work should be introduced additively.
 - new terminal-state and node-summary surfaces are additive
 - semantic extraction stays out of the critical control path initially
 
+## Debug Logging And Rollout Guidance
+
+This work should be observable while it is still immature.
+
+- add debug traces behind existing runtime trace gates rather than unconditional logs
+- prefer short structured fields over dumping raw terminal payloads
+- log classifier and summary transitions only when values change
+- keep semantic-extraction logging out of hot control paths by default
+- make it easy to diff:
+  - raw runtime status
+  - derived interaction kind
+  - attention state
+  - semantic preview
+
+Early debug logging should focus on:
+
+- interaction-kind transitions
+- node-summary field changes
+- semantic-preview updates
+- any disagreement between raw session state and derived summary state
+
+Rollout rule:
+
+- if a derived field is uncertain, emit `unknown` or an empty preview rather than an overconfident guess
+
 ## Proposed Immediate Deliverables
 
 For real next-step development, the most useful concrete outputs would be:

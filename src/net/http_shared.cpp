@@ -25,6 +25,21 @@ namespace json = boost::json;
 
 auto MakeJsonResponse(const HttpRequest& request, http::status status, std::string body) -> HttpResponse;
 
+auto MakeNodeSummaryJson(const vibe::session::SessionNodeSummary& summary) -> json::object {
+  json::object object;
+  object["sessionId"] = summary.session_id;
+  object["lifecycleStatus"] = std::string(vibe::session::ToString(summary.lifecycle_status));
+  object["interactionKind"] = std::string(vibe::session::ToString(summary.interaction_kind));
+  object["attentionState"] = std::string(vibe::session::ToString(summary.attention_state));
+  object["semanticPreview"] = summary.semantic_preview;
+  object["recentFileChangeCount"] = summary.recent_file_change_count;
+  object["gitDirty"] = summary.git_dirty;
+  if (summary.last_activity_at_unix_ms.has_value()) {
+    object["lastActivityAtUnixMs"] = *summary.last_activity_at_unix_ms;
+  }
+  return object;
+}
+
 auto ParseUnsignedQueryValue(const std::string& target, const std::string_view key)
     -> std::optional<std::uint16_t> {
   const std::string raw_value = ParseQueryValue(target, key);
@@ -73,6 +88,10 @@ auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::Sessi
   snapshot_json["groupTags"] = json::value_from(snapshot.metadata.group_tags);
   snapshot_json["currentSequence"] = snapshot.current_sequence;
   snapshot_json["recentTerminalTail"] = snapshot.recent_terminal_tail;
+  snapshot_json["interactionKind"] =
+      std::string(vibe::session::ToString(snapshot.node_summary.interaction_kind));
+  snapshot_json["semanticPreview"] = snapshot.node_summary.semantic_preview;
+  snapshot_json["nodeSummary"] = MakeNodeSummaryJson(snapshot.node_summary);
   if (snapshot.terminal_screen.has_value()) {
     json::object terminal_screen;
     terminal_screen["ptyCols"] = snapshot.terminal_screen->columns;
@@ -127,6 +146,7 @@ auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::Sessi
   signals["supervisionState"] = std::string(vibe::session::ToString(snapshot.signals.supervision_state));
   signals["attentionState"] = std::string(vibe::session::ToString(snapshot.signals.attention_state));
   signals["attentionReason"] = std::string(vibe::session::ToString(snapshot.signals.attention_reason));
+  signals["interactionKind"] = std::string(vibe::session::ToString(snapshot.signals.interaction_kind));
   signals["gitDirty"] = snapshot.signals.git_dirty;
   signals["gitBranch"] = snapshot.signals.git_branch;
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;

@@ -47,11 +47,23 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
               .recent_file_change_count = 2,
               .attention_state = AttentionState::Info,
               .attention_reason = AttentionReason::WorkspaceChanged,
+              .interaction_kind = SessionInteractionKind::RunningNonInteractive,
               .git_dirty = true,
               .git_branch = "main",
               .git_modified_count = 1,
               .git_staged_count = 1,
               .git_untracked_count = 1,
+          },
+      .node_summary =
+          SessionNodeSummary{
+              .session_id = "snapshot_001",
+              .lifecycle_status = SessionStatus::Running,
+              .interaction_kind = SessionInteractionKind::RunningNonInteractive,
+              .attention_state = AttentionState::Info,
+              .semantic_preview = "Workspace changed",
+              .recent_file_change_count = 2,
+              .git_dirty = true,
+              .last_activity_at_unix_ms = 110,
           },
       .recent_file_changes = {"src/main.cpp", "tests/session_test.cpp"},
       .git_summary =
@@ -122,6 +134,7 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
       .recent_terminal_tail = "",
       .terminal_screen = std::nullopt,
       .signals = {},
+      .node_summary = {},
       .recent_file_changes = {},
       .git_summary = {},
   };
@@ -140,12 +153,21 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
   EXPECT_EQ(snapshot.signals.supervision_state, SupervisionState::Quiet);
   EXPECT_EQ(snapshot.signals.attention_state, AttentionState::None);
   EXPECT_EQ(snapshot.signals.attention_reason, AttentionReason::None);
+  EXPECT_EQ(snapshot.signals.interaction_kind, SessionInteractionKind::Unknown);
   EXPECT_FALSE(snapshot.signals.git_dirty);
   EXPECT_TRUE(snapshot.signals.git_branch.empty());
   EXPECT_EQ(snapshot.signals.git_modified_count, 0U);
   EXPECT_EQ(snapshot.signals.git_staged_count, 0U);
   EXPECT_EQ(snapshot.signals.git_untracked_count, 0U);
   EXPECT_TRUE(snapshot.recent_file_changes.empty());
+  EXPECT_TRUE(snapshot.node_summary.session_id.empty());
+  EXPECT_EQ(snapshot.node_summary.lifecycle_status, SessionStatus::Created);
+  EXPECT_EQ(snapshot.node_summary.interaction_kind, SessionInteractionKind::Unknown);
+  EXPECT_EQ(snapshot.node_summary.attention_state, AttentionState::None);
+  EXPECT_TRUE(snapshot.node_summary.semantic_preview.empty());
+  EXPECT_EQ(snapshot.node_summary.recent_file_change_count, 0U);
+  EXPECT_FALSE(snapshot.node_summary.git_dirty);
+  EXPECT_FALSE(snapshot.node_summary.last_activity_at_unix_ms.has_value());
   EXPECT_TRUE(snapshot.git_summary.branch.empty());
   EXPECT_EQ(snapshot.git_summary.modified_count, 0U);
   EXPECT_EQ(snapshot.git_summary.staged_count, 0U);

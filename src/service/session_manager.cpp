@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -69,6 +70,58 @@ class ServerTraceLogger {
 
   std::unique_ptr<std::ofstream> output_;
   std::chrono::steady_clock::time_point start_time_{};
+  std::mutex mutex_;
+};
+
+class SessionNodeTraceLogger {
+ public:
+  static auto Instance() -> SessionNodeTraceLogger& {
+    static SessionNodeTraceLogger instance;
+    return instance;
+  }
+
+  void Log(const std::string_view detail) {
+    if (!enabled_) {
+      return;
+    }
+
+    const auto millis =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    {
+      std::ostringstream message;
+      message << "ts=" << millis << ' ' << detail;
+      vibe::base::DebugTrace("core.node", "summary.transition", message.str());
+    }
+
+    if (output_ == nullptr) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    (*output_) << millis << ' ' << detail << '\n';
+    output_->flush();
+  }
+
+ private:
+  SessionNodeTraceLogger() {
+    enabled_ = vibe::base::DebugTraceEnabled();
+    const char* path = std::getenv("SENTRITS_SESSION_SIGNAL_TRACE_PATH");
+    if (path == nullptr || *path == '\0') {
+      return;
+    }
+
+    output_ = std::make_unique<std::ofstream>(path, std::ios::out | std::ios::trunc);
+    if (output_ == nullptr || !output_->is_open()) {
+      output_.reset();
+      return;
+    }
+    enabled_ = true;
+  }
+
+  bool enabled_{false};
+  std::unique_ptr<std::ofstream> output_;
   std::mutex mutex_;
 };
 
@@ -295,6 +348,94 @@ auto InferAttention(const vibe::session::SessionStatus status,
   return {};
 }
 
+auto InferInteractionKind(const vibe::session::SessionStatus status,
+                          const vibe::session::ControllerKind controller_kind,
+                          const std::uint64_t current_sequence)
+    -> vibe::session::SessionInteractionKind {
+  using vibe::session::ControllerKind;
+  using vibe::session::SessionInteractionKind;
+  using vibe::session::SessionStatus;
+
+  if (status == SessionStatus::AwaitingInput) {
+    return SessionInteractionKind::InteractiveLineMode;
+  }
+
+  if (status == SessionStatus::Running && controller_kind != ControllerKind::None) {
+    return SessionInteractionKind::InteractiveLineMode;
+  }
+
+  if (status == SessionStatus::Running && current_sequence > 0) {
+    return SessionInteractionKind::RunningNonInteractive;
+  }
+
+  if ((status == SessionStatus::Exited || status == SessionStatus::Error) && current_sequence > 0) {
+    return SessionInteractionKind::CompletedQuickly;
+  }
+
+  return SessionInteractionKind::Unknown;
+}
+
+auto BuildSemanticPreview(const vibe::session::SessionStatus status,
+                          const vibe::session::AttentionReason attention_reason,
+                          const bool git_dirty) -> std::string {
+  using vibe::session::AttentionReason;
+  using vibe::session::SessionStatus;
+
+  switch (attention_reason) {
+    case AttentionReason::AwaitingInput:
+      return "Awaiting input";
+    case AttentionReason::SessionError:
+      return "Session error";
+    case AttentionReason::WorkspaceChanged:
+      return "Workspace changed";
+    case AttentionReason::GitStateChanged:
+      return "Git state changed";
+    case AttentionReason::ControllerChanged:
+      return "Controller changed";
+    case AttentionReason::SessionExitedCleanly:
+      return "Session exited cleanly";
+    case AttentionReason::None:
+      break;
+  }
+
+  if (status == SessionStatus::Running && git_dirty) {
+    return "Workspace dirty";
+  }
+
+  return "";
+}
+
+auto BuildNodeSummary(const vibe::session::SessionSnapshot& snapshot,
+                      const vibe::session::SessionSignals& signals) -> vibe::session::SessionNodeSummary {
+  return vibe::session::SessionNodeSummary{
+      .session_id = snapshot.metadata.id.value(),
+      .lifecycle_status = snapshot.metadata.status,
+      .interaction_kind = signals.interaction_kind,
+      .attention_state = signals.attention_state,
+      .semantic_preview = BuildSemanticPreview(snapshot.metadata.status, signals.attention_reason,
+                                               signals.git_dirty),
+      .recent_file_change_count = snapshot.recent_file_changes.size(),
+      .git_dirty = signals.git_dirty,
+      .last_activity_at_unix_ms = signals.last_activity_at_unix_ms,
+  };
+}
+
+auto BuildNodeSummaryTraceKey(const vibe::service::SessionSummary& summary) -> std::string {
+  std::ostringstream stream;
+  stream << "session=" << summary.id.value() << " status=" << vibe::session::ToString(summary.status)
+         << " controller=" << vibe::session::ToString(summary.controller_kind)
+         << " interaction=" << vibe::session::ToString(summary.interaction_kind)
+         << " attention=" << vibe::session::ToString(summary.attention_state)
+         << " preview=" << std::quoted(summary.semantic_preview)
+         << " files=" << summary.recent_file_change_count
+         << " gitDirty=" << (summary.git_dirty ? "true" : "false")
+         << " seq=" << summary.current_sequence;
+  if (summary.last_activity_at_unix_ms.has_value()) {
+    stream << " lastActivityAt=" << *summary.last_activity_at_unix_ms;
+  }
+  return stream.str();
+}
+
 }  // namespace
 
 SessionManager::SessionManager(vibe::store::SessionStore* session_store,
@@ -381,6 +522,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .current_terminal_size = launch_spec.terminal_size,
       .last_observed_status = vibe::session::SessionStatus::Created,
       .last_observed_sequence = 0,
+      .last_traced_node_summary_key = std::nullopt,
   });
 
   SessionEntry& entry = sessions_.back();
@@ -390,6 +532,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   entry.last_observed_sequence = entry.runtime->record().snapshot().current_sequence;
 
   PersistEntry(entry);
+  MaybeTraceNodeSummaryTransition(entry, "create");
   return BuildSummary(entry);
 }
 
@@ -437,8 +580,20 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
                 .recent_file_change_count = 0,
                 .attention_state = vibe::session::AttentionState::None,
                 .attention_reason = vibe::session::AttentionReason::None,
+                .interaction_kind = vibe::session::SessionInteractionKind::Unknown,
                 .git_dirty = false,
                 .git_branch = "",
+            },
+        .node_summary =
+            vibe::session::SessionNodeSummary{
+                .session_id = persisted.session_id,
+                .lifecycle_status = NormalizeRecoveredStatus(persisted.status),
+                .interaction_kind = vibe::session::SessionInteractionKind::Unknown,
+                .attention_state = vibe::session::AttentionState::None,
+                .semantic_preview = "",
+                .recent_file_change_count = 0,
+                .git_dirty = false,
+                .last_activity_at_unix_ms = std::nullopt,
             },
         .recent_file_changes = {},
         .git_summary = {},
@@ -465,7 +620,9 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .current_terminal_size = DefaultTerminalSizeForMetadata(snapshot.metadata),
         .last_observed_status = recovered_status,
         .last_observed_sequence = persisted.current_sequence,
+        .last_traced_node_summary_key = std::nullopt,
     });
+    MaybeTraceNodeSummaryTransition(sessions_.back(), "load_persisted");
     loaded_count += 1;
   }
 
@@ -521,12 +678,15 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
               InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
           .attention_state = attention.state,
           .attention_reason = attention.reason,
+          .interaction_kind = InferInteractionKind(snapshot.metadata.status, entry->controller_kind,
+                                                   snapshot.current_sequence),
           .git_dirty = IsGitDirty(snapshot.git_summary),
           .git_branch = snapshot.git_summary.branch,
           .git_modified_count = GitModifiedCount(snapshot.git_summary),
           .git_staged_count = GitStagedCount(snapshot.git_summary),
           .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
       };
+      snapshot.node_summary = BuildNodeSummary(snapshot, snapshot.signals);
       return snapshot;
     }
     auto snapshot = *entry->recovered_snapshot;
@@ -549,12 +709,15 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
             InferSupervisionState(snapshot.metadata.status, entry->last_output_at_unix_ms, now_unix_ms),
         .attention_state = attention.state,
         .attention_reason = attention.reason,
+        .interaction_kind = InferInteractionKind(snapshot.metadata.status, entry->controller_kind,
+                                                 snapshot.current_sequence),
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
         .git_staged_count = GitStagedCount(snapshot.git_summary),
         .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
     };
+    snapshot.node_summary = BuildNodeSummary(snapshot, snapshot.signals);
     return snapshot;
   }
 
@@ -776,6 +939,7 @@ auto SessionManager::UpdateSessionGroupTags(const std::string& session_id,
   }
 
   PersistEntry(*entry);
+  MaybeTraceNodeSummaryTransition(*entry, "group_tags");
   return BuildSummary(*entry);
 }
 
@@ -846,6 +1010,7 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
       }
       ResetControllerState(*entry);
       PersistEntry(*entry);
+      MaybeTraceNodeSummaryTransition(*entry, "stop");
     }
     return stopped;
   }
@@ -890,6 +1055,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
       entry->controller_kind = controller_kind;
       entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
       entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
+      MaybeTraceNodeSummaryTransition(*entry, "request_control");
       return true;
     }
 
@@ -899,6 +1065,7 @@ auto SessionManager::RequestControl(const std::string& session_id, const std::st
       entry->controller_kind = controller_kind;
       entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
       entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
+      MaybeTraceNodeSummaryTransition(*entry, "request_control");
       return true;
     }
 
@@ -926,6 +1093,7 @@ auto SessionManager::ReleaseControl(const std::string& session_id, const std::st
     entry->controller_kind = vibe::session::ControllerKind::Host;
     entry->last_activity_at_unix_ms = CurrentUnixTimeMs();
     entry->last_controller_change_at_unix_ms = entry->last_activity_at_unix_ms;
+    MaybeTraceNodeSummaryTransition(*entry, "release_control");
     return true;
   }
 
@@ -1013,6 +1181,7 @@ auto SessionManager::PollSession(const std::string& session_id, const int read_t
   }
 
   PersistEntry(*entry);
+  MaybeTraceNodeSummaryTransition(*entry, "poll");
   return true;
 }
 
@@ -1041,6 +1210,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
         entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
         entry.last_git_change_at_unix_ms = entry.last_activity_at_unix_ms;
         PersistEntry(entry);
+        MaybeTraceNodeSummaryTransition(entry, "git_change");
       }
     }
 
@@ -1051,6 +1221,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
         entry.last_activity_at_unix_ms = CurrentUnixTimeMs();
         entry.last_file_change_at_unix_ms = entry.last_activity_at_unix_ms;
         PersistEntry(entry);
+        MaybeTraceNodeSummaryTransition(entry, "file_change");
       }
     }
   }
@@ -1066,6 +1237,10 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
   if (entry.runtime) {
     const auto snapshot = entry.runtime->record().snapshot();
     const auto& metadata = snapshot.metadata;
+    const auto interaction_kind =
+        InferInteractionKind(metadata.status, entry.controller_kind, snapshot.current_sequence);
+    const auto semantic_preview =
+        BuildSemanticPreview(metadata.status, attention.reason, IsGitDirty(snapshot.git_summary));
     return SessionSummary{
         .id = metadata.id,
         .provider = metadata.provider,
@@ -1094,6 +1269,19 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .pty_rows = entry.current_terminal_size.rows,
         .current_sequence = snapshot.current_sequence,
         .recent_file_change_count = snapshot.recent_file_changes.size(),
+        .interaction_kind = interaction_kind,
+        .semantic_preview = semantic_preview,
+        .node_summary =
+            vibe::session::SessionNodeSummary{
+                .session_id = metadata.id.value(),
+                .lifecycle_status = metadata.status,
+                .interaction_kind = interaction_kind,
+                .attention_state = attention.state,
+                .semantic_preview = semantic_preview,
+                .recent_file_change_count = snapshot.recent_file_changes.size(),
+                .git_dirty = IsGitDirty(snapshot.git_summary),
+                .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+            },
         .git_dirty = IsGitDirty(snapshot.git_summary),
         .git_branch = snapshot.git_summary.branch,
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
@@ -1104,6 +1292,10 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
 
   const auto& snapshot = *entry.recovered_snapshot;
   const auto& metadata = snapshot.metadata;
+  const auto interaction_kind =
+      InferInteractionKind(metadata.status, entry.controller_kind, snapshot.current_sequence);
+  const auto semantic_preview =
+      BuildSemanticPreview(metadata.status, attention.reason, IsGitDirty(snapshot.git_summary));
   return SessionSummary{
       .id = metadata.id,
       .provider = metadata.provider,
@@ -1131,12 +1323,40 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .pty_rows = entry.current_terminal_size.rows,
       .current_sequence = snapshot.current_sequence,
       .recent_file_change_count = snapshot.recent_file_changes.size(),
+      .interaction_kind = interaction_kind,
+      .semantic_preview = semantic_preview,
+      .node_summary =
+          vibe::session::SessionNodeSummary{
+              .session_id = metadata.id.value(),
+              .lifecycle_status = metadata.status,
+              .interaction_kind = interaction_kind,
+              .attention_state = attention.state,
+              .semantic_preview = semantic_preview,
+              .recent_file_change_count = snapshot.recent_file_changes.size(),
+              .git_dirty = IsGitDirty(snapshot.git_summary),
+              .last_activity_at_unix_ms = entry.last_activity_at_unix_ms,
+          },
       .git_dirty = IsGitDirty(snapshot.git_summary),
       .git_branch = snapshot.git_summary.branch,
       .git_modified_count = GitModifiedCount(snapshot.git_summary),
       .git_staged_count = GitStagedCount(snapshot.git_summary),
       .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
   };
+}
+
+void SessionManager::MaybeTraceNodeSummaryTransition(SessionEntry& entry,
+                                                     const std::string_view reason) {
+  const SessionSummary summary = BuildSummary(entry);
+  const std::string trace_key = BuildNodeSummaryTraceKey(summary);
+  if (entry.last_traced_node_summary_key.has_value() &&
+      *entry.last_traced_node_summary_key == trace_key) {
+    return;
+  }
+
+  entry.last_traced_node_summary_key = trace_key;
+  std::ostringstream detail;
+  detail << "reason=" << reason << ' ' << trace_key;
+  SessionNodeTraceLogger::Instance().Log(detail.str());
 }
 
 void SessionManager::ResetControllerState(SessionEntry& entry) {

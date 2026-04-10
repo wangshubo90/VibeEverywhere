@@ -63,6 +63,10 @@ struct SessionSummary {
   std::uint64_t current_sequence{0};
   std::size_t attached_client_count{0};
   std::size_t recent_file_change_count{0};
+  vibe::session::SessionInteractionKind interaction_kind{
+      vibe::session::SessionInteractionKind::Unknown};
+  std::string semantic_preview;
+  vibe::session::SessionNodeSummary node_summary;
   bool git_dirty{false};
   std::string git_branch;
   std::size_t git_modified_count{0};
@@ -160,9 +164,11 @@ class SessionManager {
     vibe::session::TerminalSize current_terminal_size{};
     vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
     std::uint64_t last_observed_sequence{0};
+    std::optional<std::string> last_traced_node_summary_key;
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;
+  void MaybeTraceNodeSummaryTransition(SessionEntry& entry, std::string_view reason);
   void ResetControllerState(SessionEntry& entry);
   void PersistEntry(const SessionEntry& entry);
   [[nodiscard]] auto MakeSessionId() const -> std::optional<vibe::session::SessionId>;

@@ -39,6 +39,19 @@ TEST(DaemonClientTest, ParsesSessionList) {
   EXPECT_EQ(sessions[1].title, "two");
 }
 
+TEST(DaemonClientTest, ParsesSessionListWithAdditiveNodeSummaryFields) {
+  const auto sessions = ParseSessionList(
+      R"([{"sessionId":"s_1","title":"one","activityState":"active","status":"Running","interactionKind":"running_non_interactive","semanticPreview":"Workspace dirty","nodeSummary":{"sessionId":"s_1","lifecycleStatus":"Running","interactionKind":"running_non_interactive","attentionState":"info","semanticPreview":"Workspace dirty","recentFileChangeCount":2,"gitDirty":true}}])");
+
+  ASSERT_EQ(sessions.size(), 1U);
+  EXPECT_EQ(sessions[0].session_id, "s_1");
+  EXPECT_EQ(sessions[0].title, "one");
+  EXPECT_EQ(sessions[0].activity_state, "active");
+  EXPECT_EQ(sessions[0].status, "Running");
+  EXPECT_EQ(sessions[0].interaction_kind, "running_non_interactive");
+  EXPECT_EQ(sessions[0].semantic_preview, "Workspace dirty");
+}
+
 TEST(DaemonClientTest, BuildsControlAndTerminalCommands) {
   const std::string control = BuildControlRequestCommand(vibe::session::ControllerKind::Host);
   EXPECT_NE(control.find("\"type\":\"session.control.request\""), std::string::npos);

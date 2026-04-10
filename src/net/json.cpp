@@ -47,6 +47,21 @@ auto ToInventoryState(const vibe::service::SessionSummary& summary) -> const cha
   return "ended";
 }
 
+auto MakeNodeSummaryJson(const vibe::session::SessionNodeSummary& summary) -> json::object {
+  json::object object;
+  object["sessionId"] = summary.session_id;
+  object["lifecycleStatus"] = std::string(vibe::session::ToString(summary.lifecycle_status));
+  object["interactionKind"] = std::string(vibe::session::ToString(summary.interaction_kind));
+  object["attentionState"] = std::string(vibe::session::ToString(summary.attention_state));
+  object["semanticPreview"] = summary.semantic_preview;
+  object["recentFileChangeCount"] = summary.recent_file_change_count;
+  object["gitDirty"] = summary.git_dirty;
+  if (summary.last_activity_at_unix_ms.has_value()) {
+    object["lastActivityAtUnixMs"] = *summary.last_activity_at_unix_ms;
+  }
+  return object;
+}
+
 }  // namespace
 
 auto JsonEscape(const std::string_view input) -> std::string {
@@ -143,11 +158,14 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["currentSequence"] = summary.current_sequence;
   object["attachedClientCount"] = summary.attached_client_count;
   object["recentFileChangeCount"] = summary.recent_file_change_count;
+  object["interactionKind"] = std::string(vibe::session::ToString(summary.interaction_kind));
+  object["semanticPreview"] = summary.semantic_preview;
   object["gitDirty"] = summary.git_dirty;
   object["gitBranch"] = summary.git_branch;
   object["gitModifiedCount"] = summary.git_modified_count;
   object["gitStagedCount"] = summary.git_staged_count;
   object["gitUntrackedCount"] = summary.git_untracked_count;
+  object["nodeSummary"] = MakeNodeSummaryJson(summary.node_summary);
   return json::serialize(object);
 }
 
@@ -191,6 +209,9 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   object["groupTags"] = json::value_from(snapshot.metadata.group_tags);
   object["currentSequence"] = snapshot.current_sequence;
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
+  object["interactionKind"] = std::string(vibe::session::ToString(snapshot.node_summary.interaction_kind));
+  object["semanticPreview"] = snapshot.node_summary.semantic_preview;
+  object["nodeSummary"] = MakeNodeSummaryJson(snapshot.node_summary);
   if (snapshot.terminal_screen.has_value()) {
     json::object terminal_screen;
     terminal_screen["ptyCols"] = snapshot.terminal_screen->columns;
@@ -234,6 +255,7 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   signals["supervisionState"] = std::string(vibe::session::ToString(snapshot.signals.supervision_state));
   signals["attentionState"] = std::string(vibe::session::ToString(snapshot.signals.attention_state));
   signals["attentionReason"] = std::string(vibe::session::ToString(snapshot.signals.attention_reason));
+  signals["interactionKind"] = std::string(vibe::session::ToString(snapshot.signals.interaction_kind));
   signals["gitDirty"] = snapshot.signals.git_dirty;
   signals["gitBranch"] = snapshot.signals.git_branch;
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
@@ -385,11 +407,14 @@ auto ToJson(const SessionUpdatedEvent& event) -> std::string {
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
+  object["interactionKind"] = std::string(vibe::session::ToString(event.summary.interaction_kind));
+  object["semanticPreview"] = event.summary.semantic_preview;
   object["gitDirty"] = event.summary.git_dirty;
   object["gitBranch"] = event.summary.git_branch;
   object["gitModifiedCount"] = event.summary.git_modified_count;
   object["gitStagedCount"] = event.summary.git_staged_count;
   object["gitUntrackedCount"] = event.summary.git_untracked_count;
+  object["nodeSummary"] = MakeNodeSummaryJson(event.summary.node_summary);
   return json::serialize(object);
 }
 
@@ -438,7 +463,10 @@ auto ToJson(const SessionActivityEvent& event) -> std::string {
   object["currentSequence"] = event.summary.current_sequence;
   object["attachedClientCount"] = event.summary.attached_client_count;
   object["recentFileChangeCount"] = event.summary.recent_file_change_count;
+  object["interactionKind"] = std::string(vibe::session::ToString(event.summary.interaction_kind));
+  object["semanticPreview"] = event.summary.semantic_preview;
   object["gitDirty"] = event.summary.git_dirty;
+  object["nodeSummary"] = MakeNodeSummaryJson(event.summary.node_summary);
   object["gitBranch"] = event.summary.git_branch;
   object["gitModifiedCount"] = event.summary.git_modified_count;
   object["gitStagedCount"] = event.summary.git_staged_count;

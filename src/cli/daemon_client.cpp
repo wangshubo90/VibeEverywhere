@@ -552,6 +552,14 @@ auto ParseSessionList(const std::string& body) -> std::vector<ListedSession> {
     if (const auto status = object.if_contains("status"); status != nullptr && status->is_string()) {
       session.status = json::value_to<std::string>(*status);
     }
+    if (const auto interaction_kind = object.if_contains("interactionKind");
+        interaction_kind != nullptr && interaction_kind->is_string()) {
+      session.interaction_kind = json::value_to<std::string>(*interaction_kind);
+    }
+    if (const auto semantic_preview = object.if_contains("semanticPreview");
+        semantic_preview != nullptr && semantic_preview->is_string()) {
+      session.semantic_preview = json::value_to<std::string>(*semantic_preview);
+    }
     sessions.push_back(std::move(session));
   }
 

@@ -85,6 +85,31 @@ enum class AttentionReason {
   return "none";
 }
 
+enum class SessionInteractionKind {
+  Unknown,
+  CompletedQuickly,
+  RunningNonInteractive,
+  InteractiveFullscreen,
+  InteractiveLineMode,
+};
+
+[[nodiscard]] constexpr auto ToString(const SessionInteractionKind kind) -> std::string_view {
+  switch (kind) {
+    case SessionInteractionKind::Unknown:
+      return "unknown";
+    case SessionInteractionKind::CompletedQuickly:
+      return "completed_quickly";
+    case SessionInteractionKind::RunningNonInteractive:
+      return "running_non_interactive";
+    case SessionInteractionKind::InteractiveFullscreen:
+      return "interactive_fullscreen";
+    case SessionInteractionKind::InteractiveLineMode:
+      return "interactive_line_mode";
+  }
+
+  return "unknown";
+}
+
 struct SessionSignals {
   std::optional<std::int64_t> last_output_at_unix_ms;
   std::optional<std::int64_t> last_activity_at_unix_ms;
@@ -99,11 +124,23 @@ struct SessionSignals {
   SupervisionState supervision_state{SupervisionState::Quiet};
   AttentionState attention_state{AttentionState::None};
   AttentionReason attention_reason{AttentionReason::None};
+  SessionInteractionKind interaction_kind{SessionInteractionKind::Unknown};
   bool git_dirty{false};
   std::string git_branch;
   std::size_t git_modified_count{0};
   std::size_t git_staged_count{0};
   std::size_t git_untracked_count{0};
+};
+
+struct SessionNodeSummary {
+  std::string session_id;
+  SessionStatus lifecycle_status{SessionStatus::Created};
+  SessionInteractionKind interaction_kind{SessionInteractionKind::Unknown};
+  AttentionState attention_state{AttentionState::None};
+  std::string semantic_preview;
+  std::size_t recent_file_change_count{0};
+  bool git_dirty{false};
+  std::optional<std::int64_t> last_activity_at_unix_ms;
 };
 
 struct GitSummary {
@@ -124,6 +161,7 @@ struct SessionSnapshot {
   std::string recent_terminal_tail;
   std::optional<TerminalScreenSnapshot> terminal_screen;
   SessionSignals signals;
+  SessionNodeSummary node_summary;
   std::vector<std::string> recent_file_changes;
   GitSummary git_summary;
 };
