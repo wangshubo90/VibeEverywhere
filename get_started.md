@@ -33,12 +33,11 @@ Supported host platforms today:
 
 #### macOS
 
-macOS packaging is not documented here yet.
+Install the packaged tarball into a stable user-owned location, then bootstrap the per-user `launchd` agent.
 
-For now:
+Detailed macOS package build, install, smoke-test, and uninstall notes:
 
-- use the source build and service bootstrap flow
-- a dedicated macOS install guide can be added later under `packaging/`
+- `packaging/macos.md`
 
 #### Linux
 
@@ -153,6 +152,25 @@ sudo dpkg -r sentrits
 Detailed Linux package install, smoke-test, uninstall, and state notes:
 
 - `packaging/debian.md`
+
+### macOS Uninstall
+
+Unload and remove the per-user `launchd` agent:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/io.sentrits.agent.plist 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/io.sentrits.agent.plist
+```
+
+Remove the installed package root:
+
+```bash
+rm -rf ~/Applications/Sentrits
+```
+
+Detailed macOS package install, smoke-test, uninstall, and state notes:
+
+- `packaging/macos.md`
 
 ## Development
 

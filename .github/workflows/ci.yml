@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -33,3 +34,125 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  package-debian:
+    if: github.event_name != 'pull_request'
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Sentrits-Core
+        uses: actions/checkout@v4
+
+      - name: Checkout Sentrits-Web
+        uses: actions/checkout@v4
+        with:
+          repository: shubow-sentrits/Sentrits-Web
+          ref: main
+          path: Sentrits-Web
+          token: ${{ secrets.SENTRITS_REPO_READ_TOKEN || github.token }}
+
+      - name: Build packaged web assets
+        uses: ./.github/actions/package-web-assets
+        with:
+          web-repo-path: ${{ github.workspace }}/Sentrits-Web
+
+      - name: Install Linux packaging toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libboost-all-dev libssl-dev
+
+      - name: Configure Linux packaging build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DSENTRITS_BUILD_TESTS=ON \
+            -DSENTRITS_WEB_REPO="${GITHUB_WORKSPACE}/Sentrits-Web"
+
+      - name: Build Debian package
+        run: cmake --build build --target sentrits_package_deb
+
+      - name: Smoke Debian install and uninstall
+        run: |
+          set -euo pipefail
+          DEB_PATH="$(ls build/*.deb)"
+          sudo dpkg -i "$DEB_PATH"
+          test -x /usr/bin/sentrits
+          test -f /usr/lib/sentrits/www/_metadata/sentrits-web-revision.txt
+          TMP_HOME="$(mktemp -d)"
+          HOME="$TMP_HOME" /usr/bin/sentrits service print > "$TMP_HOME/service-print.txt"
+          HOME="$TMP_HOME" /usr/bin/sentrits service install > "$TMP_HOME/service-install.txt"
+          test -f "$TMP_HOME/.config/systemd/user/sentrits.service"
+          grep -q "Environment=SENTRITS_WEB_ROOT=/usr/lib/sentrits/www" "$TMP_HOME/.config/systemd/user/sentrits.service"
+          grep -q "installed service file:" "$TMP_HOME/service-install.txt"
+          sudo dpkg -r sentrits
+          test ! -e /usr/bin/sentrits
+
+      - name: Upload Debian package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentrits-debian-package
+          path: build/*.deb
+
+  package-macos:
+    if: github.event_name != 'pull_request'
+    needs: build-and-test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Sentrits-Core
+        uses: actions/checkout@v4
+
+      - name: Checkout Sentrits-Web
+        uses: actions/checkout@v4
+        with:
+          repository: shubow-sentrits/Sentrits-Web
+          ref: main
+          path: Sentrits-Web
+          token: ${{ secrets.SENTRITS_REPO_READ_TOKEN || github.token }}
+
+      - name: Build packaged web assets
+        uses: ./.github/actions/package-web-assets
+        with:
+          web-repo-path: ${{ github.workspace }}/Sentrits-Web
+
+      - name: Configure macOS packaging build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DSENTRITS_BUILD_TESTS=ON \
+            -DSENTRITS_WEB_REPO="${GITHUB_WORKSPACE}/Sentrits-Web"
+
+      - name: Build macOS package
+        run: cmake --build build --target sentrits_package_macos
+
+      - name: Smoke macOS install and uninstall
+        run: |
+          set -euo pipefail
+          ARCHIVE_PATH="$(ls build/*.tar.gz)"
+          TMP_ROOT="$(mktemp -d)"
+          INSTALL_ROOT="$TMP_ROOT/install"
+          HOME_ROOT="$TMP_ROOT/home"
+          mkdir -p "$INSTALL_ROOT" "$HOME_ROOT"
+          tar -xzf "$ARCHIVE_PATH" -C "$INSTALL_ROOT"
+          BIN="$INSTALL_ROOT/Sentrits/bin/sentrits"
+          HOME="$HOME_ROOT" "$BIN" service print > "$TMP_ROOT/service-print.txt"
+          HOME="$HOME_ROOT" "$BIN" service install > "$TMP_ROOT/service-install.txt"
+          PLIST="$HOME_ROOT/Library/LaunchAgents/io.sentrits.agent.plist"
+          test -x "$BIN"
+          test -f "$INSTALL_ROOT/Sentrits/share/sentrits/launchd/io.sentrits.agent.plist"
+          test -f "$INSTALL_ROOT/Sentrits/lib/sentrits/www/_metadata/sentrits-web-revision.txt"
+          test -f "$PLIST"
+          grep -q "$INSTALL_ROOT/Sentrits/bin/sentrits" "$PLIST"
+          grep -q "$INSTALL_ROOT/Sentrits/lib/sentrits/www" "$PLIST"
+          grep -q "installed service file:" "$TMP_ROOT/service-install.txt"
+          rm -f "$PLIST"
+          rm -rf "$INSTALL_ROOT/Sentrits"
+          test ! -e "$PLIST"
+          test ! -e "$INSTALL_ROOT/Sentrits"
+
+      - name: Upload macOS package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentrits-macos-package
+          path: build/*.tar.gz

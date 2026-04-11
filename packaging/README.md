@@ -27,6 +27,7 @@ Build integration:
 - `sentrits_stage_web_assets` stages packaged web assets from `../Sentrits-Web/dist` into `build/packaging/www`
 - `sentrits_stage_dev_web_assets` remains available only as a local fallback/dev helper
 - `sentrits_package_deb` builds a Debian package from the current Linux build tree
+- `sentrits_package_macos` builds a macOS tarball package from the current macOS build tree
 - `sentrits service print` renders the per-user service file content for the current platform
 - `sentrits service install` writes the per-user service file into the logged-in user's home directory
 
@@ -36,6 +37,13 @@ Linux packaging flow today:
 2. build `../Sentrits-Web` on `main` so `dist/` exists
 3. build `sentrits_package_deb`
 4. collect the generated `.deb` from the build directory
+
+macOS packaging flow today:
+
+1. configure the build tree on macOS
+2. build `../Sentrits-Web` on `main` so `dist/` exists
+3. build `sentrits_package_macos`
+4. collect the generated `.tar.gz` from the build directory
 
 Web staging behavior:
 
