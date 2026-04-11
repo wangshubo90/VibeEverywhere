@@ -285,11 +285,12 @@ The current Linux packaging path builds a `.deb` from this repo and stages:
 
 - the maintained browser remote client from `../Sentrits-Web`
 - the in-repo host admin frontend from `./frontend`
+- the pinned browser client revision recorded in `packaging/sentrits-web-revision.txt`
 
 Prerequisites:
 
 - `../Sentrits-Web` exists beside this repo
-- that checkout is on `main`
+- that checkout matches `packaging/sentrits-web-revision.txt`
 - its production assets are built into `dist/`
 - `./frontend` dependencies are installed
 - `./frontend` host-admin production assets are built into `frontend/dist/host-admin/browser`
@@ -298,6 +299,7 @@ Build the maintained remote web client bundle:
 
 ```bash
 cd ../Sentrits-Web
+git checkout "$(cat ../Sentrits-Core/packaging/sentrits-web-revision.txt)"
 npm install
 npm run build
 cd ../core-packaging

@@ -9,6 +9,8 @@ function(sentrits_configure_packaging)
   set(SENTRITS_MACOS_ARCHIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}/${SENTRITS_MACOS_ARCHIVE_NAME}")
   set(SENTRITS_WEB_REPO "${CMAKE_CURRENT_SOURCE_DIR}/../Sentrits-Web" CACHE PATH
       "Path to the maintained Sentrits-Web repository checkout")
+  set(SENTRITS_WEB_REVISION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/packaging/sentrits-web-revision.txt" CACHE FILEPATH
+      "File containing the pinned Sentrits-Web revision to package")
   set(SENTRITS_PACKAGE_WEB_SOURCE "${SENTRITS_STAGED_WEB_ROOT}" CACHE PATH
       "Web asset directory to install into packaged Sentrits builds")
 
@@ -75,6 +77,7 @@ function(sentrits_configure_packaging)
     COMMAND "${CMAKE_COMMAND}"
             -DSENTRITS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
             -DSENTRITS_WEB_REPO="${SENTRITS_WEB_REPO}"
+            -DSENTRITS_WEB_REVISION_FILE="${SENTRITS_WEB_REVISION_FILE}"
             -DSENTRITS_STAGED_WEB_ROOT="${SENTRITS_STAGED_WEB_ROOT}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageWebAssets.cmake"
     COMMENT "Stage packaged web assets from ${SENTRITS_WEB_REPO}"
