@@ -26,21 +26,32 @@ Build integration:
 - `install` places packaged web assets under `lib/sentrits/www`
 - `sentrits_stage_web_assets` stages packaged web assets from `../Sentrits-Web/dist` into `build/packaging/www`
 - `sentrits_stage_dev_web_assets` remains available only as a local fallback/dev helper
+- `packaging/sentrits-web-revision.txt` pins the exact `Sentrits-Web` revision used for packaging
 - `sentrits_package_deb` builds a Debian package from the current Linux build tree
+- `sentrits_package_macos` builds a macOS tarball package from the current macOS build tree
 - `sentrits service print` renders the per-user service file content for the current platform
 - `sentrits service install` writes the per-user service file into the logged-in user's home directory
 
 Linux packaging flow today:
 
 1. configure the build tree
-2. build `../Sentrits-Web` on `main` so `dist/` exists
-3. build `sentrits_package_deb`
-4. collect the generated `.deb` from the build directory
+2. check out `../Sentrits-Web` at the revision recorded in `packaging/sentrits-web-revision.txt`
+3. build that checkout so `dist/` exists
+4. build `sentrits_package_deb`
+5. collect the generated `.deb` from the build directory
+
+macOS packaging flow today:
+
+1. configure the build tree on macOS
+2. check out `../Sentrits-Web` at the revision recorded in `packaging/sentrits-web-revision.txt`
+3. build that checkout so `dist/` exists
+4. build `sentrits_package_macos`
+5. collect the generated `.tar.gz` from the build directory
 
 Web staging behavior:
 
 - the stage reads from `../Sentrits-Web`
-- the checkout must be on `main`
+- the checkout must match `packaging/sentrits-web-revision.txt`
 - the staged package records the exact `Sentrits-Web` revision in `www/_metadata/sentrits-web-revision.txt`
 - host-admin assets still come from this repo
 - remote web client assets come from `Sentrits-Web`

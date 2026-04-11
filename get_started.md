@@ -33,12 +33,11 @@ Supported host platforms today:
 
 #### macOS
 
-macOS packaging is not documented here yet.
+Install the packaged tarball into a stable user-owned location, then bootstrap the per-user `launchd` agent.
 
-For now:
+Detailed macOS package build, install, smoke-test, and uninstall notes:
 
-- use the source build and service bootstrap flow
-- a dedicated macOS install guide can be added later under `packaging/`
+- `packaging/macos.md`
 
 #### Linux
 
@@ -154,6 +153,25 @@ Detailed Linux package install, smoke-test, uninstall, and state notes:
 
 - `packaging/debian.md`
 
+### macOS Uninstall
+
+Unload and remove the per-user `launchd` agent:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/io.sentrits.agent.plist 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/io.sentrits.agent.plist
+```
+
+Remove the installed package root:
+
+```bash
+rm -rf ~/Applications/Sentrits
+```
+
+Detailed macOS package install, smoke-test, uninstall, and state notes:
+
+- `packaging/macos.md`
+
 ## Development
 
 This section is for building, testing, debugging, and packaging from source.
@@ -267,11 +285,12 @@ The current Linux packaging path builds a `.deb` from this repo and stages:
 
 - the maintained browser remote client from `../Sentrits-Web`
 - the in-repo host admin frontend from `./frontend`
+- the pinned browser client revision recorded in `packaging/sentrits-web-revision.txt`
 
 Prerequisites:
 
 - `../Sentrits-Web` exists beside this repo
-- that checkout is on `main`
+- that checkout matches `packaging/sentrits-web-revision.txt`
 - its production assets are built into `dist/`
 - `./frontend` dependencies are installed
 - `./frontend` host-admin production assets are built into `frontend/dist/host-admin/browser`
@@ -280,6 +299,7 @@ Build the maintained remote web client bundle:
 
 ```bash
 cd ../Sentrits-Web
+git checkout "$(cat ../Sentrits-Core/packaging/sentrits-web-revision.txt)"
 npm install
 npm run build
 cd ../core-packaging

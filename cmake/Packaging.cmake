@@ -3,8 +3,14 @@ function(sentrits_configure_packaging)
   set(SENTRITS_GENERATED_MACOS_DIR "${SENTRITS_GENERATED_PACKAGING_DIR}/macos")
   set(SENTRITS_GENERATED_SYSTEMD_DIR "${SENTRITS_GENERATED_PACKAGING_DIR}/systemd")
   set(SENTRITS_STAGED_WEB_ROOT "${CMAKE_CURRENT_BINARY_DIR}/packaging/www")
+  set(SENTRITS_MACOS_STAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/packaging/macos")
+  set(SENTRITS_MACOS_INSTALL_ROOT "${SENTRITS_MACOS_STAGE_ROOT}/Sentrits")
+  set(SENTRITS_MACOS_ARCHIVE_NAME "sentrits-${PROJECT_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}.tar.gz")
+  set(SENTRITS_MACOS_ARCHIVE_PATH "${CMAKE_CURRENT_BINARY_DIR}/${SENTRITS_MACOS_ARCHIVE_NAME}")
   set(SENTRITS_WEB_REPO "${CMAKE_CURRENT_SOURCE_DIR}/../Sentrits-Web" CACHE PATH
       "Path to the maintained Sentrits-Web repository checkout")
+  set(SENTRITS_WEB_REVISION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/packaging/sentrits-web-revision.txt" CACHE FILEPATH
+      "File containing the pinned Sentrits-Web revision to package")
   set(SENTRITS_PACKAGE_WEB_SOURCE "${SENTRITS_STAGED_WEB_ROOT}" CACHE PATH
       "Web asset directory to install into packaged Sentrits builds")
 
@@ -34,15 +40,19 @@ function(sentrits_configure_packaging)
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
 
-  install(FILES
-    "${SENTRITS_GENERATED_MACOS_DIR}/io.sentrits.agent.plist"
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/sentrits/launchd"
-  )
+  if(APPLE)
+    install(FILES
+      "${SENTRITS_GENERATED_MACOS_DIR}/io.sentrits.agent.plist"
+      DESTINATION "${CMAKE_INSTALL_DATADIR}/sentrits/launchd"
+    )
+  endif()
 
-  install(FILES
-    "${SENTRITS_GENERATED_SYSTEMD_DIR}/sentrits.service"
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/systemd/user"
-  )
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    install(FILES
+      "${SENTRITS_GENERATED_SYSTEMD_DIR}/sentrits.service"
+      DESTINATION "${CMAKE_INSTALL_LIBDIR}/systemd/user"
+    )
+  endif()
 
   install(DIRECTORY
     "${SENTRITS_PACKAGE_WEB_SOURCE}/"
@@ -67,6 +77,7 @@ function(sentrits_configure_packaging)
     COMMAND "${CMAKE_COMMAND}"
             -DSENTRITS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
             -DSENTRITS_WEB_REPO="${SENTRITS_WEB_REPO}"
+            -DSENTRITS_WEB_REVISION_FILE="${SENTRITS_WEB_REVISION_FILE}"
             -DSENTRITS_STAGED_WEB_ROOT="${SENTRITS_STAGED_WEB_ROOT}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/StageWebAssets.cmake"
     COMMENT "Stage packaged web assets from ${SENTRITS_WEB_REPO}"
@@ -96,6 +107,20 @@ function(sentrits_configure_packaging)
       DEPENDS sentrits sentrits_stage_web_assets
       COMMAND "${CMAKE_CPACK_COMMAND}" -G DEB --config "${CMAKE_BINARY_DIR}/CPackConfig.cmake"
       COMMENT "Build a Debian package for Sentrits"
+      VERBATIM
+    )
+  endif()
+
+  if(APPLE)
+    add_custom_target(sentrits_package_macos
+      DEPENDS sentrits sentrits_stage_web_assets
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf "${SENTRITS_MACOS_STAGE_ROOT}"
+      COMMAND "${CMAKE_COMMAND}" -E make_directory "${SENTRITS_MACOS_STAGE_ROOT}"
+      COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}" --prefix "${SENTRITS_MACOS_INSTALL_ROOT}"
+      COMMAND "${CMAKE_COMMAND}" -E rm -f "${SENTRITS_MACOS_ARCHIVE_PATH}"
+      COMMAND "${CMAKE_COMMAND}" -E chdir "${SENTRITS_MACOS_STAGE_ROOT}"
+              "${CMAKE_COMMAND}" -E tar "cfvz" "${SENTRITS_MACOS_ARCHIVE_PATH}" --format=gnutar "Sentrits"
+      COMMENT "Build a macOS tarball package for Sentrits"
       VERBATIM
     )
   endif()
