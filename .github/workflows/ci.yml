@@ -7,6 +7,13 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'README.md'
+      - 'get_started.md'
+      - 'development_memo/**'
+      - 'prompts/**'
+      - 'packaging/**/*.md'
+      - '.github/pull_request_template.md'
 
 jobs:
   build-and-test:
