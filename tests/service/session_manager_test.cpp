@@ -197,6 +197,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "live-one",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(first_created.has_value());
@@ -212,6 +213,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdsAcrossRecov
       .title = "live-two",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(second_created.has_value());
@@ -237,6 +239,7 @@ TEST(SessionManagerTest, CreateSessionNormalizesAndPersistsGroupTags) {
       .title = "tagged",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .command_shell = std::nullopt,
       .group_tags = {" Frontend ", "mvp", "frontend"},
   });
   ASSERT_TRUE(created.has_value());
@@ -291,6 +294,7 @@ TEST(SessionManagerTest, UpdatesGroupTagsForLiveAndRecoveredSessions) {
       .title = "live-tagged",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .command_shell = std::nullopt,
       .group_tags = {"frontend"},
   });
   ASSERT_TRUE(live.has_value());
@@ -334,6 +338,7 @@ TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
       .title = "missing-pty",
       .conversation_id = std::nullopt,
       .command_argv = std::nullopt,
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
 
@@ -350,6 +355,7 @@ TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsE
       .title = "shutdown-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -392,6 +398,7 @@ TEST(SessionManagerTest, ClearInactiveSessionsRemovesExitedAndRecoveredRecords) 
       .title = "clear-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -415,6 +422,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "first",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   const auto second = manager.CreateSession(CreateSessionRequest{
@@ -423,6 +431,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "second",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(first.has_value());
@@ -441,6 +450,7 @@ TEST(SessionManagerTest, CreateSessionReusesLowestAvailableSessionIdAfterCleanup
       .title = "reused",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(reused.has_value());
@@ -457,6 +467,7 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
       .title = "output-target",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "printf 'ready\\n'; sleep 1"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -480,6 +491,7 @@ TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
       .title = "control-activity",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -523,6 +535,7 @@ TEST_F(GitSessionManagerTest, GitPollDoesNotAdvanceActivityWithoutGitStateChange
       .title = "git-idle",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -555,6 +568,7 @@ TEST_F(GitSessionManagerTest, GitPollTracksDirtyAndCleanTransitionsInSummaryAndS
       .title = "git-transitions",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -639,6 +653,7 @@ TEST(SessionManagerTest, StopSetsShortLivedExitedAttention) {
       .title = "exit-attention",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -663,6 +678,7 @@ TEST(SessionManagerTest, ViewportResizeDoesNotChangeSessionPtySize) {
       .title = "viewport-only",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
@@ -821,6 +837,7 @@ TEST(SessionManagerTest, PollAllTracksRecentWorkspaceFileChangesForLiveSession) 
       .title = "file-watch",
       .conversation_id = std::nullopt,
       .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
       .group_tags = {},
   });
   ASSERT_TRUE(created.has_value());
