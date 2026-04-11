@@ -24,10 +24,11 @@ Packaged web UI layout:
 
 ## Build The Package
 
-Build the maintained web client first so packaged remote assets exist:
+Build the pinned web client revision first so packaged remote assets exist:
 
 ```bash
 cd ../Sentrits-Web
+git checkout "$(cat ../Sentrits-Core/packaging/sentrits-web-revision.txt)"
 npm run build
 ```
 
