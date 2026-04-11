@@ -867,6 +867,9 @@ TEST(HttpSharedTest, ServesLocalUiAndPairingRoutes) {
   FakePairingStore pairing_store;
   FakeHostConfigStore host_config_store;
   FakeHostAdmin host_admin;
+  const auto temp_dir = MakeTempDir("sentrits-http-shared-local-ui");
+  WriteTextFile(temp_dir / "index.html", "<html><head><title>HostAdmin</title></head><body><app-root></app-root></body></html>");
+  ScopedEnvVar host_root("SENTRITS_HOST_UI_ROOT", temp_dir.string());
 
   HttpRequest ui_request;
   ui_request.method(http::verb::get);
