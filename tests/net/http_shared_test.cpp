@@ -1362,6 +1362,7 @@ TEST(HttpSharedTest, RemoteAuthorizedClientCanClearInactiveSessions) {
           .title = "ended",
           .conversation_id = std::nullopt,
           .command_argv = std::nullopt,
+          .command_shell = std::nullopt,
           .group_tags = {},
       });
   ASSERT_TRUE(created.has_value());

@@ -133,6 +133,7 @@ TEST_F(FileStoresTest, EnsureHostIdentityPreservesExistingConfiguredFields) {
               .executable = "/opt/bin/claude",
               .args = {"--verbose"},
           },
+      .session_setups = {},
   };
   ASSERT_TRUE(store.SaveHostIdentity(expected));
 
