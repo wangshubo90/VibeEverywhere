@@ -112,6 +112,79 @@ This matters because the next semantic-monitor work can build on canonical termi
 - `tests/session/terminal_multiplexer_test.cpp`
   - canonical screen, scrollback, bootstrap ANSI, and viewport behavior
 
+## Semantic Monitoring Available Today
+
+This is the practical semantic-monitor inventory available right now.
+
+### Runtime
+
+- supervision state:
+  - `active`
+  - `quiet`
+  - `stopped`
+- attention state and reason:
+  - `none`
+  - `info`
+  - `action_required`
+  - `intervention`
+- interaction kind:
+  - `unknown`
+  - `running_non_interactive`
+  - `interactive_line_mode`
+  - `completed_quickly`
+- additive node summary:
+  - lifecycle
+  - interaction
+  - attention
+  - semantic preview
+  - recent file-change count
+  - git dirty
+  - last activity time
+- semantic preview strings:
+  - `Awaiting input`
+  - `Session error`
+  - `Workspace changed`
+  - `Git state changed`
+  - `Controller changed`
+  - `Session exited cleanly`
+  - `Workspace dirty`
+
+### Observation surfaces
+
+- session list summaries
+- session detail summaries
+- session snapshots
+- websocket summary and activity/update events
+- canonical `terminalScreen`
+- additive `terminalViewport`
+
+### Terminal-state foundation
+
+- visible rendered lines
+- bounded scrollback
+- cursor row and column
+- render revision
+- bootstrap ANSI snapshot
+- viewport projection for a requested observer size
+
+### CLI
+
+- human session list prints `interactionKind` and `semanticPreview`
+- human snapshot prints interaction and summary fields
+
+### Trace and debugging
+
+- `core.node:summary.transition`
+- optional trace file via `SENTRITS_SESSION_SIGNAL_TRACE_PATH`
+- terminal escape/debug traces from `TerminalMultiplexer`
+
+### Current limits
+
+- no dedicated semantic-monitor endpoint yet
+- no fullscreen classification yet
+- no prompt / approval / progress / error extraction yet
+- semantic preview is still intentionally short and conservative
+
 ## What Is Still Intentionally Sparse
 
 - interaction classification is conservative

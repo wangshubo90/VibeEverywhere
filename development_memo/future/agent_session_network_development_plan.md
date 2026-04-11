@@ -150,6 +150,40 @@ Good candidates:
 
 This should stay read-only in this phase.
 
+## Low-Hanging Fruit For Clients
+
+These are additive client features that can ship against the current runtime surfaces or very small runtime extensions.
+
+### Using already-available fields
+
+- better session-list badges for:
+  - `interactionKind`
+  - `attentionState`
+  - git dirty state
+  - recent file-change count
+- richer preview rows using:
+  - `semanticPreview`
+  - `recentFileChangeCount`
+  - `lastActivityAtUnixMs`
+- focused-view observation summary card using:
+  - `nodeSummary`
+  - `signals`
+  - git summary
+  - current sequence / render revision
+- clearer stale-vs-active indicators using:
+  - `supervisionState`
+  - `lastOutputAtUnixMs`
+  - `lastActivityAtUnixMs`
+- explicit awaiting-input and recent-workspace-change callouts where current attention reasons already support them
+
+### With only small additive runtime help
+
+- show a bounded bottom-line preview sourced from `terminalScreen.visibleLines`
+- show a compact rendered-text excerpt in inventory or focused monitoring panels
+- show render-revision changes as a lightweight activity pulse without raw stream inspection
+
+These are good MVP client wins because they improve supervision without requiring new control APIs or session-network-v2 work.
+
 ## Deprioritized For Now
 
 These items are real future work, but not part of the next doc set or implementation pass:
