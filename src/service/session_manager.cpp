@@ -9,6 +9,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <utility>
 
@@ -23,6 +24,105 @@ namespace vibe::service {
 namespace {
 
 constexpr std::string_view kPrivilegedLocalControllerPrefix = "local-controller-";
+
+auto SummarizeEscapedInput(const std::string_view data) -> std::optional<std::string> {
+  if (data.empty() || data.find('\x1b') == std::string_view::npos) {
+    return std::nullopt;
+  }
+
+  std::ostringstream text;
+  const std::size_t text_limit = std::min<std::size_t>(data.size(), 80U);
+  for (std::size_t index = 0; index < text_limit; ++index) {
+    const unsigned char byte = static_cast<unsigned char>(data[index]);
+    switch (byte) {
+      case '\x1b':
+        text << "\\e";
+        break;
+      case '\r':
+        text << "\\r";
+        break;
+      case '\n':
+        text << "\\n";
+        break;
+      case '\t':
+        text << "\\t";
+        break;
+      default:
+        if (byte >= 0x20U && byte <= 0x7EU) {
+          text << static_cast<char>(byte);
+        } else {
+          text << "\\x" << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<unsigned int>(byte) << std::dec;
+        }
+        break;
+    }
+  }
+  if (data.size() > text_limit) {
+    text << "...";
+  }
+
+  std::ostringstream hex;
+  const std::size_t hex_limit = std::min<std::size_t>(data.size(), 16U);
+  for (std::size_t index = 0; index < hex_limit; ++index) {
+    if (index > 0) {
+      hex << ' ';
+    }
+    hex << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned int>(static_cast<unsigned char>(data[index])) << std::dec;
+  }
+  if (data.size() > hex_limit) {
+    hex << " ...";
+  }
+
+  std::ostringstream out;
+  out << "bytes=" << data.size() << " text=\"" << text.str() << "\" hex=" << hex.str();
+  return out.str();
+}
+
+auto IsColorReportSequence(const std::string_view data, const std::size_t offset,
+                           std::size_t& sequence_end) -> bool {
+  if (offset + 5U > data.size()) {
+    return false;
+  }
+  if (data[offset] != '\x1b' || data[offset + 1U] != ']') {
+    return false;
+  }
+  if (data[offset + 2U] != '1' || (data[offset + 3U] != '0' && data[offset + 3U] != '1') ||
+      data[offset + 4U] != ';') {
+    return false;
+  }
+
+  for (std::size_t index = offset + 5U; index < data.size(); ++index) {
+    if (data[index] == '\a') {
+      sequence_end = index + 1U;
+      return true;
+    }
+    if (data[index] == '\x1b' && index + 1U < data.size() && data[index + 1U] == '\\') {
+      sequence_end = index + 2U;
+      return true;
+    }
+  }
+  return false;
+}
+
+auto FilterTerminalColorReports(const std::string_view input) -> std::pair<std::string, bool> {
+  std::string filtered;
+  filtered.reserve(input.size());
+  bool removed = false;
+
+  for (std::size_t index = 0; index < input.size();) {
+    std::size_t sequence_end = index;
+    if (IsColorReportSequence(input, index, sequence_end)) {
+      removed = true;
+      index = sequence_end;
+      continue;
+    }
+    filtered.push_back(input[index]);
+    ++index;
+  }
+
+  return {std::move(filtered), removed};
+}
 constexpr std::string_view kPrivilegedRemoteControllerPrefix = "remote-controller-";
 
 auto IsPrivilegedControllerClientId(const std::optional<std::string>& controller_client_id) -> bool {
@@ -901,10 +1001,29 @@ auto SessionManager::SendInput(const std::string& session_id, const std::string&
     if (entry->runtime == nullptr) {
       return false;
     }
-    ServerTraceLogger::Instance().Log("send_input.begin", session_id, input.size());
-    const bool wrote = entry->runtime->WriteInput(input);
+    const auto [filtered_input, removed_color_reports] = FilterTerminalColorReports(input);
+    if (input.find('\x1b') != std::string::npos) {
+      const auto summary = SummarizeEscapedInput(input);
+      if (summary.has_value()) {
+        vibe::base::DebugTrace("core.focus", "send_input.escape",
+                               "session=" + session_id + " " + *summary);
+      }
+    }
+    if (removed_color_reports) {
+      const auto filtered_summary = SummarizeEscapedInput(filtered_input);
+      vibe::base::DebugTrace(
+          "core.focus", "send_input.filtered",
+          "session=" + session_id + " removed=color_reports remaining=" +
+              (filtered_summary.has_value() ? *filtered_summary : std::string("bytes=0 text=\"\" hex=")));
+    }
+    if (filtered_input.empty()) {
+      return true;
+    }
+
+    ServerTraceLogger::Instance().Log("send_input.begin", session_id, filtered_input.size());
+    const bool wrote = entry->runtime->WriteInput(filtered_input);
     ServerTraceLogger::Instance().Log(wrote ? "send_input.ok" : "send_input.fail", session_id,
-                                      input.size());
+                                      filtered_input.size());
     return wrote;
   }
 

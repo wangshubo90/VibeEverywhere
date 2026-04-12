@@ -6,6 +6,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -31,6 +32,28 @@ auto TrimRight(std::string value) -> std::string {
 
 auto ContainsSequence(const std::string_view input, const std::string_view needle) -> bool {
   return input.find(needle) != std::string_view::npos;
+}
+
+auto SummarizeBootstrapColors(const std::string& bootstrap) -> std::string {
+  std::ostringstream trace;
+  trace << "bytes=" << bootstrap.size()
+        << " hasIndexedFg=" << (ContainsSequence(bootstrap, ";38;5;") ? "true" : "false")
+        << " hasIndexedBg=" << (ContainsSequence(bootstrap, ";48;5;") ? "true" : "false")
+        << " hasRgbFg=" << (ContainsSequence(bootstrap, ";38;2;") ? "true" : "false")
+        << " hasRgbBg=" << (ContainsSequence(bootstrap, ";48;2;") ? "true" : "false")
+        << " hasReset=" << (ContainsSequence(bootstrap, "\x1b[0m") ? "true" : "false");
+  return trace.str();
+}
+
+auto DescribeColor(const VTermColor& color, const bool foreground) -> std::string {
+  if ((foreground && VTERM_COLOR_IS_DEFAULT_FG(&color)) || (!foreground && VTERM_COLOR_IS_DEFAULT_BG(&color))) {
+    return "default";
+  }
+  if (VTERM_COLOR_IS_INDEXED(&color)) {
+    return "idx:" + std::to_string(color.indexed.idx);
+  }
+  return "rgb:" + std::to_string(color.rgb.red) + "," + std::to_string(color.rgb.green) + "," +
+         std::to_string(color.rgb.blue);
 }
 
 auto BuildAppendTraceSummary(const std::string_view data) -> std::optional<std::string> {
@@ -196,6 +219,18 @@ void AppendColorSgr(std::string& out, VTermScreen* screen, const VTermColor& col
     return;
   }
 
+  if (VTERM_COLOR_IS_INDEXED(&color)) {
+    // Preserve indexed color references so the receiving terminal uses its own
+    // palette, matching the raw PTY output.  Converting to RGB via libvterm's
+    // palette would produce different values than the terminal's own palette
+    // (especially for colors 0-15), causing visible color changes in the
+    // viewport snapshot vs. the raw output.
+    out.append(foreground ? ";38;5;" : ";48;5;");
+    out.append(std::to_string(color.indexed.idx));
+    return;
+  }
+
+  // Already an explicit RGB color — emit as 24-bit true color.
   VTermColor rgb = color;
   vterm_screen_convert_color_to_rgb(screen, &rgb);
   out.append(foreground ? ";38;2;" : ";48;2;");
@@ -464,6 +499,10 @@ class TerminalMultiplexer::Impl {
     snapshot_.cursor_row = cursor.row >= 0 ? static_cast<std::size_t>(cursor.row) : 0U;
     snapshot_.cursor_column = cursor.col >= 0 ? static_cast<std::size_t>(cursor.col) : 0U;
     snapshot_.bootstrap_ansi = BuildScreenBootstrapAnsi();
+    if (snapshot_.render_revision > 0) {
+      vibe::base::DebugTrace("core.terminal", "screen.bootstrap",
+                             SummarizeBootstrapColors(snapshot_.bootstrap_ansi));
+    }
   }
 
   [[nodiscard]] auto BuildStyledVisibleRow(const std::size_t row_index, const std::size_t start_column,
@@ -515,6 +554,98 @@ class TerminalMultiplexer::Impl {
     return out;
   }
 
+  [[nodiscard]] auto SummarizeVisibleRowStyle(const std::size_t row_index) const -> std::string {
+    if (row_index >= terminal_size_.rows) {
+      return "row=out-of-range";
+    }
+
+    std::string text;
+    bool saw_non_default_bg = false;
+    bool saw_non_default_fg = false;
+    std::set<std::string> bg_colors;
+    std::set<std::string> fg_colors;
+
+    for (std::size_t column = 0; column < terminal_size_.columns; ++column) {
+      VTermScreenCell cell{};
+      static_cast<void>(vterm_screen_get_cell(
+          screen_, VTermPos{.row = static_cast<int>(row_index), .col = static_cast<int>(column)}, &cell));
+      if (cell.width == 0) {
+        continue;
+      }
+
+      bool emitted = false;
+      for (const uint32_t codepoint : cell.chars) {
+        if (codepoint == 0U) {
+          break;
+        }
+        AppendUtf8(text, codepoint);
+        emitted = true;
+      }
+      if (!emitted) {
+        text.push_back(' ');
+      }
+
+      const std::string fg = DescribeColor(cell.fg, true);
+      const std::string bg = DescribeColor(cell.bg, false);
+      if (fg != "default") {
+        saw_non_default_fg = true;
+        fg_colors.insert(fg);
+      }
+      if (bg != "default") {
+        saw_non_default_bg = true;
+        bg_colors.insert(bg);
+      }
+    }
+
+    while (!text.empty() && text.back() == ' ') {
+      text.pop_back();
+    }
+
+    std::ostringstream trace;
+    trace << "row=" << row_index << " text=\"" << text << "\""
+          << " nonDefaultFg=" << (saw_non_default_fg ? "true" : "false")
+          << " nonDefaultBg=" << (saw_non_default_bg ? "true" : "false");
+    if (!fg_colors.empty()) {
+      trace << " fg={";
+      bool first = true;
+      for (const auto& fg : fg_colors) {
+        if (!first) {
+          trace << ",";
+        }
+        first = false;
+        trace << fg;
+      }
+      trace << "}";
+    }
+    if (!bg_colors.empty()) {
+      trace << " bg={";
+      bool first = true;
+      for (const auto& bg : bg_colors) {
+        if (!first) {
+          trace << ",";
+        }
+        first = false;
+        trace << bg;
+      }
+      trace << "}";
+    }
+    return trace.str();
+  }
+
+  void TraceRowsAroundCursor(const std::string_view event) const {
+    if (terminal_size_.rows == 0) {
+      return;
+    }
+
+    const std::size_t last_row = static_cast<std::size_t>(terminal_size_.rows - 1U);
+    const std::size_t cursor_row = std::min(snapshot_.cursor_row, last_row);
+    const std::size_t start = cursor_row > 0 ? cursor_row - 1U : 0U;
+    const std::size_t end = std::min(last_row, cursor_row + 1U);
+    for (std::size_t row = start; row <= end; ++row) {
+      vibe::base::DebugTrace("core.terminal", event, SummarizeVisibleRowStyle(row));
+    }
+  }
+
   [[nodiscard]] auto BuildScreenBootstrapAnsi() const -> std::string {
     std::string out;
     if (!snapshot_.scrollback_lines.empty()) {
@@ -526,7 +657,7 @@ class TerminalMultiplexer::Impl {
       out.append("\r\n");
     }
 
-    out.append("\x1b[2J\x1b[H");
+    out.append("\x1b[0m\x1b[2J\x1b[H");
     for (std::size_t row = 0; row < terminal_size_.rows; ++row) {
       out.append(BuildStyledVisibleRow(row, 0U, terminal_size_.columns));
       if (row + 1U < terminal_size_.rows) {
@@ -538,6 +669,7 @@ class TerminalMultiplexer::Impl {
     out.push_back(';');
     out.append(std::to_string(snapshot_.cursor_column + 1U));
     out.push_back('H');
+    TraceRowsAroundCursor("screen.rows");
     return out;
   }
 
@@ -563,7 +695,7 @@ class TerminalMultiplexer::Impl {
       out.append("\r\n");
     }
 
-    out.append("\x1b[2J\x1b[H");
+    out.append("\x1b[0m\x1b[2J\x1b[H");
     for (std::size_t row = 0; row < viewport_rows; ++row) {
       const std::size_t line_index = viewport_top_line + row;
       if (line_index < scrollback_count) {
@@ -583,6 +715,9 @@ class TerminalMultiplexer::Impl {
       out.append(std::to_string(*cursor_column + 1U));
       out.push_back('H');
     }
+    TraceRowsAroundCursor("viewport.rows");
+    vibe::base::DebugTrace("core.terminal", "viewport.bootstrap",
+                           SummarizeBootstrapColors(out));
     return out;
   }
 

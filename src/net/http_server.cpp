@@ -32,6 +32,7 @@
 #include <vector>
 #include <unistd.h>
 
+#include "vibe/base/debug_trace.h"
 #include "vibe/net/discovery_broadcaster.h"
 #include "vibe/net/http_shared.h"
 #include "vibe/net/json.h"
@@ -1916,6 +1917,9 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
     }
     socket_.cancel(error_code);
     socket_.close(error_code);
+    if (!session_id_.empty() && !client_id_.empty()) {
+      session_manager_.RemoveViewport(session_id_, client_id_);
+    }
     ReleaseControlIfHeld();
   }
 
@@ -1983,13 +1987,37 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
       return;
     }
 
+    std::ostringstream handshake_trace;
+    handshake_trace << "session=" << session_id_ << " client=" << client_id_
+                    << " size=" << initial_terminal_size_.columns << "x" << initial_terminal_size_.rows
+                    << " currentSequence=" << summary->current_sequence;
+    vibe::base::DebugTrace("core.focus", "local.handshake", handshake_trace.str());
+
+    // Send a screen clear rather than replaying raw tail bytes or a bootstrap snapshot.
+    //
+    // Raw tail bytes were written at the old PTY size and cause ghosting when replayed
+    // on a terminal that is now a different size. The bootstrap_ansi from the snapshot
+    // is designed for fresh web terminals (xterm.js starting from empty state) — sending
+    // it to a real local terminal pollutes its scrollback with the scrollback dump and
+    // shifts cursor baselines, making things worse.
+    //
+    // The right recovery is: clear the visible screen, then let the subprocess's
+    // SIGWINCH redraw (triggered by ResizeSession → TIOCSWINSZ above) repaint
+    // the correct state at the new dimensions. TIOCSWINSZ always sends SIGWINCH
+    // regardless of whether the size actually changed, so the redraw always arrives.
+    initial_tail_ = "\x1b[0m\x1b[H\x1b[2J";
     const auto tail = session_manager_.GetTail(session_id_, 64U * 1024U);
     if (tail.has_value()) {
-      initial_tail_ = tail->data;
       next_output_sequence_ = tail->seq_end > 0 ? tail->seq_end + 1 : 1;
     } else {
       next_output_sequence_ = summary->current_sequence + 1;
     }
+
+    std::ostringstream bootstrap_trace;
+    bootstrap_trace << "session=" << session_id_ << " client=" << client_id_
+                    << " bootstrapMode=clear-only"
+                    << " nextSequence=" << next_output_sequence_;
+    vibe::base::DebugTrace("core.focus", "local.bootstrap", bootstrap_trace.str());
 
     WriteHandshakeResponse("OK\n", true);
   }
@@ -2081,8 +2109,17 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
         return;
       }
       current_terminal_size_ = DecodeTerminalSize(payload);
+      {
+        std::ostringstream resize_trace;
+        resize_trace << "session=" << session_id_ << " client=" << client_id_
+                     << " size=" << current_terminal_size_.columns << "x" << current_terminal_size_.rows
+                     << " hasControl=" << (has_control_ ? "true" : "false");
+        vibe::base::DebugTrace("core.focus", "local.resize", resize_trace.str());
+      }
       if (!has_control_ || !session_manager_.HasControl(session_id_, client_id_)) {
         has_control_ = false;
+        vibe::base::DebugTrace("core.focus", "local.resize.ignored",
+                               "reason=observer_mode viewportUpdateDeferred=true");
         ReadFrameHeader();
         return;
       }
@@ -2136,10 +2173,16 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
           }
 
           static_cast<void>(self->session_manager_.PollSession(self->session_id_, 0));
-          self->FlushOutput();
 
+          // Check control state BEFORE flushing output. If we just lost control to a
+          // remote client the bytes that just arrived are sized for the remote client's
+          // terminal, not ours. Flushing them raw would bleed their SGR colors into our
+          // wider terminal columns.
+          const bool had_control = self->has_control_;
           if (self->has_control_ && !self->session_manager_.HasControl(self->session_id_, self->client_id_)) {
             self->has_control_ = false;
+            vibe::base::DebugTrace("core.focus", "local.control.lost",
+                                   "session=" + self->session_id_ + " client=" + self->client_id_);
           }
 
           const auto summary = self->session_manager_.GetSession(self->session_id_);
@@ -2152,9 +2195,37 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
             if (self->session_manager_.RequestControl(self->session_id_, self->client_id_,
                                                       vibe::session::ControllerKind::Host)) {
               self->has_control_ = true;
+              self->session_manager_.RemoveViewport(self->session_id_, self->client_id_);
+              vibe::base::DebugTrace("core.focus", "local.control.reacquired",
+                                     "session=" + self->session_id_ + " client=" + self->client_id_);
+              // Sequence is kept current by FlushViewportSnapshot while in observer
+              // mode, so raw output resumes from the right position automatically.
               static_cast<void>(
                   self->session_manager_.ResizeSession(self->session_id_, self->current_terminal_size_));
             }
+          }
+
+          if (self->has_control_) {
+            self->FlushOutput();
+          } else {
+            if (had_control) {
+              // Just lost control: register our viewport at local terminal size so
+              // GetViewportSnapshot can adapt content to our dimensions, then clear
+              // the screen so the remote client's wrong-sized bytes don't ghost.
+              static_cast<void>(self->session_manager_.UpdateViewport(
+                  self->session_id_, self->client_id_, self->current_terminal_size_));
+              self->QueueOutput("\x1b[0m\x1b[H\x1b[2J");
+              self->last_observer_render_revision_ = 0;
+              {
+                std::ostringstream observer_trace;
+                observer_trace << "session=" << self->session_id_ << " client=" << self->client_id_
+                               << " size=" << self->current_terminal_size_.columns << "x"
+                               << self->current_terminal_size_.rows
+                               << " action=clear-and-bootstrap";
+                vibe::base::DebugTrace("core.focus", "local.observer.enter", observer_trace.str());
+              }
+            }
+            self->FlushViewportSnapshot(summary);
           }
 
           self->SyncReadableDescriptor();
@@ -2175,6 +2246,44 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
 
     next_output_sequence_ = slice->seq_end + 1;
     QueueOutput(std::string(slice->data));
+  }
+
+  void FlushViewportSnapshot(const std::optional<vibe::service::SessionSummary>& summary) {
+    // Keep next_output_sequence_ current so raw mode resumes cleanly when we
+    // regain control, without replaying any of the wrong-sized observer bytes.
+    if (summary.has_value()) {
+      next_output_sequence_ = summary->current_sequence + 1;
+    }
+
+    const auto viewport = session_manager_.GetViewportSnapshot(session_id_, client_id_);
+    if (!viewport.has_value() || viewport->bootstrap_ansi.empty()) {
+      vibe::base::DebugTrace("core.focus", "local.viewport.skip",
+                             "session=" + session_id_ + " client=" + client_id_ + " reason=missing_bootstrap");
+      return;
+    }
+    if (viewport->render_revision == last_observer_render_revision_) {
+      std::ostringstream skip_trace;
+      skip_trace << "session=" << session_id_ << " client=" << client_id_
+                 << " renderRevision=" << viewport->render_revision << " reason=unchanged";
+      vibe::base::DebugTrace("core.focus", "local.viewport.skip", skip_trace.str());
+      return;
+    }
+
+    last_observer_render_revision_ = viewport->render_revision;
+    std::ostringstream viewport_trace;
+    viewport_trace << "session=" << session_id_ << " client=" << client_id_
+                   << " cols=" << viewport->columns << " rows=" << viewport->rows
+                   << " renderRevision=" << viewport->render_revision
+                   << " top=" << viewport->viewport_top_line
+                   << " cursorRow=" << (viewport->cursor_viewport_row.has_value()
+                                            ? std::to_string(*viewport->cursor_viewport_row)
+                                            : "nil")
+                   << " cursorCol=" << (viewport->cursor_viewport_column.has_value()
+                                            ? std::to_string(*viewport->cursor_viewport_column)
+                                            : "nil")
+                   << " bootstrapBytes=" << viewport->bootstrap_ansi.size();
+    vibe::base::DebugTrace("core.focus", "local.viewport.flush", viewport_trace.str());
+    QueueOutput(std::string(viewport->bootstrap_ansi));
   }
 
   void QueueOutput(std::string payload) {
@@ -2263,6 +2372,7 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
   vibe::session::TerminalSize initial_terminal_size_{};
   vibe::session::TerminalSize current_terminal_size_{};
   std::uint64_t next_output_sequence_{1};
+  std::uint64_t last_observer_render_revision_{0};
   bool has_control_{false};
   bool write_in_progress_{false};
   bool close_after_writes_{false};
