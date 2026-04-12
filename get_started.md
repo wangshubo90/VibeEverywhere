@@ -71,13 +71,21 @@ sentrits
 Common installed commands:
 
 - `sentrits host status`
-  Print basic host runtime status and reachability information.
+  Print basic host runtime status and listener information.
+- `sentrits setup list`
+  List host-owned saved session setups.
+- `sentrits setup show setup_abc123`
+  Show one saved setup in more detail.
 - `sentrits session list`
   List known sessions, including recovered stopped sessions if they still exist in persisted state.
 - `sentrits session show s_1`
   Show one session in more detail.
 - `sentrits session start --title demo --attach`
   Start a new session and attach to it immediately.
+- `sentrits session start --setup setup_abc123`
+  Start a new session from a saved host-owned setup.
+- `sentrits session start --workspace /path/to/repo --shell-command 'codex "$(cat prompt.md)"'`
+  Start a new session from a shell-expanded command.
 - `sentrits session observe s_1`
   Observe a running session without taking control.
 - `sentrits session attach s_1`
@@ -86,6 +94,44 @@ Common installed commands:
   Stop a session.
 - `sentrits session clear`
   Remove inactive persisted session records.
+
+Notes:
+
+- These commands target the configured local daemon by default.
+- `--host` and `--port` are advanced daemon-endpoint override flags, not session settings.
+- Use provider selection when you want the runtime to start the provider default command for that setup.
+- Use `--shell-command` only when you need shell behavior such as command substitution or quoting-sensitive expansion.
+
+Example session starts:
+
+```bash
+# Start from the codex provider default in the current workspace
+sentrits session start --provider codex --title "Codex Session" --attach
+
+# Start from the claude provider default in an explicit repo
+sentrits session start --provider claude --workspace /path/to/repo --title "Claude Review"
+
+# Start a coding CLI with flags and args
+sentrits session start --workspace /path/to/repo --shell-command 'codex resume --all'
+
+# Start a plain shell
+sentrits session start --shell-command '/bin/bash -l' --title "Shell"
+
+# Start a non-coding CLI program
+sentrits session start --shell-command 'htop' --title "Host Monitor"
+
+# Start an ordinary app with flags and args
+sentrits session start --shell-command 'python -m http.server 8080' --workspace /tmp --title "HTTP Server"
+
+# Start from a saved reusable setup
+sentrits session start --setup setup_abc123
+
+# Start from a saved setup but override the title
+sentrits session start --setup setup_abc123 --title "One-off Run"
+
+# Start with shell expansion
+sentrits session start --workspace /path/to/repo --shell-command 'codex "$(cat prompt.md)"'
+```
 
 ### Web UI
 
