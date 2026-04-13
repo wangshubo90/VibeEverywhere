@@ -47,9 +47,9 @@ TEST(TerminalMultiplexerTest, EmitsStyledBootstrapAnsiForVisibleScreen) {
   multiplexer.Append("\x1b[31mred\x1b[0m");
 
   const TerminalScreenSnapshot snapshot = multiplexer.snapshot();
-  EXPECT_NE(snapshot.bootstrap_ansi.find("\x1b[2J\x1b[H"), std::string::npos);
+  EXPECT_NE(snapshot.bootstrap_ansi.find("\x1b[0m\x1b[2J\x1b[H"), std::string::npos);
   EXPECT_NE(snapshot.bootstrap_ansi.find("red"), std::string::npos);
-  EXPECT_NE(snapshot.bootstrap_ansi.find("38;2;"), std::string::npos);
+  EXPECT_NE(snapshot.bootstrap_ansi.find("38;5;1"), std::string::npos);
 }
 
 TEST(TerminalMultiplexerTest, ResizePreservesBottomVisibleRegionAndIncrementsRevision) {
