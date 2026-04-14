@@ -131,7 +131,7 @@ Sentrits currently provides:
                                    │
                       ┌────────────▼────────────┐
                       │ AI coding CLI process   │
-                      │ Codex / Claude / Aider  │
+                      │ Codex / Claude / Gemini │
                       └────────────┬────────────┘
                                    │
                     PTY output + workspace/git/process signals
