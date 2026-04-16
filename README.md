@@ -188,3 +188,7 @@ Packaging/bootstrap note:
 
 - GitHub Releases: [Sentrits-Core Release](https://github.com/shubow-sentrits/Sentrits-Core/releases)
 - Maintainer release notes: `packaging/releases.md`
+
+### License
+Apache License 2.0 
+Copyright 2026 Shubo Wang
