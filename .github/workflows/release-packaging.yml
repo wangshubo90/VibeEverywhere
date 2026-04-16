@@ -120,10 +120,13 @@ jobs:
             -DSENTRITS_BUILD_TESTS=ON \
             -DSENTRITS_WEB_REPO="${GITHUB_WORKSPACE}/Sentrits-Web"
 
-      - name: Build macOS package
-        run: cmake --build build --target sentrits_package_macos
+      # Builds the DMG (primary artifact) and tar.gz (secondary artifact).
+      # The sentrits_package_macos_dmg target depends on sentrits_package_macos,
+      # so both outputs are produced in one step.
+      - name: Build macOS packages (DMG + tar.gz)
+        run: cmake --build build --target sentrits_package_macos_dmg
 
-      - name: Smoke macOS install and uninstall
+      - name: Smoke tar.gz install and uninstall
         run: |
           set -euo pipefail
           ARCHIVE_PATH="$(ls build/*.tar.gz)"
@@ -148,11 +151,24 @@ jobs:
           test ! -e "$PLIST"
           test ! -e "$INSTALL_ROOT/Sentrits"
 
-      - name: Upload macOS package artifact
+      - name: Smoke DMG contents
+        run: |
+          set -euo pipefail
+          DMG_PATH="$(ls build/*.dmg)"
+          MOUNT_POINT="$(mktemp -d)"
+          hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_POINT" -quiet -nobrowse
+          test -x "$MOUNT_POINT/Sentrits/bin/sentrits"
+          test -f "$MOUNT_POINT/Sentrits/lib/sentrits/www/_metadata/sentrits-web-revision.txt"
+          test -f "$MOUNT_POINT/Sentrits/share/sentrits/launchd/io.sentrits.agent.plist"
+          hdiutil detach "$MOUNT_POINT" -quiet
+
+      - name: Upload macOS package artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sentrits-macos-package-${{ github.ref_name }}
-          path: build/*.tar.gz
+          path: |
+            build/*.dmg
+            build/*.tar.gz
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -168,11 +184,36 @@ jobs:
           name: sentrits-debian-package-${{ github.ref_name }}
           path: release-assets
 
-      - name: Download macOS package artifact
+      - name: Download macOS package artifacts
         uses: actions/download-artifact@v4
         with:
           name: sentrits-macos-package-${{ github.ref_name }}
           path: release-assets
+
+      - name: Generate SHA256 checksums
+        working-directory: release-assets
+        run: |
+          sha256sum * > SHA256SUMS
+          echo "Checksums:"
+          cat SHA256SUMS
+
+      # Optional: sign SHA256SUMS with a GPG key stored in CI secrets.
+      # Set GPG_PRIVATE_KEY (armored private key) and optionally GPG_PASSPHRASE.
+      # If GPG_PRIVATE_KEY is absent or empty, this step skips cleanly.
+      - name: Sign checksums (optional)
+        working-directory: release-assets
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          if [ -z "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "GPG_PRIVATE_KEY not configured — skipping checksum signing"
+            exit 0
+          fi
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          printf '%s' "${GPG_PASSPHRASE:-}" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --detach-sign --armor --output SHA256SUMS.asc SHA256SUMS
+          echo "Checksum signature written to SHA256SUMS.asc"
 
       - name: Create or update GitHub release
         env:

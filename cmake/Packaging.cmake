@@ -112,6 +112,9 @@ function(sentrits_configure_packaging)
   endif()
 
   if(APPLE)
+    set(SENTRITS_MACOS_DMG_NAME "sentrits-${PROJECT_VERSION}-macos-${CMAKE_SYSTEM_PROCESSOR}.dmg")
+    set(SENTRITS_MACOS_DMG_PATH "${CMAKE_CURRENT_BINARY_DIR}/${SENTRITS_MACOS_DMG_NAME}")
+
     add_custom_target(sentrits_package_macos
       DEPENDS sentrits sentrits_stage_web_assets
       COMMAND "${CMAKE_COMMAND}" -E rm -rf "${SENTRITS_MACOS_STAGE_ROOT}"
@@ -121,6 +124,27 @@ function(sentrits_configure_packaging)
       COMMAND "${CMAKE_COMMAND}" -E chdir "${SENTRITS_MACOS_STAGE_ROOT}"
               "${CMAKE_COMMAND}" -E tar "cfvz" "${SENTRITS_MACOS_ARCHIVE_PATH}" --format=gnutar "Sentrits"
       COMMENT "Build a macOS tarball package for Sentrits"
+      VERBATIM
+    )
+
+    # Primary macOS release artifact: DMG wrapping the same Sentrits/ install root.
+    #
+    # Future notarization insertion point:
+    #   After the hdiutil create command below, add:
+    #     xcrun notarytool submit "${SENTRITS_MACOS_DMG_PATH}" --apple-id ... --wait
+    #     xcrun stapler staple "${SENTRITS_MACOS_DMG_PATH}"
+    #   Notarization requires a Developer ID certificate and Apple credentials.
+    #   It is intentionally deferred and not implemented here.
+    add_custom_target(sentrits_package_macos_dmg
+      DEPENDS sentrits_package_macos
+      COMMAND "${CMAKE_COMMAND}" -E rm -f "${SENTRITS_MACOS_DMG_PATH}"
+      COMMAND hdiutil create
+              -volname "Sentrits ${PROJECT_VERSION}"
+              -srcfolder "${SENTRITS_MACOS_STAGE_ROOT}"
+              -ov
+              -format UDZO
+              "${SENTRITS_MACOS_DMG_PATH}"
+      COMMENT "Build a macOS DMG package for Sentrits"
       VERBATIM
     )
   endif()

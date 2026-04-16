@@ -114,6 +114,31 @@ If you want a full local reset for that user:
 rm -rf ~/.sentrits
 ```
 
+## Release Verification
+
+Every GitHub Release includes a `SHA256SUMS` file covering all release artifacts.
+
+Verify the `.deb` before installing:
+
+```bash
+# Download the release artifacts and SHA256SUMS into the same directory, then:
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+If the release was GPG-signed, a `SHA256SUMS.asc` detached signature is also attached.
+Verify it after importing the release signing key:
+
+```bash
+gpg --import <sentrits-release-key.asc>
+gpg --verify SHA256SUMS.asc SHA256SUMS
+```
+
+A clean verification looks like:
+
+```
+gpg: Good signature from "Sentrits Release <...>"
+```
+
 ## Uninstall
 
 Stop and disable the user service:
