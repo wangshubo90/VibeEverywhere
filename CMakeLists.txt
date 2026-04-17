@@ -38,6 +38,7 @@ target_include_directories(vibe_core
 target_compile_definitions(vibe_core
   PUBLIC
     SENTRITS_DEFAULT_PACKAGED_WEB_ROOT="${SENTRITS_PACKAGED_WEB_ROOT}"
+    SENTRITS_VERSION="${PROJECT_VERSION}"
 )
 
 target_link_libraries(vibe_core
