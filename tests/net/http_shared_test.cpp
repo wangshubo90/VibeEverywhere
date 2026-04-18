@@ -188,12 +188,12 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
 
   std::optional<vibe::store::HostIdentity> identity{
       [] {
-        auto identity = vibe::store::MakeDefaultHostIdentity();
-        identity.host_id = "host_1";
-        identity.display_name = "Dev Host";
-        identity.certificate_pem_path = "/tmp/cert.pem";
-        identity.private_key_pem_path = "/tmp/key.pem";
-        return identity;
+        auto default_identity = vibe::store::MakeDefaultHostIdentity();
+        default_identity.host_id = "host_1";
+        default_identity.display_name = "Dev Host";
+        default_identity.certificate_pem_path = "/tmp/cert.pem";
+        default_identity.private_key_pem_path = "/tmp/key.pem";
+        return default_identity;
       }(),
   };
   std::filesystem::path storage_root_path = std::filesystem::temp_directory_path() / "sentrits-http-shared-test";
