@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(SentritsCore VERSION 0.2.2 LANGUAGES C CXX)
+project(SentritsCore VERSION 0.2.5 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
