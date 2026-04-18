@@ -2,6 +2,7 @@ set(VIBE_CORE_SOURCES
   src/auth/default_authorizer.cpp
   src/auth/default_pairing_service.cpp
   src/cli/daemon_client.cpp
+  src/cli/daemon_client_http.cpp
   src/net/discovery.cpp
   src/net/discovery_broadcaster.cpp
   src/net/json.cpp
