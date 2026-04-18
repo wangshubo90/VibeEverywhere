@@ -47,7 +47,7 @@ Then `SessionManager` builds an `EnvConfig`, loads `HostIdentity`, and calls `Re
 
 ### `Shell`
 
-- means the target is launched through the configured login shell
+- means the target is launched through the configured interactive login shell
 - the daemon builds a login-shell command script and runs `<shell> -l -c ...`
 - `.env`, provider overrides, and session overrides are exported by that script after shell startup completes
 - this is the default UX path and the closest match to "run it like my shell would"
@@ -148,5 +148,5 @@ Two practical limitations remain:
 Short version:
 
 - `Clean` = deterministic minimal env
-- `Shell` = run through the configured login shell
+- `Shell` = run through the configured interactive login shell
 - `BootstrapFromShell` = capture shell reality once, then launch deterministically from that captured env

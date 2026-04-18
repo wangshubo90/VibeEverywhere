@@ -724,7 +724,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
         BuildShellModeCommand(effective_env, request.command_shell,
                               launch_provider_config.executable, launch_provider_config.default_args);
     launch_provider_config.executable = shell_path;
-    launch_provider_config.default_args = {"-l", "-c", shell_command};
+    launch_provider_config.default_args = {"-il", "-c", shell_command};
     effective_env.bootstrap_shell_path = shell_path;
   }
 

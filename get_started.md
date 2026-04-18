@@ -500,7 +500,7 @@ journalctl --user -u sentrits.service --no-pager
 
 If session creation fails because the daemon cannot reproduce the shell environment you expect:
 
-- Sentrits launches provider and direct-exec sessions through the configured login shell by default
+- Sentrits launches provider and direct-exec sessions through the configured interactive login shell by default
 - `bootstrap_from_shell` remains available as an explicit mode when you want a cached shell-derived env captured once and then used for direct exec
 - bootstrap warnings are logged to the daemon log and service journal when the shell prints to stderr during environment capture
 - those warnings are emitted only when the daemon creates a session with the `bootstrap_from_shell` path, regardless of whether the request came from the CLI, Host Admin UI, or a remote client
@@ -514,7 +514,7 @@ tail -n 200 ~/.sentrits/logs/sentrits.log
 - common causes:
   - shell init files reference missing tools
   - service `PATH` does not include version-manager shims like `nvm`, `pnpm`, or `bun`
-  - a login shell prints warnings even though it exits successfully
+  - an interactive login shell prints warnings even though it exits successfully
 
 If another machine cannot reach the remote listener:
 

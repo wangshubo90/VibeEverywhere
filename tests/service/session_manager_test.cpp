@@ -527,7 +527,7 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToShellEnvironmen
   EXPECT_EQ(captured_launch_spec->executable,
             vibe::session::ResolveBootstrapShell(vibe::store::MakeDefaultHostIdentity()));
   ASSERT_EQ(captured_launch_spec->arguments.size(), 3U);
-  EXPECT_EQ(captured_launch_spec->arguments[0], "-l");
+  EXPECT_EQ(captured_launch_spec->arguments[0], "-il");
   EXPECT_EQ(captured_launch_spec->arguments[1], "-c");
   EXPECT_NE(captured_launch_spec->arguments[2].find("exec '/bin/sh' '-c' 'sleep 30'"),
             std::string::npos);
@@ -578,7 +578,7 @@ TEST(SessionManagerTest, CreateSessionShellModeUsesConfiguredBootstrapShellPath)
   ASSERT_TRUE(captured_launch_spec.has_value());
   EXPECT_EQ(captured_launch_spec->executable, "/bin/sh");
   ASSERT_EQ(captured_launch_spec->arguments.size(), 3U);
-  EXPECT_EQ(captured_launch_spec->arguments[0], "-l");
+  EXPECT_EQ(captured_launch_spec->arguments[0], "-il");
   EXPECT_EQ(captured_launch_spec->arguments[1], "-c");
   EXPECT_NE(captured_launch_spec->arguments[2].find("exec '/bin/echo' 'hello'"), std::string::npos);
 }
