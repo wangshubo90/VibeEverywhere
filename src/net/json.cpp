@@ -1,6 +1,9 @@
 #include "vibe/net/json.h"
 
+#include <algorithm>
 #include <boost/json.hpp>
+
+#include "vibe/session/env_config.h"
 
 namespace vibe::net {
 
@@ -508,6 +511,73 @@ auto ToJson(const DiscoveryInfo& info) -> std::string {
   object["remotePort"] = info.remote_port;
   object["protocolVersion"] = info.protocol_version;
   object["tls"] = info.tls;
+  return json::serialize(object);
+}
+
+auto ShouldRedactEnvKey(const std::string& key) -> bool {
+  // Suffix matches (case-insensitive via upper-casing): *_KEY, *_TOKEN, *_SECRET, *_PASSWORD
+  const auto ends_with_ci = [&key](const std::string_view suffix) -> bool {
+    if (key.size() < suffix.size()) {
+      return false;
+    }
+    const std::string upper_key = [&key]() {
+      std::string s = key;
+      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+      return s;
+    }();
+    return upper_key.substr(upper_key.size() - suffix.size()) == suffix;
+  };
+  const auto starts_with_ci = [&key](const std::string_view prefix) -> bool {
+    if (key.size() < prefix.size()) {
+      return false;
+    }
+    const std::string upper_key = [&key]() {
+      std::string s = key;
+      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+      return s;
+    }();
+    return upper_key.substr(0, prefix.size()) == prefix;
+  };
+
+  if (ends_with_ci("_KEY") || ends_with_ci("_TOKEN") || ends_with_ci("_SECRET") ||
+      ends_with_ci("_PASSWORD")) {
+    return true;
+  }
+  if (key == "DATABASE_URL") {
+    return true;
+  }
+  if (starts_with_ci("AUTH_") || starts_with_ci("AWS_")) {
+    return true;
+  }
+  return false;
+}
+
+auto ToJson(const vibe::session::EffectiveEnvironment& env, const bool redact) -> std::string {
+  json::object object;
+  object["mode"] = std::string(vibe::session::ToString(env.mode));
+  if (env.bootstrap_shell_path.has_value()) {
+    object["bootstrapShellPath"] = *env.bootstrap_shell_path;
+  }
+  if (env.env_file_path.has_value()) {
+    object["envFilePath"] = *env.env_file_path;
+  }
+  if (env.bootstrap_warning.has_value()) {
+    object["bootstrapWarning"] = *env.bootstrap_warning;
+  }
+
+  json::array entries_array;
+  for (const auto& entry : env.entries) {
+    json::object entry_object;
+    entry_object["key"] = entry.key;
+    const bool should_redact = redact && ShouldRedactEnvKey(entry.key);
+    entry_object["value"] = should_redact ? "<redacted>" : entry.value;
+    entry_object["source"] = std::string(vibe::session::ToString(entry.source));
+    if (should_redact) {
+      entry_object["redacted"] = true;
+    }
+    entries_array.push_back(std::move(entry_object));
+  }
+  object["entries"] = std::move(entries_array);
   return json::serialize(object);
 }
 

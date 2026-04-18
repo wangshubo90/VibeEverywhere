@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "vibe/session/env_config.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/session_types.h"
 
@@ -44,6 +46,10 @@ struct CreateSessionRequest {
   std::optional<std::string> record_id;
   std::optional<std::vector<std::string>> command_argv;
   std::optional<std::string> command_shell;
+  // Environment model fields.
+  std::optional<vibe::session::EnvMode> env_mode{std::nullopt};
+  std::unordered_map<std::string, std::string> environment_overrides{};
+  std::optional<std::string> env_file_path{std::nullopt};
 };
 
 struct CreateSessionResult {
@@ -71,6 +77,8 @@ struct CreateSessionResult {
 [[nodiscard]] auto StopSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> std::optional<std::string>;
 [[nodiscard]] auto ClearInactiveSessions(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
 [[nodiscard]] auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
+[[nodiscard]] auto GetSessionEnv(const DaemonEndpoint& endpoint, const std::string& session_id)
+    -> std::optional<std::string>;
 [[nodiscard]] auto ListRecords(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedRecord>>;
 [[nodiscard]] auto PostHostConfig(const DaemonEndpoint& endpoint, const std::string& body)
     -> std::optional<std::string>;

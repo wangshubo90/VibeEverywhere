@@ -568,6 +568,41 @@ auto HostIdentityFromJsonWithDefaults(const json::value& value) -> std::optional
     identity.max_launch_records = static_cast<std::size_t>(max_val);
   }
 
+  if (const auto* bootstrap_shell = object.if_contains("bootstrapShellPath");
+      bootstrap_shell != nullptr) {
+    if (!bootstrap_shell->is_string()) {
+      return std::nullopt;
+    }
+    const std::string val = std::string(bootstrap_shell->as_string());
+    if (!val.empty()) {
+      identity.bootstrap_shell_path = val;
+    }
+  }
+
+  if (const auto* import_svc = object.if_contains("importServiceManagerEnvironment");
+      import_svc != nullptr) {
+    if (!import_svc->is_bool()) {
+      return std::nullopt;
+    }
+    identity.import_service_manager_environment = import_svc->as_bool();
+  }
+
+  if (const auto* allowlist = object.if_contains("serviceManagerEnvironmentAllowlist");
+      allowlist != nullptr) {
+    if (!allowlist->is_array()) {
+      return std::nullopt;
+    }
+    for (const auto& item : allowlist->as_array()) {
+      if (!item.is_string()) {
+        return std::nullopt;
+      }
+      const std::string key = std::string(item.as_string());
+      if (!key.empty()) {
+        identity.service_manager_environment_allowlist.push_back(key);
+      }
+    }
+  }
+
   return identity;
 }
 
@@ -601,6 +636,17 @@ auto ToJsonValue(const HostIdentity& identity) -> json::value {
   }
   object["launchRecords"] = std::move(launch_records);
   object["maxLaunchRecords"] = static_cast<std::int64_t>(identity.max_launch_records);
+  if (identity.bootstrap_shell_path.has_value()) {
+    object["bootstrapShellPath"] = *identity.bootstrap_shell_path;
+  }
+  object["importServiceManagerEnvironment"] = identity.import_service_manager_environment;
+  {
+    json::array allowlist;
+    for (const auto& key : identity.service_manager_environment_allowlist) {
+      allowlist.emplace_back(key);
+    }
+    object["serviceManagerEnvironmentAllowlist"] = std::move(allowlist);
+  }
   return object;
 }
 

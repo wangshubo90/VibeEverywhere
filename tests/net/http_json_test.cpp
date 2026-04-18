@@ -42,6 +42,43 @@ TEST(HttpJsonTest, SerializesDiscoveryInfo) {
   EXPECT_NE(json.find("\"tls\":true"), std::string::npos);
 }
 
+TEST(HttpJsonTest, SerializesEffectiveEnvironmentWithRedaction) {
+  const vibe::session::EffectiveEnvironment env{
+      .entries =
+          {
+              vibe::session::EnvEntry{
+                  .key = "OPENAI_API_KEY",
+                  .value = "secret-value",
+                  .source = vibe::session::EnvSource::BootstrapShell,
+              },
+              vibe::session::EnvEntry{
+                  .key = "PATH",
+                  .value = "/usr/bin:/bin",
+                  .source = vibe::session::EnvSource::EnvFile,
+              },
+          },
+      .mode = vibe::session::EnvMode::BootstrapFromShell,
+      .bootstrap_shell_path = "/tmp/bootstrap-shell",
+      .env_file_path = "/tmp/project/.env",
+      .bootstrap_warning = "bootstrap emitted stderr",
+  };
+
+  const std::string redacted = ToJson(env, /*redact=*/true);
+  EXPECT_NE(redacted.find("\"mode\":\"bootstrap_from_shell\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"bootstrapShellPath\":\"/tmp/bootstrap-shell\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"envFilePath\":\"/tmp/project/.env\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"bootstrapWarning\":\"bootstrap emitted stderr\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"key\":\"OPENAI_API_KEY\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"value\":\"<redacted>\""), std::string::npos);
+  EXPECT_EQ(redacted.find("secret-value"), std::string::npos);
+  EXPECT_NE(redacted.find("\"redacted\":true"), std::string::npos);
+  EXPECT_NE(redacted.find("\"key\":\"PATH\""), std::string::npos);
+  EXPECT_NE(redacted.find("\"value\":\"/usr/bin:/bin\""), std::string::npos);
+
+  const std::string plain = ToJson(env, /*redact=*/false);
+  EXPECT_NE(plain.find("\"value\":\"secret-value\""), std::string::npos);
+}
+
 TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   const auto id = vibe::session::SessionId::TryCreate("s_host");
   ASSERT_TRUE(id.has_value());

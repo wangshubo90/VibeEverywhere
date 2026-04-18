@@ -3,9 +3,9 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
+#include "vibe/session/env_config.h"
 #include "vibe/session/provider_config.h"
 #include "vibe/session/session_types.h"
 
@@ -22,7 +22,10 @@ struct LaunchSpec {
   ProviderType provider;
   std::string executable;
   std::vector<std::string> arguments;
-  std::unordered_map<std::string, std::string> environment_overrides;
+  // Replaces the old bare environment_overrides map.
+  // For LoginShell mode, effective_environment.entries holds session overrides.
+  // For Clean/Bootstrap modes, effective_environment holds the full resolved env.
+  EffectiveEnvironment effective_environment;
   std::string working_directory;
   TerminalSize terminal_size;
 };
@@ -30,7 +33,8 @@ struct LaunchSpec {
 [[nodiscard]] auto BuildLaunchSpec(const SessionMetadata& metadata,
                                    const ProviderConfig& provider_config,
                                    std::vector<std::string> extra_arguments = {},
-                                   TerminalSize terminal_size = {}) -> LaunchSpec;
+                                   TerminalSize terminal_size = {},
+                                   EffectiveEnvironment effective_environment = {}) -> LaunchSpec;
 
 }  // namespace vibe::session
 

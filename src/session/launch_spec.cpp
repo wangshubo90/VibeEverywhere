@@ -6,7 +6,8 @@ namespace vibe::session {
 
 auto BuildLaunchSpec(const SessionMetadata& metadata, const ProviderConfig& provider_config,
                      std::vector<std::string> extra_arguments,
-                     const TerminalSize terminal_size) -> LaunchSpec {
+                     const TerminalSize terminal_size,
+                     EffectiveEnvironment effective_environment) -> LaunchSpec {
   std::vector<std::string> arguments = provider_config.default_args;
   for (auto& argument : extra_arguments) {
     arguments.push_back(std::move(argument));
@@ -16,7 +17,7 @@ auto BuildLaunchSpec(const SessionMetadata& metadata, const ProviderConfig& prov
       .provider = metadata.provider,
       .executable = provider_config.executable,
       .arguments = std::move(arguments),
-      .environment_overrides = provider_config.environment_overrides,
+      .effective_environment = std::move(effective_environment),
       .working_directory = metadata.workspace_root,
       .terminal_size = terminal_size,
   };

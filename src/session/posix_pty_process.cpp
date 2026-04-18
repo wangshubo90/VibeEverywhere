@@ -28,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,10 +90,72 @@ auto BuildArgv(const LaunchSpec& launch_spec) -> std::vector<char*> {
   return argv;
 }
 
-void ApplyEnvironmentOverrides(const LaunchSpec& launch_spec) {
-  for (const auto& [key, value] : launch_spec.environment_overrides) {
-    setenv(key.c_str(), value.c_str(), 1);
+auto FindEnvValue(const std::vector<char*>& envp, const std::string_view key) -> std::optional<std::string_view> {
+  const std::string prefix = std::string(key) + "=";
+  for (const char* entry : envp) {
+    if (entry == nullptr) {
+      break;
+    }
+    const std::string_view value(entry);
+    if (value.rfind(prefix, 0) == 0) {
+      return value.substr(prefix.size());
+    }
   }
+  return std::nullopt;
+}
+
+auto ResolveExecutablePath(const std::string& executable, const std::vector<char*>& envp) -> std::string {
+  if (executable.find('/') != std::string::npos) {
+    return executable;
+  }
+
+  const std::string_view path_value =
+      FindEnvValue(envp, "PATH").value_or(std::string_view("/usr/bin:/bin:/usr/sbin:/sbin"));
+  std::size_t start = 0;
+  while (start <= path_value.size()) {
+    const std::size_t end = path_value.find(':', start);
+    const std::string_view directory =
+        end == std::string_view::npos ? path_value.substr(start) : path_value.substr(start, end - start);
+    const std::string candidate =
+        (directory.empty() ? std::string(".") : std::string(directory)) + "/" + executable;
+    if (access(candidate.c_str(), X_OK) == 0) {
+      return candidate;
+    }
+    if (end == std::string_view::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+
+  return executable;
+}
+
+// Build a NUL-terminated envp array from the EffectiveEnvironment entries.
+// For LoginShell mode (entries are just per-session overrides), fall back to
+// setenv() so the child inherits the full daemon env with those overrides applied.
+// For Clean/Bootstrap modes, use execve() with an explicit envp after resolving
+// the executable path against the configured PATH.
+auto BuildEnvp(const LaunchSpec& launch_spec,
+               std::vector<std::string>& env_strings) -> std::vector<char*> {
+  // LoginShell: apply overrides via setenv() and return nullptr (caller uses execvp).
+  if (launch_spec.effective_environment.mode == vibe::session::EnvMode::LoginShell) {
+    for (const auto& entry : launch_spec.effective_environment.entries) {
+      setenv(entry.key.c_str(), entry.value.c_str(), 1);
+    }
+    return {};  // empty = caller uses execvp (inherits env)
+  }
+
+  // Clean / BootstrapFromShell: build explicit envp array.
+  env_strings.clear();
+  env_strings.reserve(launch_spec.effective_environment.entries.size());
+  std::vector<char*> envp;
+  envp.reserve(launch_spec.effective_environment.entries.size() + 1);
+  for (const auto& entry : launch_spec.effective_environment.entries) {
+    env_strings.push_back(entry.key + "=" + entry.value);
+    envp.push_back(env_strings.back().data());
+  }
+  envp.push_back(nullptr);
+  return envp;
 }
 
 auto MakeWindowSize(const TerminalSize terminal_size) -> winsize {
@@ -150,9 +213,16 @@ auto PosixPtyProcess::Start(const LaunchSpec& launch_spec) -> StartResult {
       _exit(127);
     }
 
-    ApplyEnvironmentOverrides(launch_spec);
+    std::vector<std::string> env_strings;
+    const std::vector<char*> envp = BuildEnvp(launch_spec, env_strings);
     std::vector<char*> argv = BuildArgv(launch_spec);
-    execvp(launch_spec.executable.c_str(), argv.data());
+    if (envp.empty()) {
+      // LoginShell: setenv() already called in BuildEnvp; use execvp.
+      execvp(launch_spec.executable.c_str(), argv.data());
+    } else {
+      const std::string resolved_executable = ResolveExecutablePath(launch_spec.executable, envp);
+      execve(resolved_executable.c_str(), argv.data(), const_cast<char* const*>(envp.data()));
+    }
 
     const int error_number = errno;
     const auto bytes_written = write(error_pipe[1], &error_number, sizeof(error_number));

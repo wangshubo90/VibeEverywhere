@@ -14,7 +14,7 @@ auto MakeShellLaunchSpec() -> LaunchSpec {
       .provider = ProviderType::Codex,
       .executable = "/bin/sh",
       .arguments = {"-c", "printf 'ready\\n'; IFS= read -r line; printf 'echo:%s\\n' \"$line\""},
-      .environment_overrides = {},
+      .effective_environment = {},
       .working_directory = "/tmp",
       .terminal_size = TerminalSize{.columns = 80, .rows = 24},
   };

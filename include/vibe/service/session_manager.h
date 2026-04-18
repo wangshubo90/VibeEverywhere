@@ -7,16 +7,20 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "vibe/service/git_inspector.h"
 #include "vibe/service/workspace_file_watcher.h"
+#include "vibe/session/bootstrapped_env_cache.h"
+#include "vibe/session/env_config.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/pty_process.h"
 #include "vibe/session/pty_process_factory.h"
 #include "vibe/session/session_runtime.h"
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
+#include "vibe/store/host_config_store.h"
 #include "vibe/store/session_store.h"
 
 namespace vibe::service {
@@ -29,6 +33,10 @@ struct CreateSessionRequest {
   std::optional<std::vector<std::string>> command_argv;
   std::optional<std::string> command_shell;
   std::vector<std::string> group_tags;
+  // Environment configuration for this session.
+  std::optional<vibe::session::EnvMode> env_mode{std::nullopt};
+  std::unordered_map<std::string, std::string> environment_overrides{};
+  std::optional<std::string> env_file_path{std::nullopt};
 };
 
 enum class SessionGroupTagsUpdateMode {
@@ -107,7 +115,8 @@ class SessionManager {
                           PtyProcessFactory pty_process_factory =
                               vibe::session::CreatePlatformPtyProcess,
                           std::chrono::milliseconds git_poll_interval = std::chrono::seconds(10),
-                          std::chrono::milliseconds file_poll_interval = std::chrono::seconds(3));
+                          std::chrono::milliseconds file_poll_interval = std::chrono::seconds(3),
+                          vibe::store::HostConfigStore* host_config_store = nullptr);
 
   [[nodiscard]] auto CreateSession(const CreateSessionRequest& request)
       -> std::optional<SessionSummary>;
@@ -124,6 +133,8 @@ class SessionManager {
   [[nodiscard]] auto GetReadableFd(const std::string& session_id) const -> std::optional<int>;
   [[nodiscard]] auto ReadFile(const std::string& session_id, const std::string& workspace_path,
                               std::size_t max_bytes) const -> SessionFileReadResult;
+  [[nodiscard]] auto GetSessionEnv(const std::string& session_id) const
+      -> std::optional<vibe::session::EffectiveEnvironment>;
   [[nodiscard]] auto SendInput(const std::string& session_id, const std::string& input) -> bool;
   [[nodiscard]] auto GetViewportSnapshot(const std::string& session_id, const std::string& view_id) const
       -> std::optional<vibe::session::TerminalViewportSnapshot>;
@@ -170,6 +181,8 @@ class SessionManager {
     vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
     std::uint64_t last_observed_sequence{0};
     std::optional<std::string> last_traced_node_summary_key;
+    // Stored effective environment for GET /sessions/{id}/env.
+    std::optional<vibe::session::EffectiveEnvironment> effective_environment;
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;
@@ -181,7 +194,9 @@ class SessionManager {
   [[nodiscard]] auto FindEntry(const std::string& session_id) const -> const SessionEntry*;
 
   vibe::store::SessionStore* session_store_{nullptr};
+  vibe::store::HostConfigStore* host_config_store_{nullptr};
   PtyProcessFactory pty_process_factory_;
+  vibe::session::BootstrappedEnvCache env_cache_;
   std::vector<SessionEntry> sessions_;
   int poll_count_{0};
   std::string last_create_error_message_;

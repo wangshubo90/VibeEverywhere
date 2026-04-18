@@ -28,13 +28,22 @@ TEST(LaunchSpecTest, BuildsSpecFromMetadataAndProviderConfig) {
       .environment_overrides = {{"CODEX_ENV", "test"}},
   };
 
-  const LaunchSpec spec =
-      BuildLaunchSpec(MakeMetadata(), config, {"prompt", "run tests"}, TerminalSize{.columns = 140, .rows = 50});
+  // Build a pre-resolved EffectiveEnvironment that carries the provider override.
+  EffectiveEnvironment effective_env;
+  effective_env.entries.push_back(
+      EnvEntry{.key = "CODEX_ENV", .value = "test", .source = EnvSource::ProviderConfig});
+
+  const LaunchSpec spec = BuildLaunchSpec(MakeMetadata(), config, {"prompt", "run tests"},
+                                          TerminalSize{.columns = 140, .rows = 50},
+                                          std::move(effective_env));
 
   EXPECT_EQ(spec.provider, ProviderType::Codex);
   EXPECT_EQ(spec.executable, "codex");
   EXPECT_EQ(spec.arguments, (std::vector<std::string>{"--dangerously-bypass-approvals", "prompt", "run tests"}));
-  EXPECT_EQ(spec.environment_overrides.at("CODEX_ENV"), "test");
+  // Provider overrides are now inside effective_environment.entries.
+  ASSERT_EQ(spec.effective_environment.entries.size(), 1u);
+  EXPECT_EQ(spec.effective_environment.entries[0].key, "CODEX_ENV");
+  EXPECT_EQ(spec.effective_environment.entries[0].value, "test");
   EXPECT_EQ(spec.working_directory, "/tmp/project");
   EXPECT_EQ(spec.terminal_size, (TerminalSize{.columns = 140, .rows = 50}));
 }

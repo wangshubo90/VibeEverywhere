@@ -520,6 +520,19 @@ auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::
   if (request.command_shell.has_value()) {
     object["commandShell"] = *request.command_shell;
   }
+  if (request.env_mode.has_value()) {
+    object["envMode"] = std::string(vibe::session::ToString(*request.env_mode));
+  }
+  if (!request.environment_overrides.empty()) {
+    json::object overrides;
+    for (const auto& [key, value] : request.environment_overrides) {
+      overrides[key] = value;
+    }
+    object["environmentOverrides"] = std::move(overrides);
+  }
+  if (request.env_file_path.has_value()) {
+    object["envFilePath"] = *request.env_file_path;
+  }
   return json::serialize(object);
 }
 
@@ -777,6 +790,16 @@ auto ClearInactiveSessions(const DaemonEndpoint& endpoint) -> std::optional<std:
 
 auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string> {
   const auto response = PerformHttpRequest(endpoint, http::verb::get, "/host/info");
+  if (!response.has_value() || response->result() != http::status::ok) {
+    return std::nullopt;
+  }
+  return response->body();
+}
+
+auto GetSessionEnv(const DaemonEndpoint& endpoint, const std::string& session_id)
+    -> std::optional<std::string> {
+  const auto response =
+      PerformHttpRequest(endpoint, http::verb::get, "/sessions/" + session_id + "/env");
   if (!response.has_value() || response->result() != http::status::ok) {
     return std::nullopt;
   }

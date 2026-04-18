@@ -17,6 +17,7 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 
 #include <boost/json.hpp>
@@ -28,6 +29,7 @@
 #include "vibe/cli/daemon_client.h"
 #include "vibe/net/http_server.h"
 #include "vibe/net/local_auth.h"
+#include "vibe/session/env_config.h"
 #include "vibe/session/launch_spec.h"
 #include "vibe/session/pty_process_factory.h"
 #include "vibe/session/session_record.h"
@@ -186,7 +188,7 @@ auto RunLocalPty(const std::vector<std::string>& command) -> int {
       .provider = ProviderType::Codex,
       .executable = command.front(),
       .arguments = arguments,
-      .environment_overrides = {},
+      .effective_environment = {},
       .working_directory = metadata.workspace_root,
       .terminal_size = initial_terminal_size.columns > 0 && initial_terminal_size.rows > 0
                            ? initial_terminal_size
@@ -744,7 +746,8 @@ void PrintUsage() {
             << "  sentrits session show [--host HOST] [--port PORT] [--json] <session-id>\n"
             << "  sentrits session start [--host HOST] [--port PORT] [--title TITLE]"
                " [--workspace PATH] [--provider codex|claude] [--record RECORD_ID]"
-               " [--shell-command COMMAND] [--attach]\n"
+               " [--shell-command COMMAND] [--env-mode MODE] [-e KEY=VALUE]..."
+               " [--env-file PATH] [--attach]\n"
             << "  sentrits records list [--host HOST] [--port PORT] [--json]\n"
             << "  sentrits records show [--host HOST] [--port PORT] [--json] <record-id>\n"
             << "  sentrits session attach [--host HOST] [--port PORT] <session-id>\n"
@@ -972,6 +975,10 @@ struct ParsedCommandOptions {
   std::optional<std::string> shell_command;
   std::optional<vibe::session::ProviderType> provider;
   std::vector<std::string> positionals;
+  // Environment model options.
+  std::optional<vibe::session::EnvMode> env_mode;
+  std::unordered_map<std::string, std::string> environment_overrides;
+  std::optional<std::string> env_file_path;
 };
 
 auto ParseProviderOption(const std::string& value) -> std::optional<vibe::session::ProviderType> {
@@ -1051,6 +1058,30 @@ auto ParseCommandOptions(const int argc, char** argv, int start_index,
         return std::nullopt;
       }
       options.provider = *provider;
+      index += 2;
+      continue;
+    }
+    if (argument == "--env-mode" && index + 1 < argc) {
+      const auto env_mode = vibe::session::ParseEnvMode(argv[index + 1]);
+      if (!env_mode.has_value()) {
+        return std::nullopt;
+      }
+      options.env_mode = *env_mode;
+      index += 2;
+      continue;
+    }
+    if ((argument == "-e" || argument == "--env") && index + 1 < argc) {
+      const std::string kv = argv[index + 1];
+      const auto eq_pos = kv.find('=');
+      if (eq_pos == std::string::npos || eq_pos == 0) {
+        return std::nullopt;
+      }
+      options.environment_overrides[kv.substr(0, eq_pos)] = kv.substr(eq_pos + 1);
+      index += 2;
+      continue;
+    }
+    if (argument == "--env-file" && index + 1 < argc) {
+      options.env_file_path = argv[index + 1];
       index += 2;
       continue;
     }
@@ -1258,6 +1289,9 @@ auto main(const int argc, char** argv) -> int {
               .record_id = options->record_id,
               .command_argv = std::nullopt,
               .command_shell = options->shell_command,
+              .env_mode = options->env_mode,
+              .environment_overrides = options->environment_overrides,
+              .env_file_path = options->env_file_path,
           });
       if (!created.session_id.has_value()) {
         std::cerr << "failed to create session via daemon at " << options->endpoint.host << ":"
@@ -1356,6 +1390,9 @@ auto main(const int argc, char** argv) -> int {
               .record_id = options->record_id,
               .command_argv = std::nullopt,
               .command_shell = options->shell_command,
+              .env_mode = options->env_mode,
+              .environment_overrides = options->environment_overrides,
+              .env_file_path = options->env_file_path,
           });
       if (!created.session_id.has_value()) {
         std::cerr << "failed to create session via daemon at " << options->endpoint.host << ":"
@@ -1416,6 +1453,22 @@ auto main(const int argc, char** argv) -> int {
       } else {
         std::cout << "session " << options->positionals.front() << " stopped\n";
       }
+      return 0;
+    }
+
+    if (subcommand == "env") {
+      const auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+      if (!options.has_value() || options->positionals.empty()) {
+        std::cerr << "session id required\n";
+        return 1;
+      }
+      const auto result = vibe::cli::GetSessionEnv(options->endpoint, options->positionals.front());
+      if (!result.has_value()) {
+        std::cerr << "failed to get session env from daemon at " << options->endpoint.host << ":"
+                  << options->endpoint.port << '\n';
+        return 1;
+      }
+      std::cout << PrettyPrintJson(*result) << '\n';
       return 0;
     }
 

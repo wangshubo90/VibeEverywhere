@@ -96,6 +96,36 @@ TEST_F(FileStoresTest, HostIdentityLoadsLegacyFilesWithDefaultListenerSettings) 
   EXPECT_TRUE(loaded->launch_records.empty());
 }
 
+TEST_F(FileStoresTest, HostIdentityRoundTripsEnvironmentPolicyFields) {
+  const HostIdentity expected{
+      .host_id = "host_env",
+      .display_name = "Env Host",
+      .certificate_pem_path = "",
+      .private_key_pem_path = "",
+      .admin_host = "127.0.0.1",
+      .admin_port = 18085,
+      .remote_host = "0.0.0.0",
+      .remote_port = 18086,
+      .codex_command = {},
+      .claude_command = {},
+      .launch_records = {},
+      .max_launch_records = kDefaultMaxLaunchRecords,
+      .bootstrap_shell_path = "/bin/zsh",
+      .import_service_manager_environment = true,
+      .service_manager_environment_allowlist = {"PATH", "NVM_DIR"},
+  };
+
+  {
+    FileHostConfigStore store(storage_root());
+    EXPECT_TRUE(store.SaveHostIdentity(expected));
+  }
+
+  {
+    FileHostConfigStore store(storage_root());
+    EXPECT_EQ(store.LoadHostIdentity(), std::optional<HostIdentity>{expected});
+  }
+}
+
 TEST_F(FileStoresTest, EnsureHostIdentityGeneratesAndPersistsStableHostId) {
   FileHostConfigStore store(storage_root());
 

@@ -56,7 +56,7 @@ class FakePtyProcess final : public IPtyProcess {
       .provider = ProviderType::Codex,
       .executable = "",
       .arguments = {},
-      .environment_overrides = {},
+      .effective_environment = {},
       .working_directory = "",
       .terminal_size = {},
   };

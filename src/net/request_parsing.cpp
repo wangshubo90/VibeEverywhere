@@ -3,8 +3,11 @@
 #include <charconv>
 #include <limits>
 #include <string_view>
+#include <unordered_map>
 
 #include <boost/json.hpp>
+
+#include "vibe/session/env_config.h"
 
 namespace vibe::net {
 
@@ -117,6 +120,9 @@ auto ParseCreateSessionRequest(const std::string& body)
   const auto command_shell = object.if_contains("commandShell");
   const auto group_tags = object.if_contains("groupTags");
   const auto record_id = object.if_contains("recordId");
+  const auto env_mode_value = object.if_contains("envMode");
+  const auto env_overrides_value = object.if_contains("environmentOverrides");
+  const auto env_file_path_value = object.if_contains("envFilePath");
 
   std::optional<vibe::session::ProviderType> provider = std::nullopt;
   if (provider_value != nullptr) {
@@ -179,6 +185,44 @@ auto ParseCreateSessionRequest(const std::string& body)
     return std::nullopt;
   }
 
+  // Parse optional envMode field.
+  std::optional<vibe::session::EnvMode> parsed_env_mode;
+  if (env_mode_value != nullptr) {
+    if (!env_mode_value->is_string()) {
+      return std::nullopt;
+    }
+    parsed_env_mode = vibe::session::ParseEnvMode(json::value_to<std::string>(*env_mode_value));
+    if (!parsed_env_mode.has_value()) {
+      return std::nullopt;
+    }
+  }
+
+  // Parse optional environmentOverrides object.
+  std::unordered_map<std::string, std::string> parsed_overrides;
+  if (env_overrides_value != nullptr) {
+    if (!env_overrides_value->is_object()) {
+      return std::nullopt;
+    }
+    for (const auto& kv : env_overrides_value->as_object()) {
+      if (!kv.value().is_string()) {
+        return std::nullopt;
+      }
+      parsed_overrides[std::string(kv.key())] = json::value_to<std::string>(kv.value());
+    }
+  }
+
+  // Parse optional envFilePath.
+  std::optional<std::string> parsed_env_file_path;
+  if (env_file_path_value != nullptr) {
+    if (!env_file_path_value->is_string()) {
+      return std::nullopt;
+    }
+    const std::string path = json::value_to<std::string>(*env_file_path_value);
+    if (!path.empty()) {
+      parsed_env_file_path = path;
+    }
+  }
+
   return CreateSessionRequestPayload{
       .provider = provider,
       .workspace_root = std::move(parsed_workspace_root),
@@ -189,6 +233,9 @@ auto ParseCreateSessionRequest(const std::string& body)
       .command_shell = std::move(*parsed_command_shell),
       .group_tags = std::move(parsed_group_tags),
       .record_id = std::move(*parsed_record_id),
+      .env_mode = parsed_env_mode,
+      .environment_overrides = std::move(parsed_overrides),
+      .env_file_path = std::move(parsed_env_file_path),
   };
 }
 

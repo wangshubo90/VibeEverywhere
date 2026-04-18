@@ -400,6 +400,48 @@ TEST(SessionManagerTest, CreateSessionSurfacesPtyStartFailureDetail) {
   EXPECT_TRUE(manager.ListSessions().empty());
 }
 
+TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToBootstrapEnvironment) {
+  std::optional<vibe::session::LaunchSpec> captured_launch_spec;
+  SessionManager manager(nullptr, [&captured_launch_spec]() -> std::unique_ptr<vibe::session::IPtyProcess> {
+    class CapturingPtyProcess final : public vibe::session::IPtyProcess {
+     public:
+      explicit CapturingPtyProcess(std::optional<vibe::session::LaunchSpec>* captured_launch_spec)
+          : captured_launch_spec_(captured_launch_spec) {}
+
+      [[nodiscard]] auto Start(const vibe::session::LaunchSpec& launch_spec) -> vibe::session::StartResult override {
+        *captured_launch_spec_ = launch_spec;
+        return {.started = false, .pid = 0, .error_message = "capture complete"};
+      }
+
+      [[nodiscard]] auto Write(std::string_view) -> bool override { return false; }
+      [[nodiscard]] auto Read(int) -> vibe::session::ReadResult override { return {}; }
+      [[nodiscard]] auto ReadableFd() const -> std::optional<int> override { return std::nullopt; }
+      [[nodiscard]] auto Resize(vibe::session::TerminalSize) -> bool override { return false; }
+      [[nodiscard]] auto PollExit() -> std::optional<int> override { return std::nullopt; }
+      [[nodiscard]] auto Terminate() -> bool override { return false; }
+
+     private:
+      std::optional<vibe::session::LaunchSpec>* captured_launch_spec_{nullptr};
+    };
+
+    return std::make_unique<CapturingPtyProcess>(&captured_launch_spec);
+  });
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "direct-command",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "sleep 30"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+
+  EXPECT_FALSE(created.has_value());
+  ASSERT_TRUE(captured_launch_spec.has_value());
+  EXPECT_EQ(captured_launch_spec->effective_environment.mode,
+            vibe::session::EnvMode::BootstrapFromShell);
+}
+
 TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDetail) {
   SessionManager manager(nullptr, vibe::session::CreatePlatformPtyProcess,
                          std::chrono::milliseconds(1), std::chrono::milliseconds(1));

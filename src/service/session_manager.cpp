@@ -16,8 +16,13 @@
 #include "vibe/service/git_inspector.h"
 #include "vibe/service/workspace_file_watcher.h"
 #include "vibe/base/debug_trace.h"
+#include "vibe/session/env_config.h"
 #include "vibe/session/provider_config.h"
 #include "vibe/session/session_record.h"
+#include "vibe/store/host_config_store.h"
+
+// env_resolver is an internal .cpp-only header -- include directly.
+#include "../session/env_resolver.h"
 
 namespace vibe::service {
 
@@ -541,8 +546,10 @@ auto BuildNodeSummaryTraceKey(const vibe::service::SessionSummary& summary) -> s
 SessionManager::SessionManager(vibe::store::SessionStore* session_store,
                                PtyProcessFactory pty_process_factory,
                                const std::chrono::milliseconds git_poll_interval,
-                               const std::chrono::milliseconds file_poll_interval)
+                               const std::chrono::milliseconds file_poll_interval,
+                               vibe::store::HostConfigStore* host_config_store)
     : session_store_(session_store),
+      host_config_store_(host_config_store),
       pty_process_factory_(std::move(pty_process_factory)),
       git_poll_interval_(git_poll_interval),
       file_poll_interval_(file_poll_interval) {}
@@ -601,8 +608,41 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
     launch_provider_config.default_args.assign(request.command_argv->begin() + 1, request.command_argv->end());
   }
 
+  // Determine effective env mode: explicit request > command-shell heuristic > provider/direct-exec default.
+  vibe::session::EnvMode effective_env_mode;
+  if (request.env_mode.has_value()) {
+    effective_env_mode = *request.env_mode;
+  } else if (request.command_shell.has_value()) {
+    effective_env_mode = vibe::session::EnvMode::LoginShell;
+  } else {
+    effective_env_mode = vibe::session::EnvMode::BootstrapFromShell;
+  }
+
+  vibe::session::EnvConfig env_config{
+      .mode = effective_env_mode,
+      .overrides = request.environment_overrides,
+      .env_file_path = request.env_file_path,
+  };
+
+  // Load host identity for env policy; fall back to defaults if store is absent.
+  vibe::store::HostIdentity host_identity = vibe::store::MakeDefaultHostIdentity();
+  if (host_config_store_ != nullptr) {
+    if (const auto loaded = host_config_store_->LoadHostIdentity(); loaded.has_value()) {
+      host_identity = *loaded;
+    }
+  }
+
+  auto env_result = vibe::session::ResolveEnvironment(
+      env_config, request.workspace_root, host_identity, env_cache_,
+      provider_config.environment_overrides);
+  if (!env_result.has_value()) {
+    last_create_error_message_ = "environment resolution failed: " + env_result.error();
+    return std::nullopt;
+  }
+  vibe::session::EffectiveEnvironment effective_env = std::move(env_result.value());
+
   const vibe::session::LaunchSpec launch_spec =
-      vibe::session::BuildLaunchSpec(metadata, launch_provider_config);
+      vibe::session::BuildLaunchSpec(metadata, launch_provider_config, {}, {}, effective_env);
 
   auto process = pty_process_factory_ ? pty_process_factory_() : nullptr;
   if (process == nullptr) {
@@ -637,6 +677,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .last_observed_status = vibe::session::SessionStatus::Created,
       .last_observed_sequence = 0,
       .last_traced_node_summary_key = std::nullopt,
+      .effective_environment = std::move(effective_env),
   });
 
   SessionEntry& entry = sessions_.back();
@@ -753,6 +794,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
         .last_observed_status = recovered_status,
         .last_observed_sequence = persisted.current_sequence,
         .last_traced_node_summary_key = std::nullopt,
+        .effective_environment = std::nullopt,
     });
     MaybeTraceNodeSummaryTransition(sessions_.back(), "load_persisted");
     loaded_count += 1;
@@ -1026,6 +1068,16 @@ auto SessionManager::ReadFile(const std::string& session_id, const std::string& 
       .size_bytes = file_size,
       .truncated = file_size > static_cast<std::uint64_t>(max_bytes),
   };
+}
+
+auto SessionManager::GetSessionEnv(const std::string& session_id) const
+    -> std::optional<vibe::session::EffectiveEnvironment> {
+  const SessionEntry* entry = FindEntry(session_id);
+  if (entry == nullptr) {
+    return std::nullopt;
+  }
+
+  return entry->effective_environment;
 }
 
 auto SessionManager::SendInput(const std::string& session_id, const std::string& input) -> bool {

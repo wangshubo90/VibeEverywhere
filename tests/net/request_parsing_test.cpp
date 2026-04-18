@@ -45,6 +45,18 @@ TEST(RequestParsingTest, ParsesCreateSessionRequestWithShellCommandAndRecordId) 
   EXPECT_FALSE(request->provider.has_value());
 }
 
+TEST(RequestParsingTest, ParsesCreateSessionRequestWithEnvironmentFields) {
+  const auto request = ParseCreateSessionRequest(
+      R"({"provider":"codex","workspaceRoot":".","title":"demo","envMode":"clean","environmentOverrides":{"FOO":"bar","HELLO":"world"},"envFilePath":".env.local"})");
+  ASSERT_TRUE(request.has_value());
+  ASSERT_TRUE(request->env_mode.has_value());
+  EXPECT_EQ(*request->env_mode, vibe::session::EnvMode::Clean);
+  EXPECT_EQ(request->environment_overrides.at("FOO"), "bar");
+  EXPECT_EQ(request->environment_overrides.at("HELLO"), "world");
+  ASSERT_TRUE(request->env_file_path.has_value());
+  EXPECT_EQ(*request->env_file_path, ".env.local");
+}
+
 TEST(RequestParsingTest, RejectsInvalidExplicitCommandInCreateSessionRequest) {
   EXPECT_FALSE(ParseCreateSessionRequest(
                    R"({"provider":"codex","workspaceRoot":".","title":"demo","command":[]})")

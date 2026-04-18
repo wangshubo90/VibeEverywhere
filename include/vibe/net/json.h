@@ -10,6 +10,7 @@
 #include "vibe/net/discovery.h"
 #include "vibe/net/host_admin.h"
 #include "vibe/service/session_manager.h"
+#include "vibe/session/env_config.h"
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
 #include "vibe/store/host_config_store.h"
@@ -64,6 +65,7 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJson(const SessionInventoryEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const ErrorEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const DiscoveryInfo& info) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::session::EffectiveEnvironment& env, bool redact) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::store::LaunchRecord& record) -> std::string;
 [[nodiscard]] auto ToJson(const std::vector<vibe::store::LaunchRecord>& records) -> std::string;
 [[nodiscard]] auto ToJsonHostInfo() -> std::string;

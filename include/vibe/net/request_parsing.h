@@ -5,10 +5,12 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <variant>
 
 #include "vibe/auth/pairing.h"
 #include "vibe/service/session_manager.h"
+#include "vibe/session/env_config.h"
 #include "vibe/session/launch_spec.h"
 
 namespace vibe::net {
@@ -64,6 +66,10 @@ struct CreateSessionRequestPayload {
   std::optional<std::vector<std::string>> group_tags;
   // Reference a previously auto-saved launch record as a starting point.
   std::optional<std::string> record_id;
+  // Environment model fields.
+  std::optional<vibe::session::EnvMode> env_mode{std::nullopt};
+  std::unordered_map<std::string, std::string> environment_overrides{};
+  std::optional<std::string> env_file_path{std::nullopt};
 };
 
 struct SessionGroupTagsUpdatePayload {

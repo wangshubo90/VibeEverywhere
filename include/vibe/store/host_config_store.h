@@ -59,24 +59,32 @@ struct HostIdentity {
   std::vector<LaunchRecord> launch_records;
   std::size_t max_launch_records{kDefaultMaxLaunchRecords};
 
+  // Daemon-wide environment policy (for session bootstrap).
+  std::optional<std::string> bootstrap_shell_path{};
+  bool import_service_manager_environment{false};
+  std::vector<std::string> service_manager_environment_allowlist{};
+
   [[nodiscard]] auto operator==(const HostIdentity& other) const -> bool = default;
 };
 
 [[nodiscard]] inline auto MakeDefaultHostIdentity() -> HostIdentity {
-  return HostIdentity{
-      .host_id = "",
-      .display_name = std::string(kDefaultDisplayName),
-      .certificate_pem_path = "",
-      .private_key_pem_path = "",
-      .admin_host = std::string(kDefaultAdminHost),
-      .admin_port = kDefaultAdminPort,
-      .remote_host = std::string(kDefaultRemoteHost),
-      .remote_port = kDefaultRemotePort,
-      .codex_command = {},
-      .claude_command = {},
-      .launch_records = {},
-      .max_launch_records = kDefaultMaxLaunchRecords,
-  };
+  HostIdentity identity;
+  identity.host_id = "";
+  identity.display_name = std::string(kDefaultDisplayName);
+  identity.certificate_pem_path = "";
+  identity.private_key_pem_path = "";
+  identity.admin_host = std::string(kDefaultAdminHost);
+  identity.admin_port = kDefaultAdminPort;
+  identity.remote_host = std::string(kDefaultRemoteHost);
+  identity.remote_port = kDefaultRemotePort;
+  identity.codex_command = {};
+  identity.claude_command = {};
+  identity.launch_records = {};
+  identity.max_launch_records = kDefaultMaxLaunchRecords;
+  identity.bootstrap_shell_path = std::nullopt;
+  identity.import_service_manager_environment = false;
+  identity.service_manager_environment_allowlist = {};
+  return identity;
 }
 
 class HostConfigStore {

@@ -498,16 +498,22 @@ systemctl --user status sentrits.service --no-pager
 journalctl --user -u sentrits.service --no-pager
 ```
 
-Sentrits also mirrors `serve` output into rotated per-user log files:
+If session creation fails because the daemon cannot reproduce the shell environment you expect:
+
+- Sentrits bootstraps provider and direct-exec session environment from a login shell by default
+- bootstrap warnings are logged to the daemon log and service journal when the shell prints to stderr during environment capture
+- those warnings are emitted when the daemon creates a session with the bootstrapped environment path, regardless of whether the request came from the CLI, Host Admin UI, or a remote client
+- inspect:
 
 ```bash
+journalctl --user -u sentrits.service --no-pager
 tail -n 200 ~/.sentrits/logs/sentrits.log
 ```
 
-The active file is `~/.sentrits/logs/sentrits.log`, with older segments kept as
-`sentrits.log.1` through `sentrits.log.5`.
-
-You can view the same recent log tail in the Host Admin `Activity` tab.
+- common causes:
+  - shell init files reference missing tools
+  - service `PATH` does not include version-manager shims like `nvm`, `pnpm`, or `bun`
+  - a login shell prints warnings even though it exits successfully
 
 If another machine cannot reach the remote listener:
 
