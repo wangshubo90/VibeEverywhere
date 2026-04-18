@@ -390,6 +390,19 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   const std::string session_id = ExtractSessionId(create_response);
   ASSERT_FALSE(session_id.empty());
 
+  bool saw_output_in_snapshot = false;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    const auto snapshot_response =
+        SendRequest(kRemotePort, http::verb::get, "/sessions/" + session_id + "/snapshot", "", token);
+    ASSERT_EQ(snapshot_response.result(), http::status::ok);
+    if (snapshot_response.body().find("\"currentSequence\":0") == std::string::npos) {
+      saw_output_in_snapshot = true;
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  ASSERT_TRUE(saw_output_in_snapshot);
+
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
   websocket::stream<tcp::socket> websocket(io_context);
@@ -404,27 +417,38 @@ TEST_F(HttpServerFixture, WebSocketSessionEndpointStreamsTerminalOutput) {
   websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
-  const std::string first_payload =
-      ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\"");
-  EXPECT_NE(first_payload.find("\"type\":\"session.updated\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"status\""), std::string::npos);
-  EXPECT_NE(first_payload.find("\"controllerKind\":\"host\""), std::string::npos);
-  EXPECT_TRUE(first_payload.find("\"activityState\":\"quiet\"") != std::string::npos ||
-              first_payload.find("\"activityState\":\"active\"") != std::string::npos);
-  EXPECT_TRUE(first_payload.find("\"supervisionState\":\"quiet\"") != std::string::npos ||
-              first_payload.find("\"supervisionState\":\"active\"") != std::string::npos);
-  EXPECT_NE(first_payload.find("\"isRecovered\":false"), std::string::npos);
-  EXPECT_NE(first_payload.find("\"archivedRecord\":false"), std::string::npos);
-  EXPECT_NE(first_payload.find("\"inventoryState\":\"live\""), std::string::npos);
+  std::optional<std::string> updated_payload;
+  std::optional<std::string> output_payload;
+  for (int attempt = 0; attempt < 6 && (!updated_payload.has_value() || !output_payload.has_value());
+       ++attempt) {
+    const std::string payload = ReadWebSocketFrame(websocket, buffer);
+    if (!updated_payload.has_value() &&
+        payload.find("\"type\":\"session.updated\"") != std::string::npos) {
+      updated_payload = payload;
+    }
+    if (!output_payload.has_value() &&
+        payload.find("\"type\":\"terminal.output\"") != std::string::npos) {
+      output_payload = payload;
+    }
+  }
 
-  const std::string second_payload =
-      ReadUntilFrameContains(websocket, buffer, "\"type\":\"terminal.output\"");
-  EXPECT_NE(second_payload.find("\"type\":\"terminal.output\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"seqStart\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"dataEncoding\":\"base64\""), std::string::npos);
-  EXPECT_NE(second_payload.find("\"dataBase64\""), std::string::npos);
+  ASSERT_TRUE(updated_payload.has_value());
+  EXPECT_NE(updated_payload->find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
+  EXPECT_NE(updated_payload->find("\"status\""), std::string::npos);
+  EXPECT_NE(updated_payload->find("\"controllerKind\":\"host\""), std::string::npos);
+  EXPECT_TRUE(updated_payload->find("\"activityState\":\"quiet\"") != std::string::npos ||
+              updated_payload->find("\"activityState\":\"active\"") != std::string::npos);
+  EXPECT_TRUE(updated_payload->find("\"supervisionState\":\"quiet\"") != std::string::npos ||
+              updated_payload->find("\"supervisionState\":\"active\"") != std::string::npos);
+  EXPECT_NE(updated_payload->find("\"isRecovered\":false"), std::string::npos);
+  EXPECT_NE(updated_payload->find("\"archivedRecord\":false"), std::string::npos);
+  EXPECT_NE(updated_payload->find("\"inventoryState\":\"live\""), std::string::npos);
+
+  ASSERT_TRUE(output_payload.has_value());
+  EXPECT_NE(output_payload->find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
+  EXPECT_NE(output_payload->find("\"seqStart\""), std::string::npos);
+  EXPECT_NE(output_payload->find("\"dataEncoding\":\"base64\""), std::string::npos);
+  EXPECT_NE(output_payload->find("\"dataBase64\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, WebSocketOverviewEndpointStreamsInventorySnapshots) {
