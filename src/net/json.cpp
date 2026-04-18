@@ -11,6 +11,10 @@ namespace json = boost::json;
 
 namespace {
 
+#ifndef SENTRITS_VERSION
+#define SENTRITS_VERSION "0.0.0"
+#endif
+
 constexpr char kBase64Alphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -640,7 +644,7 @@ auto ToJsonHostInfo(const std::optional<vibe::store::HostIdentity>& host_identit
   append_command("claude", resolved_identity.claude_command);
   object["providerCommands"] = std::move(provider_commands);
   object["launchRecordCount"] = resolved_identity.launch_records.size();
-  object["version"] = "0.1.0";
+  object["version"] = SENTRITS_VERSION;
   object["capabilities"] = {"sessions", "rest", "websocket", "launchRecords"};
   object["pairingMode"] = "approval";
   json::object tls;

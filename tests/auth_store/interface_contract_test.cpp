@@ -146,6 +146,10 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
     return true;
   }
 
+  [[nodiscard]] auto storage_root() const -> std::filesystem::path override {
+    return std::filesystem::temp_directory_path() / "sentrits-interface-contract-test";
+  }
+
   std::optional<vibe::store::HostIdentity> identity;
 };
 

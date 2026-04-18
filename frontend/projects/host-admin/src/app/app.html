@@ -304,13 +304,43 @@
         <div class="panel-head">
           <div>
             <p class="eyebrow">Activity</p>
+            <h2>Daemon log</h2>
+          </div>
+          <div class="button-pair">
+            <button type="button" class="ghost" (click)="copyHostLogPath()" [disabled]="!hostLogPath">Copy log path</button>
+            <button type="button" class="ghost" (click)="refreshAll()">
+              {{ loading ? 'Refreshing…' : 'Refresh now' }}
+            </button>
+          </div>
+        </div>
+        <div class="meta-grid">
+          <div class="meta-cell">
+            <span>Log file</span>
+            <strong>{{ hostLogPath || 'n/a' }}</strong>
+          </div>
+          <div class="meta-cell">
+            <span>Source</span>
+            <strong>{{ hostLogSource || 'n/a' }}</strong>
+          </div>
+        </div>
+        @if (!hostLogsAvailable && hostLogs.length === 0) {
+          <p class="empty-note">{{ hostLogsMessage }}</p>
+        } @else {
+          <pre class="event-log tall-log">{{ hostLogs.join('\n') }}</pre>
+        }
+      </article>
+
+      <article class="panel wide">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Activity</p>
             <h2>Control room log</h2>
           </div>
         </div>
         @if (logs.length === 0) {
           <p class="empty-note">No activity yet.</p>
         } @else {
-          <pre class="event-log tall-log">{{ logs.join('\n') }}</pre>
+          <pre class="event-log">{{ logs.join('\n') }}</pre>
         }
       </article>
     }

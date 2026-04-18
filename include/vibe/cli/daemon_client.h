@@ -52,6 +52,11 @@ struct CreateSessionRequest {
   std::optional<std::string> env_file_path{std::nullopt};
 };
 
+struct CreateSessionResult {
+  std::optional<std::string> session_id;
+  std::string error_message;
+};
+
 [[nodiscard]] auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::string;
 [[nodiscard]] auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string>;
 [[nodiscard]] auto ParseSessionList(const std::string& body) -> std::vector<ListedSession>;
@@ -64,6 +69,8 @@ struct CreateSessionRequest {
 
 [[nodiscard]] auto CreateSession(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
     -> std::optional<std::string>;
+[[nodiscard]] auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
+    -> CreateSessionResult;
 [[nodiscard]] auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>>;
 [[nodiscard]] auto GetSessionSnapshot(const DaemonEndpoint& endpoint, const std::string& session_id)
     -> std::optional<std::string>;

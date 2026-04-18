@@ -2,6 +2,7 @@
 #define VIBE_STORE_HOST_CONFIG_STORE_H
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -92,6 +93,7 @@ class HostConfigStore {
 
   [[nodiscard]] virtual auto LoadHostIdentity() const -> std::optional<HostIdentity> = 0;
   [[nodiscard]] virtual auto SaveHostIdentity(const HostIdentity& identity) -> bool = 0;
+  [[nodiscard]] virtual auto storage_root() const -> std::filesystem::path = 0;
 };
 
 [[nodiscard]] auto EnsureHostIdentity(HostConfigStore& store) -> std::optional<HostIdentity>;

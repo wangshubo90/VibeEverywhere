@@ -1617,6 +1617,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
                   .pairing_store = &self->pairing_store_,
                   .host_config_store = &self->host_config_store_,
                   .host_admin = self->host_admin_.get(),
+                  .storage_root = self->host_config_store_.storage_root(),
                   .client_address = endpoint.address().to_string(),
                   .is_local_request = endpoint.address().is_loopback(),
                   .remote_tls_enabled = self->remote_tls_enabled_,

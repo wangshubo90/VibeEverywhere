@@ -45,6 +45,21 @@ auto FindLastPersistedRecord(const FakeSessionStore& session_store, const std::s
   return std::nullopt;
 }
 
+auto PollUntilStatus(SessionManager& manager, const std::string& session_id,
+                     const vibe::session::SessionStatus expected_status,
+                     const int attempts = 40) -> std::optional<SessionSummary> {
+  for (int index = 0; index < attempts; ++index) {
+    manager.PollAll(10);
+    const auto summary = manager.GetSession(session_id);
+    if (summary.has_value() && summary->status == expected_status) {
+      return summary;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  return manager.GetSession(session_id);
+}
+
 class GitSessionManagerTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -411,6 +426,29 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToBootstrapEnviro
 
     return std::make_unique<CapturingPtyProcess>(&captured_launch_spec);
   });
+TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDetail) {
+  SessionManager manager(nullptr, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "garbage-command",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"__sentrits_missing_command__"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+
+  EXPECT_FALSE(created.has_value());
+  EXPECT_NE(manager.last_create_error_message().find("No such file or directory"), std::string::npos);
+  EXPECT_TRUE(manager.ListSessions().empty());
+}
+
+TEST(SessionManagerTest, CreateSessionCanStartThenExitImmediately) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
 
   const auto created = manager.CreateSession(CreateSessionRequest{
       .provider = vibe::session::ProviderType::Codex,
@@ -426,6 +464,24 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToBootstrapEnviro
   ASSERT_TRUE(captured_launch_spec.has_value());
   EXPECT_EQ(captured_launch_spec->effective_environment.mode,
             vibe::session::EnvMode::BootstrapFromShell);
+      .title = "exit-immediately",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "printf 'bye\\n'; exit 0"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value());
+  EXPECT_TRUE(manager.last_create_error_message().empty());
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Exited);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+  EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
+  EXPECT_GT(summary->current_sequence, 0U);
+
+  const auto tail = manager.GetTail(created->id.value(), 64);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("bye"), std::string::npos);
 }
 
 TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsExitedState) {

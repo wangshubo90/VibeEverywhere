@@ -55,6 +55,14 @@ interface AttachedClientView {
   connectedAtUnixMs?: number;
 }
 
+interface HostLogsResponse {
+  path: string;
+  source: string;
+  available: boolean;
+  message?: string;
+  entries: string[];
+}
+
 interface HostConfigDraft {
   displayName: string;
   adminHost: string;
@@ -109,6 +117,11 @@ export class App implements OnInit, OnDestroy {
   pendingPairings: PendingPairingView[] = [];
   clients: AttachedClientView[] = [];
   logs: string[] = [];
+  hostLogs: string[] = [];
+  hostLogPath = '';
+  hostLogSource = '';
+  hostLogsAvailable = false;
+  hostLogsMessage = 'No daemon logs yet.';
 
   loading = false;
   savingConfig = false;
@@ -137,7 +150,7 @@ export class App implements OnInit, OnDestroy {
   async refreshAll(): Promise<void> {
     this.loading = true;
     try {
-      const [hostInfo, pendingPairings, trustedDevices, sessions, clients] = await Promise.all([
+      const [hostInfo, pendingPairings, trustedDevices, sessions, clients, hostLogs] = await Promise.all([
         this.fetchJson<HostInfoResponse>('/host/info'),
         this.fetchJson<Array<Omit<PendingPairingView, 'requestedLabel'>>>('/pairing/pending'),
         this.fetchJson<Array<{ deviceId: string; deviceName: string; deviceType: string; approvedAtUnixMs?: number }>>(
@@ -145,6 +158,7 @@ export class App implements OnInit, OnDestroy {
         ),
         this.fetchJson<RawSessionSummary[]>('/host/sessions'),
         this.fetchJson<AttachedClientView[]>('/host/clients'),
+        this.fetchJson<HostLogsResponse>('/host/logs'),
       ]);
 
       this.applyHostInfo(hostInfo);
@@ -162,6 +176,7 @@ export class App implements OnInit, OnDestroy {
       }));
       this.sessions = sessions.map((session) => this.mapSession(session));
       this.clients = clients;
+      this.applyHostLogs(hostLogs);
       this.sortOperationalData();
     } catch (error) {
       this.log(`refresh failed: ${String(error)}`);
@@ -172,13 +187,14 @@ export class App implements OnInit, OnDestroy {
 
   async refreshOperationalState(): Promise<void> {
     try {
-      const [pendingPairings, trustedDevices, sessions, clients] = await Promise.all([
+      const [pendingPairings, trustedDevices, sessions, clients, hostLogs] = await Promise.all([
         this.fetchJson<Array<Omit<PendingPairingView, 'requestedLabel'>>>('/pairing/pending'),
         this.fetchJson<Array<{ deviceId: string; deviceName: string; deviceType: string; approvedAtUnixMs?: number }>>(
           '/host/trusted-devices',
         ),
         this.fetchJson<RawSessionSummary[]>('/host/sessions'),
         this.fetchJson<AttachedClientView[]>('/host/clients'),
+        this.fetchJson<HostLogsResponse>('/host/logs'),
       ]);
 
       this.pendingPairings = pendingPairings.map((pairing) => ({
@@ -195,6 +211,7 @@ export class App implements OnInit, OnDestroy {
       }));
       this.sessions = sessions.map((session) => this.mapSession(session));
       this.clients = clients;
+      this.applyHostLogs(hostLogs);
       this.sortOperationalData();
     } catch (error) {
       this.log(`background refresh failed: ${String(error)}`);
@@ -339,6 +356,14 @@ export class App implements OnInit, OnDestroy {
     await this.copyText(summary, 'copied host info');
   }
 
+  async copyHostLogPath(): Promise<void> {
+    if (!this.hostLogPath) {
+      this.log('host log path unavailable');
+      return;
+    }
+    await this.copyText(this.hostLogPath, 'copied daemon log path');
+  }
+
   downloadRemoteCertificate(): void {
     const target = `${this.apiBase}/host/tls/certificate`;
     window.open(target, '_blank', 'noopener,noreferrer');
@@ -416,6 +441,14 @@ export class App implements OnInit, OnDestroy {
       codexCommand: (hostInfo.providerCommands?.['codex'] ?? []).join(' '),
       claudeCommand: (hostInfo.providerCommands?.['claude'] ?? []).join(' '),
     };
+  }
+
+  private applyHostLogs(hostLogs: HostLogsResponse): void {
+    this.hostLogs = hostLogs.entries ?? [];
+    this.hostLogPath = hostLogs.path ?? '';
+    this.hostLogSource = hostLogs.source ?? '';
+    this.hostLogsAvailable = Boolean(hostLogs.available);
+    this.hostLogsMessage = hostLogs.message ?? (this.hostLogsAvailable ? '' : 'No daemon logs yet.');
   }
 
   private mapSession(session: RawSessionSummary): SessionSummaryView {

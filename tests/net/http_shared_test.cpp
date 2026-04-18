@@ -12,6 +12,7 @@
 #include "vibe/net/host_admin.h"
 #include "vibe/net/json.h"
 #include "vibe/net/http_shared.h"
+#include "vibe/net/local_auth.h"
 #include "vibe/store/host_config_store.h"
 
 namespace vibe::net {
@@ -181,6 +182,10 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
     return true;
   }
 
+  [[nodiscard]] auto storage_root() const -> std::filesystem::path override {
+    return storage_root_path;
+  }
+
   std::optional<vibe::store::HostIdentity> identity{
       [] {
         auto identity = vibe::store::MakeDefaultHostIdentity();
@@ -191,6 +196,7 @@ class FakeHostConfigStore final : public vibe::store::HostConfigStore {
         return identity;
       }(),
   };
+  std::filesystem::path storage_root_path = std::filesystem::temp_directory_path() / "sentrits-http-shared-test";
 };
 
 class FakeHostAdmin final : public vibe::net::HostAdmin {
@@ -233,6 +239,7 @@ auto MakeAuthContext(FakeAuthorizer& authorizer,
       .pairing_store = pairing_store,
       .host_config_store = &host_config_store,
       .host_admin = host_admin,
+      .storage_root = host_config_store.storage_root(),
       .client_address = "127.0.0.1",
       .is_local_request = true,
       .remote_listener_host = "127.0.0.1",
@@ -1247,6 +1254,22 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
   EXPECT_NE(clients_response.body().find("\"sessionStatus\":\"Running\""), std::string::npos);
   EXPECT_NE(clients_response.body().find("\"connectedAtUnixMs\":123"), std::string::npos);
 
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+  WriteTextFile(vibe::net::DefaultServeLogPath(host_config_store.storage_root_path),
+                "line one\nline two\nline three\n");
+
+  HttpRequest logs_request;
+  logs_request.method(http::verb::get);
+  logs_request.target("/host/logs");
+  logs_request.version(11);
+  const HttpResponse logs_response =
+      HandleRequest(logs_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
+  EXPECT_EQ(logs_response.result(), http::status::ok);
+  EXPECT_NE(logs_response.body().find("\"available\":true"), std::string::npos);
+  EXPECT_NE(logs_response.body().find("\"line one\""), std::string::npos);
+  EXPECT_NE(logs_response.body().find("\"source\":\"serve_log_file\""), std::string::npos);
+
   HttpRequest disconnect_request;
   disconnect_request.method(http::verb::post);
   disconnect_request.target("/host/clients/ws_s_1_1/disconnect");
@@ -1282,6 +1305,8 @@ TEST(HttpSharedTest, ServesHostManagementRoutes) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store, &host_admin));
   EXPECT_EQ(sessions_after_clear.result(), http::status::ok);
   EXPECT_EQ(sessions_after_clear.body(), "[]");
+
+  std::filesystem::remove_all(host_config_store.storage_root_path);
 }
 
 TEST(HttpSharedTest, ServesHostTrustedDeviceRoutesAndLocalSessionCreation) {
@@ -1429,6 +1454,27 @@ TEST(HttpSharedTest, CreateSessionFailureIncludesExplicitDetail) {
             std::string::npos);
 }
 
+TEST(HttpSharedTest, CreateSessionResolveFailureIncludesExplicitDetail) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest request;
+  request.method(http::verb::post);
+  request.target("/host/sessions");
+  request.version(11);
+  request.body() = R"({"workspaceRoot":".","title":"missing-provider"})";
+  request.prepare_payload();
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager, MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(response.result(), http::status::bad_request);
+  EXPECT_NE(response.body().find("\"error\":\"failed to resolve create session request\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"detail\":\"provider is required unless --record is used\""),
+            std::string::npos);
+}
+
 TEST(HttpSharedTest, SavesExpandedHostConfig) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;
@@ -1499,6 +1545,7 @@ TEST(HttpSharedTest, RejectsHostUiRoutesForNonLocalRequests) {
       .authorizer = &authorizer,
       .pairing_service = &pairing_service,
       .host_config_store = &host_config_store,
+      .storage_root = host_config_store.storage_root(),
       .client_address = "10.0.0.8",
       .is_local_request = false,
       .remote_listener_host = "",

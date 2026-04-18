@@ -552,6 +552,28 @@ auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string
   return json::value_to<std::string>(*session_id);
 }
 
+auto ExtractErrorMessage(const std::string& body) -> std::string {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return body;
+  }
+
+  const json::object& object = parsed.as_object();
+  std::string message;
+  if (const auto error = object.if_contains("error"); error != nullptr && error->is_string()) {
+    message = json::value_to<std::string>(*error);
+  }
+  if (const auto detail = object.if_contains("detail"); detail != nullptr && detail->is_string()) {
+    const std::string detail_text = json::value_to<std::string>(*detail);
+    if (message.empty()) {
+      return detail_text;
+    }
+    return message + ": " + detail_text;
+  }
+  return message.empty() ? body : message;
+}
+
 auto ParseSessionList(const std::string& body) -> std::vector<ListedSession> {
   boost::system::error_code error_code;
   const json::value parsed = json::parse(body, error_code);
@@ -701,18 +723,29 @@ auto BuildResizeCommand(const vibe::session::TerminalSize terminal_size) -> std:
 
 auto CreateSession(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
     -> std::optional<std::string> {
+  return CreateSessionWithDetail(endpoint, request).session_id;
+}
+
+auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
+    -> CreateSessionResult {
   const auto response = PerformHttpRequest(
       endpoint, http::verb::post, "/sessions", BuildCreateSessionRequestBody(request),
       "application/json");
   if (!response.has_value()) {
-    return std::nullopt;
+    return {};
   }
 
   if (response->result() != http::status::created) {
-    return std::nullopt;
+    return CreateSessionResult{
+        .session_id = std::nullopt,
+        .error_message = ExtractErrorMessage(response->body()),
+    };
   }
 
-  return ParseCreatedSessionId(response->body());
+  return CreateSessionResult{
+      .session_id = ParseCreatedSessionId(response->body()),
+      .error_message = {},
+  };
 }
 
 auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>> {

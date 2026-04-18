@@ -4,6 +4,7 @@
 #include <boost/beast/http.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 #include "vibe/auth/authorizer.h"
@@ -31,6 +32,7 @@ struct HttpRouteContext {
   vibe::store::PairingStore* pairing_store{nullptr};
   vibe::store::HostConfigStore* host_config_store{nullptr};
   vibe::net::HostAdmin* host_admin{nullptr};
+  std::filesystem::path storage_root;
   std::string client_address;
   bool is_local_request{false};
   bool remote_tls_enabled{false};

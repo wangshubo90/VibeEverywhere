@@ -24,6 +24,16 @@ auto DefaultControllerSocketPath(const std::filesystem::path& storage_root)
   return storage_root / "controller.sock";
 }
 
+auto DefaultLogDirectory(const std::filesystem::path& storage_root)
+    -> std::filesystem::path {
+  return storage_root / "logs";
+}
+
+auto DefaultServeLogPath(const std::filesystem::path& storage_root)
+    -> std::filesystem::path {
+  return DefaultLogDirectory(storage_root) / "sentrits.log";
+}
+
 auto CreateLocalAuthServices(const std::filesystem::path& storage_root) -> LocalAuthServices {
   auto pairing_store = std::make_shared<vibe::store::FilePairingStore>(storage_root);
   auto host_config_store = std::make_shared<vibe::store::FileHostConfigStore>(storage_root);

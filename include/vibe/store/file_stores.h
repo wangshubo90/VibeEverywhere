@@ -15,6 +15,7 @@ class FileHostConfigStore final : public HostConfigStore {
 
   [[nodiscard]] auto LoadHostIdentity() const -> std::optional<HostIdentity> override;
   [[nodiscard]] auto SaveHostIdentity(const HostIdentity& identity) -> bool override;
+  [[nodiscard]] auto storage_root() const -> std::filesystem::path override;
 
  private:
   std::filesystem::path storage_root_;

@@ -913,6 +913,8 @@ auto SavePairingSnapshot(const std::filesystem::path& path, const PairingSnapsho
 FileHostConfigStore::FileHostConfigStore(std::filesystem::path storage_root)
     : storage_root_(std::move(storage_root)) {}
 
+auto FileHostConfigStore::storage_root() const -> std::filesystem::path { return storage_root_; }
+
 auto FileHostConfigStore::LoadHostIdentity() const -> std::optional<HostIdentity> {
   return LoadOptionalFromJsonFile<HostIdentity>(HostIdentityPath(storage_root_),
                                                 HostIdentityFromJsonWithDefaults);
