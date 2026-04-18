@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <system_error>
 #include <string>
 #include <thread>
 #include <vector>
@@ -36,6 +37,24 @@ class FakeSessionStore final : public vibe::store::SessionStore {
   mutable std::vector<std::string> removed;
 };
 
+class FakeHostConfigStore final : public vibe::store::HostConfigStore {
+ public:
+  [[nodiscard]] auto LoadHostIdentity() const -> std::optional<vibe::store::HostIdentity> override {
+    return identity;
+  }
+
+  [[nodiscard]] auto SaveHostIdentity(const vibe::store::HostIdentity& new_identity) -> bool override {
+    identity = new_identity;
+    return true;
+  }
+
+  [[nodiscard]] auto storage_root() const -> std::filesystem::path override {
+    return std::filesystem::temp_directory_path();
+  }
+
+  vibe::store::HostIdentity identity = vibe::store::MakeDefaultHostIdentity();
+};
+
 auto FindLastPersistedRecord(const FakeSessionStore& session_store, const std::string& session_id)
     -> std::optional<vibe::store::PersistedSessionRecord> {
   for (auto it = session_store.upserted.rbegin(); it != session_store.upserted.rend(); ++it) {
@@ -59,6 +78,30 @@ auto PollUntilStatus(SessionManager& manager, const std::string& session_id,
   }
 
   return manager.GetSession(session_id);
+}
+
+class TempDirGuard {
+ public:
+  explicit TempDirGuard(const std::string_view prefix) {
+    path_ = std::filesystem::temp_directory_path() /
+            (std::string(prefix) + "-" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directories(path_);
+  }
+
+  ~TempDirGuard() {
+    std::error_code error;
+    std::filesystem::remove_all(path_, error);
+  }
+
+  [[nodiscard]] auto path() const -> const std::filesystem::path& { return path_; }
+
+ private:
+  std::filesystem::path path_;
+};
+
+auto SessionStartFixturePath() -> std::string {
+  return SENTRITS_SESSION_START_FIXTURE_PATH;
 }
 
 class GitSessionManagerTest : public ::testing::Test {
@@ -365,6 +408,41 @@ TEST(SessionManagerTest, CreateSessionFailsWhenPtyFactoryCannotProvideProcess) {
 
   EXPECT_FALSE(created.has_value());
   EXPECT_EQ(manager.last_create_error_message(), "pty process unavailable");
+  ASSERT_TRUE(manager.last_create_error_session_id().has_value());
+  const auto failed = manager.GetSnapshot(*manager.last_create_error_session_id());
+  ASSERT_TRUE(failed.has_value());
+  EXPECT_EQ(failed->metadata.status, vibe::session::SessionStatus::Error);
+  EXPECT_NE(failed->recent_terminal_tail.find("detail: pty process unavailable"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionEnvironmentResolutionFailureCreatesInspectableErrorSession) {
+  FakeHostConfigStore host_config_store;
+  host_config_store.identity.bootstrap_shell_path = "/path/does/not/exist";
+  SessionManager manager(nullptr, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1),
+                         &host_config_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "bootstrap-failure",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/echo", "hello"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+      .env_mode = vibe::session::EnvMode::BootstrapFromShell,
+  });
+
+  EXPECT_FALSE(created.has_value());
+  EXPECT_NE(manager.last_create_error_message().find("environment resolution failed:"),
+            std::string::npos);
+  ASSERT_TRUE(manager.last_create_error_session_id().has_value());
+  const auto failed = manager.GetSnapshot(*manager.last_create_error_session_id());
+  ASSERT_TRUE(failed.has_value());
+  EXPECT_EQ(failed->metadata.status, vibe::session::SessionStatus::Error);
+  EXPECT_NE(failed->recent_terminal_tail.find("env mode: bootstrap_from_shell"), std::string::npos);
+  EXPECT_NE(failed->recent_terminal_tail.find("detail: environment resolution failed:"),
+            std::string::npos);
 }
 
 TEST(SessionManagerTest, CreateSessionSurfacesPtyStartFailureDetail) {
@@ -398,7 +476,13 @@ TEST(SessionManagerTest, CreateSessionSurfacesPtyStartFailureDetail) {
 
   EXPECT_FALSE(created.has_value());
   EXPECT_EQ(manager.last_create_error_message(), "execvp claude: No such file or directory");
-  EXPECT_TRUE(manager.ListSessions().empty());
+  ASSERT_TRUE(manager.last_create_error_session_id().has_value());
+  ASSERT_EQ(manager.ListSessions().size(), 1U);
+  const auto failed = manager.GetSnapshot(*manager.last_create_error_session_id());
+  ASSERT_TRUE(failed.has_value());
+  EXPECT_EQ(failed->metadata.status, vibe::session::SessionStatus::Error);
+  EXPECT_NE(failed->recent_terminal_tail.find("detail: execvp claude: No such file or directory"),
+            std::string::npos);
 }
 
 TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToShellEnvironment) {
@@ -438,6 +522,7 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToShellEnvironmen
   });
 
   EXPECT_FALSE(created.has_value());
+  ASSERT_TRUE(manager.last_create_error_session_id().has_value());
   ASSERT_TRUE(captured_launch_spec.has_value());
   EXPECT_EQ(captured_launch_spec->executable,
             vibe::session::ResolveBootstrapShell(vibe::store::MakeDefaultHostIdentity()));
@@ -448,6 +533,54 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToShellEnvironmen
             std::string::npos);
   EXPECT_EQ(captured_launch_spec->effective_environment.mode,
             vibe::session::EnvMode::Shell);
+}
+
+TEST(SessionManagerTest, CreateSessionShellModeUsesConfiguredBootstrapShellPath) {
+  FakeHostConfigStore host_config_store;
+  host_config_store.identity.bootstrap_shell_path = "/bin/sh";
+  std::optional<vibe::session::LaunchSpec> captured_launch_spec;
+  SessionManager manager(nullptr, [&captured_launch_spec]() -> std::unique_ptr<vibe::session::IPtyProcess> {
+    class CapturingPtyProcess final : public vibe::session::IPtyProcess {
+     public:
+      explicit CapturingPtyProcess(std::optional<vibe::session::LaunchSpec>* captured_launch_spec)
+          : captured_launch_spec_(captured_launch_spec) {}
+
+      [[nodiscard]] auto Start(const vibe::session::LaunchSpec& launch_spec) -> vibe::session::StartResult override {
+        *captured_launch_spec_ = launch_spec;
+        return {.started = false, .pid = 0, .error_message = "capture complete"};
+      }
+
+      [[nodiscard]] auto Write(std::string_view) -> bool override { return false; }
+      [[nodiscard]] auto Read(int) -> vibe::session::ReadResult override { return {}; }
+      [[nodiscard]] auto ReadableFd() const -> std::optional<int> override { return std::nullopt; }
+      [[nodiscard]] auto Resize(vibe::session::TerminalSize) -> bool override { return false; }
+      [[nodiscard]] auto PollExit() -> std::optional<int> override { return std::nullopt; }
+      [[nodiscard]] auto Terminate() -> bool override { return false; }
+
+     private:
+      std::optional<vibe::session::LaunchSpec>* captured_launch_spec_{nullptr};
+    };
+
+    return std::make_unique<CapturingPtyProcess>(&captured_launch_spec);
+  }, std::chrono::milliseconds(1), std::chrono::milliseconds(1), &host_config_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "configured-shell",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/echo", "hello"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+
+  EXPECT_FALSE(created.has_value());
+  ASSERT_TRUE(captured_launch_spec.has_value());
+  EXPECT_EQ(captured_launch_spec->executable, "/bin/sh");
+  ASSERT_EQ(captured_launch_spec->arguments.size(), 3U);
+  EXPECT_EQ(captured_launch_spec->arguments[0], "-l");
+  EXPECT_EQ(captured_launch_spec->arguments[1], "-c");
+  EXPECT_NE(captured_launch_spec->arguments[2].find("exec '/bin/echo' 'hello'"), std::string::npos);
 }
 
 TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDetail) {
@@ -467,7 +600,10 @@ TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDet
 
   EXPECT_FALSE(created.has_value());
   EXPECT_NE(manager.last_create_error_message().find("No such file or directory"), std::string::npos);
-  EXPECT_TRUE(manager.ListSessions().empty());
+  ASSERT_TRUE(manager.last_create_error_session_id().has_value());
+  const auto failed = manager.GetSnapshot(*manager.last_create_error_session_id());
+  ASSERT_TRUE(failed.has_value());
+  EXPECT_NE(failed->recent_terminal_tail.find("No such file or directory"), std::string::npos);
 }
 
 TEST(SessionManagerTest, CreateSessionCanStartThenExitImmediately) {
@@ -496,6 +632,207 @@ TEST(SessionManagerTest, CreateSessionCanStartThenExitImmediately) {
   const auto tail = manager.GetTail(created->id.value(), 64);
   ASSERT_TRUE(tail.has_value());
   EXPECT_NE(tail->data.find("bye"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionDefaultShellModePassesSessionOverridesToFixture) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-shell-success");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "shell-env-success",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{SessionStartFixturePath(), "require-env",
+                                               "SENTRITS_FIXTURE_FLAG", "shell-value"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+      .env_mode = std::nullopt,
+      .environment_overrides = {{"SENTRITS_FIXTURE_FLAG", "shell-value"}},
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Exited);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:env-ok SENTRITS_FIXTURE_FLAG=shell-value"), std::string::npos);
+
+  const auto env = manager.GetSessionEnv(created->id.value());
+  ASSERT_TRUE(env.has_value());
+  EXPECT_EQ(env->mode, vibe::session::EnvMode::Shell);
+}
+
+TEST(SessionManagerTest, CreateSessionDefaultShellModeKeepsLongRunningFixtureInteractive) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-shell-running");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "shell-running",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{SessionStartFixturePath(), "sleep", "5"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  manager.PollAll(10);
+  const auto summary = manager.GetSession(created->id.value());
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Running);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:sleep 5"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionDefaultShellModeCapturesFixtureFailureOutput) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-shell-failure");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "shell-env-failure",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{SessionStartFixturePath(), "require-env",
+                                               "SENTRITS_FIXTURE_FLAG", "shell-value"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Error);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Error);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:missing-env SENTRITS_FIXTURE_FLAG"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionDefaultShellModeCapturesMissingCommandOutput) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "shell-missing-exec",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"__sentrits_missing_command__"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Error);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Error);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("__sentrits_missing_command__"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionShellCommandOverrideCapturesFailureOutput) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-shell-command-failure");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const std::string shell_command =
+      "'" + SessionStartFixturePath() + "' exit 17 fixture:shell-command-failed";
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "shell-command-failure",
+      .conversation_id = std::nullopt,
+      .command_argv = std::nullopt,
+      .command_shell = shell_command,
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Error);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Error);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:shell-command-failed"), std::string::npos);
+}
+
+TEST(SessionManagerTest, CreateSessionCleanModePassesExplicitEnvironmentToFixture) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-clean-success");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "clean-env-success",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{SessionStartFixturePath(), "require-env",
+                                               "SENTRITS_FIXTURE_FLAG", "clean-value"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+      .env_mode = vibe::session::EnvMode::Clean,
+      .environment_overrides = {{"SENTRITS_FIXTURE_FLAG", "clean-value"}},
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Exited);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:env-ok SENTRITS_FIXTURE_FLAG=clean-value"), std::string::npos);
+
+  const auto env = manager.GetSessionEnv(created->id.value());
+  ASSERT_TRUE(env.has_value());
+  EXPECT_EQ(env->mode, vibe::session::EnvMode::Clean);
+}
+
+TEST(SessionManagerTest, CreateSessionCleanModeCapturesMissingEnvironmentFailure) {
+  FakeSessionStore session_store;
+  TempDirGuard workspace("session-manager-clean-failure");
+  SessionManager manager(&session_store, vibe::session::CreatePlatformPtyProcess,
+                         std::chrono::milliseconds(1), std::chrono::milliseconds(1));
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = workspace.path().string(),
+      .title = "clean-env-failure",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{SessionStartFixturePath(), "require-env",
+                                               "SENTRITS_FIXTURE_FLAG", "clean-value"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+      .env_mode = vibe::session::EnvMode::Clean,
+  });
+  ASSERT_TRUE(created.has_value()) << manager.last_create_error_message();
+
+  const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Error);
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Error);
+
+  const auto tail = manager.GetTail(created->id.value(), 4096);
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_NE(tail->data.find("fixture:missing-env SENTRITS_FIXTURE_FLAG"), std::string::npos);
 }
 
 TEST(SessionManagerTest, ShutdownTerminatesLiveSessionsClearsControlAndPersistsExitedState) {

@@ -1450,6 +1450,7 @@ TEST(HttpSharedTest, CreateSessionFailureIncludesExplicitDetail) {
       HandleRequest(request, session_manager, MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(response.result(), http::status::internal_server_error);
   EXPECT_NE(response.body().find("\"error\":\"failed to create session\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"sessionId\":\"s_1\""), std::string::npos);
   EXPECT_NE(response.body().find("\"detail\":\"execvp claude: No such file or directory\""),
             std::string::npos);
 }

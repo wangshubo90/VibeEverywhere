@@ -13,8 +13,13 @@ add_executable(sentrits_tests
   ${SENTRITS_TEST_SOURCES}
 )
 
+add_executable(sentrits_session_start_fixture
+  tests/helpers/session_start_fixture.cpp
+)
+
 add_dependencies(sentrits_tests
   sentrits
+  sentrits_session_start_fixture
 )
 
 target_link_libraries(sentrits_tests
@@ -26,6 +31,7 @@ target_link_libraries(sentrits_tests
 target_compile_definitions(sentrits_tests
   PRIVATE
     VIBE_HOSTD_PATH="$<TARGET_FILE:sentrits>"
+    SENTRITS_SESSION_START_FIXTURE_PATH="$<TARGET_FILE:sentrits_session_start_fixture>"
 )
 
 include(GoogleTest)

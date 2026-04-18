@@ -295,6 +295,26 @@ auto CurrentUnixTimeMs() -> std::int64_t {
       .count();
 }
 
+auto BuildCreateFailureLog(const vibe::session::SessionMetadata& metadata,
+                           const std::optional<vibe::session::EffectiveEnvironment>& effective_environment,
+                           const std::string_view error_message) -> std::string {
+  std::ostringstream log;
+  log << "session start failed\n";
+  log << "provider: " << vibe::session::ToString(metadata.provider) << '\n';
+  log << "workspace: " << metadata.workspace_root << '\n';
+  if (effective_environment.has_value()) {
+    log << "env mode: " << vibe::session::ToString(effective_environment->mode) << '\n';
+    if (effective_environment->bootstrap_shell_path.has_value()) {
+      log << "shell: " << *effective_environment->bootstrap_shell_path << '\n';
+    }
+    if (effective_environment->env_file_path.has_value()) {
+      log << "env file: " << *effective_environment->env_file_path << '\n';
+    }
+  }
+  log << "detail: " << error_message << '\n';
+  return log.str();
+}
+
 auto NormalizeRecoveredStatus(const vibe::session::SessionStatus status) -> vibe::session::SessionStatus {
   if (status == vibe::session::SessionStatus::Exited ||
       status == vibe::session::SessionStatus::Error) {
@@ -615,6 +635,7 @@ auto InferSupervisionState(const vibe::session::SessionStatus status,
 auto SessionManager::CreateSession(const CreateSessionRequest& request)
     -> std::optional<SessionSummary> {
   last_create_error_message_.clear();
+  last_create_error_session_id_.reset();
   const auto session_id = MakeSessionId();
   if (!session_id.has_value()) {
     last_create_error_message_ = "failed to allocate session id";
@@ -644,6 +665,8 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   vibe::session::ProviderConfig launch_provider_config = provider_config;
   if (request.command_shell.has_value()) {
     if (request.command_shell->empty()) {
+      last_create_error_message_ = "shell command must not be empty";
+      RecordCreateFailureSession(metadata, std::nullopt, last_create_error_message_);
       return std::nullopt;
     }
 
@@ -651,6 +674,8 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
     launch_provider_config.default_args = {"-lc", *request.command_shell};
   } else if (request.command_argv.has_value()) {
     if (request.command_argv->empty() || request.command_argv->front().empty()) {
+      last_create_error_message_ = "command argv must not be empty";
+      RecordCreateFailureSession(metadata, std::nullopt, last_create_error_message_);
       return std::nullopt;
     }
 
@@ -677,6 +702,17 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       provider_config.environment_overrides);
   if (!env_result.has_value()) {
     last_create_error_message_ = "environment resolution failed: " + env_result.error();
+    vibe::session::EffectiveEnvironment failed_environment{
+        .entries = {},
+        .mode = effective_env_mode,
+        .bootstrap_shell_path =
+            effective_env_mode == vibe::session::EnvMode::Clean
+                ? std::nullopt
+                : std::optional<std::string>(vibe::session::ResolveBootstrapShell(host_identity)),
+        .env_file_path = request.env_file_path,
+        .bootstrap_warning = std::nullopt,
+    };
+    RecordCreateFailureSession(metadata, std::move(failed_environment), last_create_error_message_);
     return std::nullopt;
   }
   vibe::session::EffectiveEnvironment effective_env = std::move(env_result.value());
@@ -698,6 +734,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   auto process = pty_process_factory_ ? pty_process_factory_() : nullptr;
   if (process == nullptr) {
     last_create_error_message_ = "pty process unavailable";
+    RecordCreateFailureSession(metadata, effective_env, last_create_error_message_);
     return std::nullopt;
   }
 
@@ -740,12 +777,8 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
                            "session=" + session_id->value() + " provider=" +
                                std::string(vibe::session::ToString(request.provider)) + " workspace=" +
                                request.workspace_root + " detail=" + last_create_error_message_);
-    PersistEntry(entry);
-    MaybeTraceNodeSummaryTransition(entry, "create_failed");
     sessions_.pop_back();
-    if (session_store_ != nullptr) {
-      static_cast<void>(session_store_->RemoveSessionRecord(session_id->value()));
-    }
+    RecordCreateFailureSession(metadata, effective_env, last_create_error_message_);
     return std::nullopt;
   }
   entry.last_observed_status = entry.runtime->record().metadata().status;
@@ -758,6 +791,10 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
 
 auto SessionManager::last_create_error_message() const -> const std::string& {
   return last_create_error_message_;
+}
+
+auto SessionManager::last_create_error_session_id() const -> const std::optional<std::string>& {
+  return last_create_error_session_id_;
 }
 
 auto SessionManager::LoadPersistedSessions() -> std::size_t {
@@ -1651,6 +1688,66 @@ void SessionManager::PersistEntry(const SessionEntry& entry) {
   };
   const bool persisted = session_store_->UpsertSessionRecord(record);
   static_cast<void>(persisted);
+}
+
+void SessionManager::RecordCreateFailureSession(
+    const vibe::session::SessionMetadata& metadata,
+    std::optional<vibe::session::EffectiveEnvironment> effective_environment,
+    const std::string& error_message) {
+  last_create_error_session_id_ = metadata.id.value();
+
+  vibe::session::SessionMetadata failed_metadata = metadata;
+  failed_metadata.status = vibe::session::SessionStatus::Error;
+
+  const std::string failure_log =
+      BuildCreateFailureLog(failed_metadata, effective_environment, error_message);
+  const auto now_unix_ms = CurrentUnixTimeMs();
+  const auto current_sequence = failure_log.empty() ? 0ULL : 1ULL;
+
+  vibe::session::SessionSnapshot snapshot{
+      .metadata = failed_metadata,
+      .current_sequence = current_sequence,
+      .recent_terminal_tail = failure_log,
+      .terminal_screen = std::nullopt,
+      .signals = vibe::session::SessionSignals{
+          .last_output_at_unix_ms = failure_log.empty() ? std::nullopt : std::optional<std::int64_t>(now_unix_ms),
+          .last_activity_at_unix_ms = now_unix_ms,
+          .current_sequence = current_sequence,
+      },
+      .node_summary =
+          vibe::session::SessionNodeSummary{
+              .session_id = failed_metadata.id.value(),
+              .lifecycle_status = failed_metadata.status,
+          },
+      .recent_file_changes = {},
+      .git_summary = {},
+  };
+
+  sessions_.push_back(SessionEntry{
+      .id = failed_metadata.id,
+      .process = nullptr,
+      .runtime = nullptr,
+      .git_inspector = nullptr,
+      .file_watcher = nullptr,
+      .recovered_snapshot = std::move(snapshot),
+      .controller_client_id = std::nullopt,
+      .controller_kind = vibe::session::ControllerKind::None,
+      .is_recovered = false,
+      .created_at_unix_ms = now_unix_ms,
+      .last_status_at_unix_ms = now_unix_ms,
+      .last_output_at_unix_ms = failure_log.empty() ? std::nullopt : std::optional<std::int64_t>(now_unix_ms),
+      .last_activity_at_unix_ms = now_unix_ms,
+      .last_file_change_at_unix_ms = std::nullopt,
+      .last_git_change_at_unix_ms = std::nullopt,
+      .last_controller_change_at_unix_ms = std::nullopt,
+      .current_terminal_size = DefaultTerminalSizeForMetadata(failed_metadata),
+      .last_observed_status = vibe::session::SessionStatus::Error,
+      .last_observed_sequence = current_sequence,
+      .last_traced_node_summary_key = std::nullopt,
+      .effective_environment = std::move(effective_environment),
+  });
+  PersistEntry(sessions_.back());
+  MaybeTraceNodeSummaryTransition(sessions_.back(), "create_failed");
 }
 
 auto SessionManager::MakeSessionId() const -> std::optional<vibe::session::SessionId> {

@@ -1100,6 +1100,9 @@ auto HandleCreateSessionRequest(const HttpRequest& request, vibe::service::Sessi
     if (!session_manager.last_create_error_message().empty()) {
       error["detail"] = session_manager.last_create_error_message();
     }
+    if (session_manager.last_create_error_session_id().has_value()) {
+      error["sessionId"] = *session_manager.last_create_error_session_id();
+    }
     return MakeJsonResponse(request, http::status::internal_server_error, json::serialize(error));
   }
 

@@ -684,10 +684,19 @@ auto ExtractErrorMessage(const std::string& body) -> std::string {
   }
   if (const auto detail = object.if_contains("detail"); detail != nullptr && detail->is_string()) {
     const std::string detail_text = json::value_to<std::string>(*detail);
-    if (message.empty()) {
-      return detail_text;
+    std::string combined = message.empty() ? detail_text : message + ": " + detail_text;
+    if (const auto session_id = object.if_contains("sessionId");
+        session_id != nullptr && session_id->is_string()) {
+      combined += " (session " + json::value_to<std::string>(*session_id) + ")";
     }
-    return message + ": " + detail_text;
+    return combined;
+  }
+  if (const auto session_id = object.if_contains("sessionId");
+      session_id != nullptr && session_id->is_string()) {
+    if (message.empty()) {
+      return "session " + json::value_to<std::string>(*session_id);
+    }
+    return message + " (session " + json::value_to<std::string>(*session_id) + ")";
   }
   return message.empty() ? body : message;
 }

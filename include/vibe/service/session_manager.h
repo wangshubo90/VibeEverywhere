@@ -121,6 +121,7 @@ class SessionManager {
   [[nodiscard]] auto CreateSession(const CreateSessionRequest& request)
       -> std::optional<SessionSummary>;
   [[nodiscard]] auto last_create_error_message() const -> const std::string&;
+  [[nodiscard]] auto last_create_error_session_id() const -> const std::optional<std::string>&;
   [[nodiscard]] auto LoadPersistedSessions() -> std::size_t;
   [[nodiscard]] auto ListSessions() const -> std::vector<SessionSummary>;
   [[nodiscard]] auto GetSession(const std::string& session_id) const -> std::optional<SessionSummary>;
@@ -186,6 +187,9 @@ class SessionManager {
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;
+  void RecordCreateFailureSession(const vibe::session::SessionMetadata& metadata,
+                                  std::optional<vibe::session::EffectiveEnvironment> effective_environment,
+                                  const std::string& error_message);
   void MaybeTraceNodeSummaryTransition(SessionEntry& entry, std::string_view reason);
   void ResetControllerState(SessionEntry& entry);
   void PersistEntry(const SessionEntry& entry);
@@ -200,6 +204,7 @@ class SessionManager {
   std::vector<SessionEntry> sessions_;
   int poll_count_{0};
   std::string last_create_error_message_;
+  std::optional<std::string> last_create_error_session_id_;
   std::chrono::milliseconds git_poll_interval_{std::chrono::seconds(10)};
   std::chrono::milliseconds file_poll_interval_{std::chrono::seconds(3)};
   std::chrono::steady_clock::time_point last_git_poll_at_{};
