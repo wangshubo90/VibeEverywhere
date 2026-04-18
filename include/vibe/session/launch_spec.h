@@ -23,8 +23,9 @@ struct LaunchSpec {
   std::string executable;
   std::vector<std::string> arguments;
   // Replaces the old bare environment_overrides map.
-  // For LoginShell mode, effective_environment.entries holds session overrides.
-  // For Clean/Bootstrap modes, effective_environment holds the full resolved env.
+  // For Shell mode, effective_environment.entries are exported by the generated
+  // login-shell command after shell startup completes. For Clean/Bootstrap
+  // modes, effective_environment holds the full resolved env.
   EffectiveEnvironment effective_environment;
   std::string working_directory;
   TerminalSize terminal_size;

@@ -11,7 +11,7 @@ namespace vibe::session {
 
 enum class EnvMode {
   Clean,               // Only base vars + explicit overrides + .env file
-  LoginShell,          // Session IS a login shell (zsh -l or bash -l)
+  Shell,               // Launch command through the configured login shell
   BootstrapFromShell,  // Capture env from login shell once, apply to child
 };
 
@@ -19,7 +19,7 @@ enum class EnvMode {
 [[nodiscard]] auto ParseEnvMode(std::string_view s) -> std::optional<EnvMode>;
 
 struct EnvConfig {
-  EnvMode mode = EnvMode::BootstrapFromShell;
+  EnvMode mode = EnvMode::Shell;
 
   // Per-session overrides. Applied on top of whatever the mode produces.
   // Highest precedence -- always wins.
@@ -52,12 +52,12 @@ struct EnvEntry {
 // Returned by GET /sessions/{id}/env for debuggability.
 struct EffectiveEnvironment {
   std::vector<EnvEntry> entries;
-  EnvMode mode;
-  std::optional<std::string> bootstrap_shell_path;
-  std::optional<std::string> env_file_path;
+  EnvMode mode{EnvMode::Shell};
+  std::optional<std::string> bootstrap_shell_path{};
+  std::optional<std::string> env_file_path{};
   // Non-fatal diagnostic from bootstrap stderr (truncated). Present when
   // bootstrap ran but emitted warnings (e.g. shell init file errors).
-  std::optional<std::string> bootstrap_warning;
+  std::optional<std::string> bootstrap_warning{};
 };
 
 }  // namespace vibe::session

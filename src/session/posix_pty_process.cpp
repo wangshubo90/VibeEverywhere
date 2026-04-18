@@ -131,17 +131,13 @@ auto ResolveExecutablePath(const std::string& executable, const std::vector<char
 }
 
 // Build a NUL-terminated envp array from the EffectiveEnvironment entries.
-// For LoginShell mode (entries are just per-session overrides), fall back to
-// setenv() so the child inherits the full daemon env with those overrides applied.
+// Shell mode runs a generated login-shell script that exports any env entries
+// after shell startup, so the shell should inherit the daemon env unchanged.
 // For Clean/Bootstrap modes, use execve() with an explicit envp after resolving
 // the executable path against the configured PATH.
 auto BuildEnvp(const LaunchSpec& launch_spec,
                std::vector<std::string>& env_strings) -> std::vector<char*> {
-  // LoginShell: apply overrides via setenv() and return nullptr (caller uses execvp).
-  if (launch_spec.effective_environment.mode == vibe::session::EnvMode::LoginShell) {
-    for (const auto& entry : launch_spec.effective_environment.entries) {
-      setenv(entry.key.c_str(), entry.value.c_str(), 1);
-    }
+  if (launch_spec.effective_environment.mode == vibe::session::EnvMode::Shell) {
     return {};  // empty = caller uses execvp (inherits env)
   }
 
@@ -217,7 +213,6 @@ auto PosixPtyProcess::Start(const LaunchSpec& launch_spec) -> StartResult {
     const std::vector<char*> envp = BuildEnvp(launch_spec, env_strings);
     std::vector<char*> argv = BuildArgv(launch_spec);
     if (envp.empty()) {
-      // LoginShell: setenv() already called in BuildEnvp; use execvp.
       execvp(launch_spec.executable.c_str(), argv.data());
     } else {
       const std::string resolved_executable = ResolveExecutablePath(launch_spec.executable, envp);

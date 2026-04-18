@@ -112,6 +112,46 @@ TEST_F(EnvResolverTest, CleanModeAppliesEnvFilesProviderAndSessionOverridesInOrd
   EXPECT_EQ(entries.at("SESSION_ONLY").source, EnvSource::SessionOverride);
 }
 
+TEST_F(EnvResolverTest, ShellModeRecordsConfiguredShellAndPostStartupOverrides) {
+  WriteFile(test_dir() / ".env",
+            "FROM_ENV_FILE=1\n"
+            "SHARED=from_env\n");
+
+  BootstrappedEnvCache cache;
+  vibe::store::HostIdentity host_config = vibe::store::MakeDefaultHostIdentity();
+  host_config.bootstrap_shell_path = "/bin/zsh";
+
+  const EnvConfig config{
+      .mode = EnvMode::Shell,
+      .overrides = {
+          {"SHARED", "from_session"},
+          {"FROM_SESSION", "1"},
+      },
+      .env_file_path = std::nullopt,
+  };
+
+  const auto result = ResolveEnvironment(
+      config, test_dir().string(), host_config, cache, {{"FROM_PROVIDER", "1"}});
+
+  ASSERT_TRUE(result.has_value()) << result.error();
+  EXPECT_EQ(result.value().mode, EnvMode::Shell);
+  ASSERT_TRUE(result.value().bootstrap_shell_path.has_value());
+  EXPECT_EQ(*result.value().bootstrap_shell_path, "/bin/zsh");
+  ASSERT_TRUE(result.value().env_file_path.has_value());
+  EXPECT_EQ(*result.value().env_file_path, (test_dir() / ".env").string());
+
+  const auto entries = EntriesToMap(result.value());
+  ASSERT_TRUE(entries.contains("FROM_ENV_FILE"));
+  EXPECT_EQ(entries.at("FROM_ENV_FILE").source, EnvSource::EnvFile);
+  ASSERT_TRUE(entries.contains("FROM_PROVIDER"));
+  EXPECT_EQ(entries.at("FROM_PROVIDER").source, EnvSource::ProviderConfig);
+  ASSERT_TRUE(entries.contains("FROM_SESSION"));
+  EXPECT_EQ(entries.at("FROM_SESSION").source, EnvSource::SessionOverride);
+  ASSERT_TRUE(entries.contains("SHARED"));
+  EXPECT_EQ(entries.at("SHARED").value, "from_session");
+  EXPECT_EQ(entries.at("SHARED").source, EnvSource::SessionOverride);
+}
+
 TEST_F(EnvResolverTest, BootstrapModeReturnsWarningWhenBootstrapShellWritesStderr) {
   const auto fake_shell = test_dir() / "fake-bootstrap-shell.sh";
   WriteFile(fake_shell,

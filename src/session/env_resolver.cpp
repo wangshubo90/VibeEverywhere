@@ -122,13 +122,37 @@ auto ResolveEnvironment(const EnvConfig& config,
   EffectiveEnvironment result;
   result.mode = config.mode;
 
-  if (config.mode == EnvMode::LoginShell) {
-    // LoginShell: the session IS a login shell. No pre-capture needed.
-    // Overrides applied via setenv() in posix_pty_process (legacy path).
-    // We just record what was requested; env application is done at exec time.
-    for (const auto& [k, v] : config.overrides) {
-      result.entries.push_back(EnvEntry{.key = k, .value = v, .source = EnvSource::SessionOverride});
+  if (config.mode == EnvMode::Shell) {
+    // Shell mode launches the target through the configured login shell.
+    // We do not pre-capture a full env map; instead these entries are exported
+    // by the generated shell script after shell startup completes.
+    result.bootstrap_shell_path = ResolveBootstrapShell(host_config);
+
+    const auto env_file_paths = ResolveEnvFilePaths(config.env_file_path, workspace_root);
+    for (const auto& path : env_file_paths) {
+      const auto current_map = EntriesToMap(result.entries);
+      const auto pairs = LoadEnvFile(path, current_map);
+      for (const auto& [k, v] : pairs) {
+        bool found = false;
+        for (auto& entry : result.entries) {
+          if (entry.key == k) {
+            entry.value = v;
+            entry.source = EnvSource::EnvFile;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          result.entries.push_back(EnvEntry{.key = k, .value = v, .source = EnvSource::EnvFile});
+        }
+      }
     }
+    if (!env_file_paths.empty()) {
+      result.env_file_path = env_file_paths.back();
+    }
+
+    ApplyOverrides(result.entries, provider_overrides, EnvSource::ProviderConfig);
+    ApplyOverrides(result.entries, config.overrides, EnvSource::SessionOverride);
     return EffectiveEnvResult::Ok(std::move(result));
   }
 

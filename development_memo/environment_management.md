@@ -28,10 +28,9 @@ That host-level policy lives in `HostIdentity` because it affects how the daemon
 When a session is created in `src/service/session_manager.cpp`, the daemon picks the env mode like this:
 
 - explicit `env_mode` from the request wins
-- `command_shell` defaults to `LoginShell`
-- everything else defaults to `BootstrapFromShell`
+- otherwise the default is `Shell`
 
-That means provider launches and direct `commandArgv` launches both default to bootstrap env, not login-shell mode.
+That means provider launches, direct `commandArgv` launches, and `commandShell` launches all default to real login-shell execution unless the caller explicitly asks for `clean` or `bootstrap_from_shell`.
 
 Then `SessionManager` builds an `EnvConfig`, loads `HostIdentity`, and calls `ResolveEnvironment(...)` in `src/session/env_resolver.cpp`.
 
@@ -46,12 +45,12 @@ Then `SessionManager` builds an `EnvConfig`, loads `HostIdentity`, and calls `Re
 - then provider overrides
 - then session overrides
 
-### `LoginShell`
+### `Shell`
 
-- means the spawned process is itself a login-shell-style session
-- we do not pre-resolve a full env map
-- we only store requested overrides, and apply them at exec time
-- this is the most shell-behavior-oriented path
+- means the target is launched through the configured login shell
+- the daemon builds a login-shell command script and runs `<shell> -l -c ...`
+- `.env`, provider overrides, and session overrides are exported by that script after shell startup completes
+- this is the default UX path and the closest match to "run it like my shell would"
 
 ### `BootstrapFromShell`
 
@@ -61,7 +60,7 @@ Then `SessionManager` builds an `EnvConfig`, loads `HostIdentity`, and calls `Re
 - then provider overrides
 - then session overrides
 
-This mode is meant to make daemon-created sessions behave more like a user shell without launching every process through `bash -il -c ...`.
+This mode is meant to preserve a shell-derived env without paying the cost of a full shell launch on every session.
 
 ## Bootstrap Details
 
@@ -113,10 +112,10 @@ Once resolved, the env is attached to the `LaunchSpec` in `src/session/launch_sp
 
 Execution behavior differs by mode:
 
-- `LoginShell`
-  - applies overrides via `setenv()`
-  - uses inherited daemon environment
-  - launches with `execvp()`
+- `Shell`
+  - launches the configured shell with `-l -c`
+  - applies `.env`, provider overrides, and session overrides inside the generated shell script
+  - runs the provider/direct command via `exec ...` inside that shell script
 - `Clean` / `BootstrapFromShell`
   - builds an explicit `envp`
   - resolves the executable via `PATH` from that env
@@ -144,10 +143,10 @@ The CLI also sends env settings on create and can fetch session env through `src
 Two practical limitations remain:
 
 - host-level env policy is persisted, but not fully wired into the host-config API yet
-- `LoginShell` is intentionally different from `BootstrapFromShell`; it is shell-driven at launch time, not pre-resolved into a full explicit env map
+- `Shell` is intentionally different from `BootstrapFromShell`; it is shell-driven at launch time, not pre-resolved into a full explicit env map
 
 Short version:
 
 - `Clean` = deterministic minimal env
-- `LoginShell` = let the launched shell define reality
+- `Shell` = run through the configured login shell
 - `BootstrapFromShell` = capture shell reality once, then launch deterministically from that captured env

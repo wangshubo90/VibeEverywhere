@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "../../src/session/env_resolver.h"
 #include "vibe/service/session_manager.h"
 
 namespace vibe::service {
@@ -400,7 +401,7 @@ TEST(SessionManagerTest, CreateSessionSurfacesPtyStartFailureDetail) {
   EXPECT_TRUE(manager.ListSessions().empty());
 }
 
-TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToBootstrapEnvironment) {
+TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToShellEnvironment) {
   std::optional<vibe::session::LaunchSpec> captured_launch_spec;
   SessionManager manager(nullptr, [&captured_launch_spec]() -> std::unique_ptr<vibe::session::IPtyProcess> {
     class CapturingPtyProcess final : public vibe::session::IPtyProcess {
@@ -438,8 +439,15 @@ TEST(SessionManagerTest, CreateSessionWithDirectCommandDefaultsToBootstrapEnviro
 
   EXPECT_FALSE(created.has_value());
   ASSERT_TRUE(captured_launch_spec.has_value());
+  EXPECT_EQ(captured_launch_spec->executable,
+            vibe::session::ResolveBootstrapShell(vibe::store::MakeDefaultHostIdentity()));
+  ASSERT_EQ(captured_launch_spec->arguments.size(), 3U);
+  EXPECT_EQ(captured_launch_spec->arguments[0], "-l");
+  EXPECT_EQ(captured_launch_spec->arguments[1], "-c");
+  EXPECT_NE(captured_launch_spec->arguments[2].find("exec '/bin/sh' '-c' 'sleep 30'"),
+            std::string::npos);
   EXPECT_EQ(captured_launch_spec->effective_environment.mode,
-            vibe::session::EnvMode::BootstrapFromShell);
+            vibe::session::EnvMode::Shell);
 }
 
 TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDetail) {
@@ -454,6 +462,7 @@ TEST(SessionManagerTest, CreateSessionWithGarbageCommandSurfacesLaunchFailureDet
       .command_argv = std::vector<std::string>{"__sentrits_missing_command__"},
       .command_shell = std::nullopt,
       .group_tags = {},
+      .env_mode = vibe::session::EnvMode::BootstrapFromShell,
   });
 
   EXPECT_FALSE(created.has_value());

@@ -30,6 +30,48 @@ namespace {
 
 constexpr std::string_view kPrivilegedLocalControllerPrefix = "local-controller-";
 
+auto ShellQuote(const std::string_view value) -> std::string {
+  std::string quoted;
+  quoted.reserve(value.size() + 2U);
+  quoted.push_back('\'');
+  for (const char ch : value) {
+    if (ch == '\'') {
+      quoted += "'\"'\"'";
+      continue;
+    }
+    quoted.push_back(ch);
+  }
+  quoted.push_back('\'');
+  return quoted;
+}
+
+auto BuildShellExecCommand(const std::string& executable,
+                           const std::vector<std::string>& arguments) -> std::string {
+  std::ostringstream command;
+  command << "exec " << ShellQuote(executable);
+  for (const auto& argument : arguments) {
+    command << ' ' << ShellQuote(argument);
+  }
+  return command.str();
+}
+
+auto BuildShellModeCommand(const vibe::session::EffectiveEnvironment& effective_env,
+                           const std::optional<std::string>& raw_shell_command,
+                           const std::string& executable,
+                           const std::vector<std::string>& arguments) -> std::string {
+  std::ostringstream script;
+  for (const auto& entry : effective_env.entries) {
+    script << "export " << entry.key << '=' << ShellQuote(entry.value) << '\n';
+  }
+
+  if (raw_shell_command.has_value()) {
+    script << *raw_shell_command;
+  } else {
+    script << BuildShellExecCommand(executable, arguments);
+  }
+  return script.str();
+}
+
 auto SummarizeEscapedInput(const std::string_view data) -> std::optional<std::string> {
   if (data.empty() || data.find('\x1b') == std::string_view::npos) {
     return std::nullopt;
@@ -589,6 +631,14 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .group_tags = vibe::session::NormalizeGroupTags(request.group_tags),
   };
 
+  // Load host identity for env policy; fall back to defaults if store is absent.
+  vibe::store::HostIdentity host_identity = vibe::store::MakeDefaultHostIdentity();
+  if (host_config_store_ != nullptr) {
+    if (const auto loaded = host_config_store_->LoadHostIdentity(); loaded.has_value()) {
+      host_identity = *loaded;
+    }
+  }
+
   const vibe::session::ProviderConfig provider_config =
       vibe::session::DefaultProviderConfig(request.provider);
   vibe::session::ProviderConfig launch_provider_config = provider_config;
@@ -608,14 +658,12 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
     launch_provider_config.default_args.assign(request.command_argv->begin() + 1, request.command_argv->end());
   }
 
-  // Determine effective env mode: explicit request > command-shell heuristic > provider/direct-exec default.
+  // Determine effective env mode: explicit request or shell-default behavior.
   vibe::session::EnvMode effective_env_mode;
   if (request.env_mode.has_value()) {
     effective_env_mode = *request.env_mode;
-  } else if (request.command_shell.has_value()) {
-    effective_env_mode = vibe::session::EnvMode::LoginShell;
   } else {
-    effective_env_mode = vibe::session::EnvMode::BootstrapFromShell;
+    effective_env_mode = vibe::session::EnvMode::Shell;
   }
 
   vibe::session::EnvConfig env_config{
@@ -623,14 +671,6 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
       .overrides = request.environment_overrides,
       .env_file_path = request.env_file_path,
   };
-
-  // Load host identity for env policy; fall back to defaults if store is absent.
-  vibe::store::HostIdentity host_identity = vibe::store::MakeDefaultHostIdentity();
-  if (host_config_store_ != nullptr) {
-    if (const auto loaded = host_config_store_->LoadHostIdentity(); loaded.has_value()) {
-      host_identity = *loaded;
-    }
-  }
 
   auto env_result = vibe::session::ResolveEnvironment(
       env_config, request.workspace_root, host_identity, env_cache_,
@@ -640,6 +680,17 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
     return std::nullopt;
   }
   vibe::session::EffectiveEnvironment effective_env = std::move(env_result.value());
+
+  if (effective_env_mode == vibe::session::EnvMode::Shell) {
+    const std::string shell_path = effective_env.bootstrap_shell_path.value_or(
+        vibe::session::ResolveBootstrapShell(host_identity));
+    const std::string shell_command =
+        BuildShellModeCommand(effective_env, request.command_shell,
+                              launch_provider_config.executable, launch_provider_config.default_args);
+    launch_provider_config.executable = shell_path;
+    launch_provider_config.default_args = {"-l", "-c", shell_command};
+    effective_env.bootstrap_shell_path = shell_path;
+  }
 
   const vibe::session::LaunchSpec launch_spec =
       vibe::session::BuildLaunchSpec(metadata, launch_provider_config, {}, {}, effective_env);
