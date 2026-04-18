@@ -16,6 +16,9 @@ if(DEFINED VIBE_BUILD_TESTS AND NOT DEFINED SENTRITS_BUILD_TESTS)
 endif()
 
 option(SENTRITS_BUILD_TESTS "Build automated tests" ON)
+option(SENTRITS_STRICT_CI_WARNINGS
+       "Enable additional warning checks to better match Linux CI clang strictness"
+       OFF)
 set(SENTRITS_PACKAGED_WEB_ROOT "/${CMAKE_INSTALL_LIBDIR}/sentrits/www" CACHE PATH
     "Default packaged web asset root used by the runtime")
 

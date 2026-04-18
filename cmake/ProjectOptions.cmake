@@ -10,4 +10,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang")
     -Wshadow
     -Werror
   )
+
+  if(SENTRITS_STRICT_CI_WARNINGS)
+    target_compile_options(vibe_warnings INTERFACE
+      -Wmissing-field-initializers
+    )
+  endif()
 endif()

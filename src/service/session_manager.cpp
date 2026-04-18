@@ -1712,12 +1712,14 @@ void SessionManager::RecordCreateFailureSession(
       .signals = vibe::session::SessionSignals{
           .last_output_at_unix_ms = failure_log.empty() ? std::nullopt : std::optional<std::int64_t>(now_unix_ms),
           .last_activity_at_unix_ms = now_unix_ms,
+          .last_file_change_at_unix_ms = std::nullopt,
           .current_sequence = current_sequence,
       },
       .node_summary =
           vibe::session::SessionNodeSummary{
               .session_id = failed_metadata.id.value(),
               .lifecycle_status = failed_metadata.status,
+              .semantic_preview = "",
           },
       .recent_file_changes = {},
       .git_summary = {},
