@@ -3,6 +3,9 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include <chrono>
+#include <thread>
+
 #include "vibe/cli/daemon_client.h"
 
 namespace vibe::cli {
@@ -131,6 +134,39 @@ TEST(DaemonClientTest, ReturnsNulloptWhenDaemonIsUnavailable) {
         });
     EXPECT_FALSE(session_id.has_value());
   });
+}
+
+TEST(DaemonClientTest, ReturnsNulloptWhenDaemonAcceptsButDoesNotRespond) {
+  asio::io_context io_context;
+  tcp::acceptor acceptor(io_context, tcp::endpoint(tcp::v4(), 0));
+  const auto port = acceptor.local_endpoint().port();
+
+  std::thread server_thread([&acceptor]() {
+    tcp::socket socket(acceptor.get_executor());
+    boost::system::error_code error_code;
+    acceptor.accept(socket, error_code);
+    if (error_code) {
+      return;
+    }
+    std::array<char, 1024> request_buffer{};
+    socket.read_some(asio::buffer(request_buffer), error_code);
+    if (error_code) {
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+  });
+
+  const auto started_at = std::chrono::steady_clock::now();
+  const auto host_info = GetHostInfo(DaemonEndpoint{.host = "127.0.0.1", .port = port});
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                            started_at);
+
+  EXPECT_FALSE(host_info.has_value());
+  EXPECT_LT(elapsed, std::chrono::seconds(4));
+
+  acceptor.close();
+  server_thread.join();
 }
 
 }  // namespace

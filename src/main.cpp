@@ -506,11 +506,10 @@ class RotatingFileStreamBuf final : public std::streambuf {
     Open();
   }
 
-  [[nodiscard]] auto available() const -> bool { return output_.is_open(); }
+ [[nodiscard]] auto available() const -> bool { return output_.is_open(); }
 
  protected:
   auto overflow(int ch) -> int override {
-    std::lock_guard<std::mutex> lock(mutex_);
     if (ch == EOF) {
       return sync() == 0 ? 0 : EOF;
     }

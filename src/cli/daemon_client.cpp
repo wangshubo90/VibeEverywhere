@@ -26,6 +26,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string_view>
 #include <vector>
 #include <thread>
@@ -43,6 +44,8 @@ using tcp = asio::ip::tcp;
 using local_stream = asio::local::stream_protocol;
 
 namespace {
+
+constexpr auto kHttpRequestTimeout = std::chrono::seconds(2);
 
 volatile sig_atomic_t g_terminal_resize_pending = 0;
 
@@ -178,6 +181,72 @@ auto FilterLocalReclaimInput(const std::string_view input) -> FilteredInput {
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
 
+auto ParseHttpResponse(const std::string& raw_response) -> std::optional<http::response<http::string_body>> {
+  const std::size_t header_end = raw_response.find("\r\n\r\n");
+  if (header_end == std::string::npos) {
+    return std::nullopt;
+  }
+
+  const std::string header_block = raw_response.substr(0, header_end);
+  const std::string body = raw_response.substr(header_end + 4);
+
+  std::istringstream stream(header_block);
+  std::string status_line;
+  if (!std::getline(stream, status_line)) {
+    return std::nullopt;
+  }
+  if (!status_line.empty() && status_line.back() == '\r') {
+    status_line.pop_back();
+  }
+
+  std::istringstream status_stream(status_line);
+  std::string http_version_token;
+  unsigned int status_code = 0;
+  if (!(status_stream >> http_version_token >> status_code)) {
+    return std::nullopt;
+  }
+
+  http::response<http::string_body> response;
+  response.version(http_version_token == "HTTP/1.0" ? 10 : 11);
+  response.result(static_cast<http::status>(status_code));
+
+  std::size_t content_length = body.size();
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    if (line.empty()) {
+      continue;
+    }
+    const std::size_t separator = line.find(':');
+    if (separator == std::string::npos) {
+      return std::nullopt;
+    }
+    const std::string name = line.substr(0, separator);
+    std::string value = line.substr(separator + 1);
+    if (!value.empty() && value.front() == ' ') {
+      value.erase(0, 1);
+    }
+    response.set(name, value);
+    if (name == "Content-Length") {
+      try {
+        content_length = static_cast<std::size_t>(std::stoull(value));
+      } catch (...) {
+        return std::nullopt;
+      }
+    }
+  }
+
+  if (body.size() < content_length) {
+    return std::nullopt;
+  }
+
+  response.body() = body.substr(0, content_length);
+  response.prepare_payload();
+  return response;
+}
+
 auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
                         const std::string& target, const std::string& body = {},
                         const std::optional<std::string>& content_type = std::nullopt)
@@ -213,15 +282,64 @@ auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
     return std::nullopt;
   }
 
-  beast::flat_buffer buffer;
-  http::response<http::string_body> response;
-  http::read(socket, buffer, response, error_code);
-  if (error_code) {
-    std::cerr << "http read failed: " << error_code.message() << '\n';
+  std::string response_bytes;
+  response_bytes.reserve(8192);
+  std::array<char, 4096> read_buffer{};
+  const auto deadline = std::chrono::steady_clock::now() + kHttpRequestTimeout;
+
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      std::cerr << "http request timed out after "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(kHttpRequestTimeout).count()
+                << "ms\n";
+      return std::nullopt;
+    }
+
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(socket.native_handle(), &read_fds);
+    timeval timeout{};
+    timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(remaining.count() / 1000);
+    timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>((remaining.count() % 1000) * 1000);
+
+    const int select_result =
+        select(socket.native_handle() + 1, &read_fds, nullptr, nullptr, &timeout);
+    if (select_result == 0) {
+      std::cerr << "http request timed out after "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(kHttpRequestTimeout).count()
+                << "ms\n";
+      return std::nullopt;
+    }
+    if (select_result < 0) {
+      std::cerr << "http read failed: " << std::strerror(errno) << '\n';
+      return std::nullopt;
+    }
+
+    const std::size_t bytes_read = socket.read_some(asio::buffer(read_buffer), error_code);
+    if (bytes_read > 0) {
+      response_bytes.append(read_buffer.data(), bytes_read);
+    }
+
+    if (error_code) {
+      if (error_code == asio::error::eof) {
+        break;
+      }
+      std::cerr << "http read failed: " << error_code.message() << '\n';
+      return std::nullopt;
+    }
+  }
+
+  const auto parsed_response = ParseHttpResponse(response_bytes);
+  if (!parsed_response.has_value()) {
+    std::cerr << "http parse failed: partial message\n";
     return std::nullopt;
   }
 
-  return response;
+  boost::system::error_code shutdown_error;
+  socket.shutdown(tcp::socket::shutdown_both, shutdown_error);
+  return parsed_response;
 }
 
 void WriteAllToStdout(const std::string_view data) {
