@@ -5,6 +5,7 @@ set(VIBE_CORE_SOURCES
   src/cli/daemon_client_http.cpp
   src/net/discovery.cpp
   src/net/discovery_broadcaster.cpp
+  src/net/hub_client.cpp
   src/net/json.cpp
   src/net/request_parsing.cpp
   src/net/local_auth.cpp
