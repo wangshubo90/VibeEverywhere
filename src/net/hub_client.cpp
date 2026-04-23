@@ -3,6 +3,7 @@
 #include <boost/asio/connect.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -10,9 +11,11 @@
 #include <boost/json.hpp>
 
 #include <chrono>
+#include <future>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "vibe/session/session_snapshot.h"
 #include "vibe/session/session_types.h"
@@ -123,6 +126,7 @@ auto PerformPost(const ParsedUrl& url, const std::string& bearer_token,
     asio::ssl::context ssl_ctx{asio::ssl::context::tls_client};
     ssl_ctx.set_default_verify_paths();
     ssl_ctx.set_verify_mode(asio::ssl::verify_peer);
+    ssl_ctx.set_verify_callback(asio::ssl::host_name_verification(url.host));
 
     beast::ssl_stream<beast::tcp_stream> stream(ioc, ssl_ctx);
     if (!SSL_set_tlsext_host_name(stream.native_handle(), url.host.c_str())) {
@@ -172,7 +176,8 @@ HubClient::~HubClient() {
   Stop();
 }
 
-void HubClient::Start() {
+void HubClient::Start(asio::io_context& io_context) {
+  io_context_ = &io_context;
   {
     std::lock_guard lock(mutex_);
     stop_ = false;
@@ -211,7 +216,18 @@ void HubClient::SendHeartbeat() {
     return;
   }
 
-  const auto sessions = session_manager_.ListSessions();
+  // Collect the session snapshot on the server's owning io_context thread so
+  // that SessionManager is only ever accessed from one thread.
+  std::promise<std::vector<vibe::service::SessionSummary>> promise;
+  auto future = promise.get_future();
+  asio::post(*io_context_, [this, &promise]() {
+    promise.set_value(session_manager_.ListSessions());
+  });
+  if (future.wait_for(kRequestTimeout) != std::future_status::ready) {
+    // Server is shutting down or stalled; skip this heartbeat.
+    return;
+  }
+  const auto sessions = future.get();
 
   json::array sessions_array;
   for (const auto& s : sessions) {
