@@ -9,6 +9,8 @@
 #include <mutex>
 #include <string>
 
+#include "vibe/net/hub_client.h"
+
 #include <boost/asio/io_context.hpp>
 
 #include "vibe/auth/authorizer.h"
@@ -41,6 +43,10 @@ class HttpServer {
   [[nodiscard]] auto Run() -> bool;
   void Stop();
 
+  // Enables Sentrits-Hub integration. Must be called before Run(). No-op if
+  // hub_url or hub_token is empty; server operates in local-only mode.
+  void EnableHubIntegration(std::string hub_url, std::string hub_token);
+
  private:
   std::string admin_bind_address_;
   std::uint16_t admin_port_;
@@ -59,6 +65,7 @@ class HttpServer {
   std::function<void()> stop_callback_;
   mutable std::mutex state_mutex_;
   bool stopping_{false};
+  std::unique_ptr<HubClient> hub_client_;
 };
 
 }  // namespace vibe::net

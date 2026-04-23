@@ -1172,7 +1172,9 @@ auto main(const int argc, char** argv) -> int {
       return 1;
     }
 
-    if (!admin_host_explicit || !admin_port_explicit || !remote_host_explicit || !remote_port_explicit) {
+    std::string hub_url;
+    std::string hub_token;
+    {
       const vibe::store::FileHostConfigStore host_config_store{storage_root};
       if (const auto host_identity = host_config_store.LoadHostIdentity(); host_identity.has_value()) {
         if (!admin_host_explicit) {
@@ -1187,11 +1189,18 @@ auto main(const int argc, char** argv) -> int {
         if (!remote_port_explicit) {
           remote_port = host_identity->remote_port;
         }
+        if (host_identity->hub_url.has_value()) {
+          hub_url = *host_identity->hub_url;
+        }
+        if (host_identity->hub_token.has_value()) {
+          hub_token = *host_identity->hub_token;
+        }
       }
     }
 
     vibe::net::HttpServer server(admin_host, admin_port, remote_host, remote_port,
                                  remote_tls_override, enable_discovery);
+    server.EnableHubIntegration(hub_url, hub_token);
     sigset_t signal_set;
     sigemptyset(&signal_set);
     sigaddset(&signal_set, SIGHUP);

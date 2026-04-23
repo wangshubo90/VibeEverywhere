@@ -2482,6 +2482,7 @@ auto HttpServer::Run() -> bool {
   }
   const std::size_t recovered_sessions = session_manager_.LoadPersistedSessions();
   static_cast<void>(recovered_sessions);
+
   boost::system::error_code error_code;
   const auto admin_address = asio::ip::make_address(admin_bind_address_, error_code);
   if (error_code) {
@@ -2621,7 +2622,13 @@ auto HttpServer::Run() -> bool {
   std::cout << "remote listener listening on " << remote_bind_address_ << ":" << remote_port_
             << (remote_tls_config.enabled ? " with TLS (HTTPS/WSS)" : " without TLS (HTTP/WS)")
             << '\n';
+  if (hub_client_) {
+    hub_client_->Start();
+  }
   io_context_->run();
+  if (hub_client_) {
+    hub_client_->Stop();
+  }
   {
     std::lock_guard lock(state_mutex_);
     stop_callback_ = nullptr;
@@ -2646,6 +2653,13 @@ void HttpServer::Stop() {
     io_context = io_context_.get();
   }
 
+  // Stop the Hub heartbeat thread before triggering session shutdown so that
+  // ListSessions() cannot race with session_manager_.Shutdown() in the
+  // stop_callback below.
+  if (hub_client_) {
+    hub_client_->Stop();
+  }
+
   if (stop_callback) {
     stop_callback();
     return;
@@ -2654,6 +2668,14 @@ void HttpServer::Stop() {
   if (io_context != nullptr) {
     io_context->stop();
   }
+}
+
+void HttpServer::EnableHubIntegration(std::string hub_url, std::string hub_token) {
+  if (hub_url.empty() || hub_token.empty()) {
+    return;
+  }
+  hub_client_ = std::make_unique<HubClient>(
+      std::move(hub_url), std::move(hub_token), session_manager_);
 }
 
 }  // namespace vibe::net
