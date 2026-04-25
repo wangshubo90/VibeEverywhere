@@ -82,6 +82,8 @@ struct SessionSummary {
   std::size_t git_modified_count{0};
   std::size_t git_staged_count{0};
   std::size_t git_untracked_count{0};
+  vibe::session::SessionModeSummary mode{};
+  vibe::session::SessionAttentionSummary attention{};
 };
 
 [[nodiscard]] auto InferSupervisionState(vibe::session::SessionStatus status,

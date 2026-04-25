@@ -141,6 +141,25 @@ auto MakeTerminalSemanticChangeJson(const vibe::session::TerminalSemanticChange&
   return object;
 }
 
+auto MakeSessionModeJson(const vibe::session::SessionModeSummary& mode) -> json::object {
+  json::object object;
+  object["lifecycle"] = std::string(vibe::session::ToString(mode.lifecycle_status));
+  object["interaction"] = std::string(vibe::session::ToString(mode.interaction_kind));
+  object["activity"] = std::string(vibe::session::ToString(mode.activity_state));
+  return object;
+}
+
+auto MakeSessionAttentionJson(const vibe::session::SessionAttentionSummary& attention) -> json::object {
+  json::object object;
+  object["level"] = std::string(vibe::session::ToString(attention.level));
+  object["cause"] = std::string(vibe::session::ToString(attention.cause));
+  if (attention.since_unix_ms.has_value()) {
+    object["sinceUnixMs"] = *attention.since_unix_ms;
+  }
+  object["summary"] = attention.summary;
+  return object;
+}
+
 auto ParseUnsignedQueryValue(const std::string& target, const std::string_view key)
     -> std::optional<std::uint16_t> {
   const std::string raw_value = ParseQueryValue(target, key);
@@ -192,6 +211,8 @@ auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::Sessi
   snapshot_json["interactionKind"] =
       std::string(vibe::session::ToString(snapshot.node_summary.interaction_kind));
   snapshot_json["semanticPreview"] = snapshot.node_summary.semantic_preview;
+  snapshot_json["mode"] = MakeSessionModeJson(snapshot.signals.mode);
+  snapshot_json["attention"] = MakeSessionAttentionJson(snapshot.signals.attention);
   snapshot_json["nodeSummary"] = MakeNodeSummaryJson(snapshot.node_summary);
   if (snapshot.terminal_screen.has_value()) {
     json::object terminal_screen;
@@ -260,6 +281,8 @@ auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::Sessi
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
   signals["gitStagedCount"] = snapshot.signals.git_staged_count;
   signals["gitUntrackedCount"] = snapshot.signals.git_untracked_count;
+  signals["mode"] = MakeSessionModeJson(snapshot.signals.mode);
+  signals["attention"] = MakeSessionAttentionJson(snapshot.signals.attention);
   snapshot_json["signals"] = std::move(signals);
 
   if (viewport_snapshot.has_value()) {

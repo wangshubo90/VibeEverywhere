@@ -111,6 +111,21 @@ auto HasAltScreenExit(const std::string_view data) -> bool {
          ContainsSequence(data, "\x1b[?47l");
 }
 
+// Returns true only for bare \r not followed by \n.
+// \r\n is a standard PTY CRLF newline and must not be treated as an in-place overwrite.
+auto HasBareCarriageReturn(const std::string_view data) -> bool {
+  for (std::size_t i = 0; i < data.size(); ++i) {
+    if (data[i] == '\r' && (i + 1 >= data.size() || data[i + 1] != '\n')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+auto HasLineErase(const std::string_view data) -> bool {
+  return ContainsSequence(data, "\x1b[2K") || ContainsSequence(data, "\x1b[K");
+}
+
 auto IsTrivialVisibleCharacter(const char ch) -> bool {
   switch (ch) {
     case '.':
@@ -180,6 +195,32 @@ auto HasOnlyTrivialTailGrowth(const std::string& before, const std::string& afte
   }
 
   return saw_visible;
+}
+
+auto IsScreenBlank(const TerminalScreenSnapshot& snapshot) -> bool {
+  return std::all_of(snapshot.visible_lines.begin(), snapshot.visible_lines.end(),
+                     [](const std::string& line) { return line.empty(); });
+}
+
+auto FindSingleChangedVisibleLine(const TerminalScreenSnapshot& before, const TerminalScreenSnapshot& after)
+    -> std::optional<std::pair<std::string_view, std::string_view>> {
+  const std::size_t compared_visible_lines =
+      std::max(before.visible_lines.size(), after.visible_lines.size());
+  std::optional<std::pair<std::string_view, std::string_view>> changed_line;
+  for (std::size_t index = 0; index < compared_visible_lines; ++index) {
+    const std::string_view before_line =
+        index < before.visible_lines.size() ? std::string_view(before.visible_lines[index]) : std::string_view();
+    const std::string_view after_line =
+        index < after.visible_lines.size() ? std::string_view(after.visible_lines[index]) : std::string_view();
+    if (before_line == after_line) {
+      continue;
+    }
+    if (changed_line.has_value()) {
+      return std::nullopt;
+    }
+    changed_line = std::make_pair(before_line, after_line);
+  }
+  return changed_line;
 }
 
 auto NormalizeUnicodeScalar(const uint32_t codepoint) -> uint32_t {
@@ -586,6 +627,9 @@ class TerminalMultiplexer::Impl {
                                             const TerminalScreenSnapshot& before,
                                             const TerminalScreenSnapshot& after) const
       -> TerminalSemanticChange {
+    const bool saw_carriage_return = HasBareCarriageReturn(data);
+    const bool saw_line_erase = HasLineErase(data);
+    const bool before_screen_blank = IsScreenBlank(before);
     TerminalSemanticChange change{
         .kind = TerminalSemanticChangeKind::None,
         .changed_visible_line_count = 0,
@@ -635,6 +679,23 @@ class TerminalMultiplexer::Impl {
     if (change.changed_visible_line_count == 0U && change.cursor_moved) {
       change.kind = TerminalSemanticChangeKind::CursorOnly;
       return change;
+    }
+
+    if (change.scrollback_lines_added == 0U && change.changed_visible_line_count == 1U &&
+        (saw_carriage_return || saw_line_erase)) {
+      if (const auto changed_line = FindSingleChangedVisibleLine(before, after); changed_line.has_value()) {
+        const auto& [before_line, after_line] = *changed_line;
+        if (saw_line_erase && change.appended_visible_character_count == 0U && !before_line.empty() &&
+            after_line.empty()) {
+          change.kind = TerminalSemanticChangeKind::CursorOnly;
+          return change;
+        }
+
+        if (before_screen_blank || !before_line.empty() || !after_line.empty()) {
+          change.kind = TerminalSemanticChangeKind::CosmeticChurn;
+          return change;
+        }
+      }
     }
 
     if (change.changed_visible_line_count <= 1U && change.appended_visible_character_count > 0U &&

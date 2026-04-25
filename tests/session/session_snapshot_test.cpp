@@ -120,6 +120,13 @@ TEST(SessionSnapshotTest, CarriesLightweightRecoveryState) {
   EXPECT_EQ(snapshot.signals.git_modified_count, 1U);
   EXPECT_EQ(snapshot.signals.git_staged_count, 1U);
   EXPECT_EQ(snapshot.signals.git_untracked_count, 1U);
+  EXPECT_EQ(snapshot.signals.mode.lifecycle_status, SessionStatus::Created);
+  EXPECT_EQ(snapshot.signals.mode.interaction_kind, SessionInteractionKind::Unknown);
+  EXPECT_EQ(snapshot.signals.mode.activity_state, SessionActivityState::Idle);
+  EXPECT_EQ(snapshot.signals.attention.level, AttentionState::None);
+  EXPECT_EQ(snapshot.signals.attention.cause, AttentionReason::None);
+  EXPECT_FALSE(snapshot.signals.attention.since_unix_ms.has_value());
+  EXPECT_TRUE(snapshot.signals.attention.summary.empty());
   EXPECT_EQ(snapshot.recent_file_changes,
             (std::vector<std::string>{"src/main.cpp", "tests/session_test.cpp"}));
   EXPECT_EQ(snapshot.git_summary.branch, "main");
@@ -178,6 +185,13 @@ TEST(SessionSnapshotTest, DefaultsToEmptyOptionalCollections) {
   EXPECT_EQ(snapshot.signals.git_modified_count, 0U);
   EXPECT_EQ(snapshot.signals.git_staged_count, 0U);
   EXPECT_EQ(snapshot.signals.git_untracked_count, 0U);
+  EXPECT_EQ(snapshot.signals.mode.lifecycle_status, SessionStatus::Created);
+  EXPECT_EQ(snapshot.signals.mode.interaction_kind, SessionInteractionKind::Unknown);
+  EXPECT_EQ(snapshot.signals.mode.activity_state, SessionActivityState::Idle);
+  EXPECT_EQ(snapshot.signals.attention.level, AttentionState::None);
+  EXPECT_EQ(snapshot.signals.attention.cause, AttentionReason::None);
+  EXPECT_FALSE(snapshot.signals.attention.since_unix_ms.has_value());
+  EXPECT_TRUE(snapshot.signals.attention.summary.empty());
   EXPECT_TRUE(snapshot.recent_file_changes.empty());
   EXPECT_TRUE(snapshot.node_summary.session_id.empty());
   EXPECT_EQ(snapshot.node_summary.lifecycle_status, SessionStatus::Created);

@@ -110,6 +110,44 @@ enum class SessionInteractionKind {
   return "unknown";
 }
 
+enum class SessionActivityState {
+  Idle,
+  MeaningfulOutput,
+  CosmeticOutput,
+  ExternalChange,
+  Stopped,
+};
+
+[[nodiscard]] constexpr auto ToString(const SessionActivityState state) -> std::string_view {
+  switch (state) {
+    case SessionActivityState::Idle:
+      return "idle";
+    case SessionActivityState::MeaningfulOutput:
+      return "meaningful_output";
+    case SessionActivityState::CosmeticOutput:
+      return "cosmetic_output";
+    case SessionActivityState::ExternalChange:
+      return "external_change";
+    case SessionActivityState::Stopped:
+      return "stopped";
+  }
+
+  return "idle";
+}
+
+struct SessionModeSummary {
+  SessionStatus lifecycle_status{SessionStatus::Created};
+  SessionInteractionKind interaction_kind{SessionInteractionKind::Unknown};
+  SessionActivityState activity_state{SessionActivityState::Idle};
+};
+
+struct SessionAttentionSummary {
+  AttentionState level{AttentionState::None};
+  AttentionReason cause{AttentionReason::None};
+  std::optional<std::int64_t> since_unix_ms;
+  std::string summary;
+};
+
 struct SessionSignals {
   std::optional<std::int64_t> last_raw_output_at_unix_ms;
   std::optional<std::int64_t> last_meaningful_output_at_unix_ms;
@@ -133,6 +171,8 @@ struct SessionSignals {
   std::size_t git_modified_count{0};
   std::size_t git_staged_count{0};
   std::size_t git_untracked_count{0};
+  SessionModeSummary mode{};
+  SessionAttentionSummary attention{};
 };
 
 struct SessionNodeSummary {

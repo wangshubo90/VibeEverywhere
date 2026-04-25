@@ -742,6 +742,45 @@ struct SessionAssessment {
   AttentionAssessment attention{};
 };
 
+auto ToPublicActivityState(const AssessmentActivityClass activity_class)
+    -> vibe::session::SessionActivityState {
+  using vibe::session::SessionActivityState;
+
+  switch (activity_class) {
+    case AssessmentActivityClass::Idle:
+      return SessionActivityState::Idle;
+    case AssessmentActivityClass::MeaningfulOutput:
+      return SessionActivityState::MeaningfulOutput;
+    case AssessmentActivityClass::CosmeticOutput:
+      return SessionActivityState::CosmeticOutput;
+    case AssessmentActivityClass::ExternalChange:
+      return SessionActivityState::ExternalChange;
+    case AssessmentActivityClass::Stopped:
+      return SessionActivityState::Stopped;
+  }
+
+  return SessionActivityState::Idle;
+}
+
+auto BuildModeSummary(const vibe::session::SessionStatus status, const SessionAssessment& assessment)
+    -> vibe::session::SessionModeSummary {
+  return vibe::session::SessionModeSummary{
+      .lifecycle_status = status,
+      .interaction_kind = assessment.interaction_kind,
+      .activity_state = ToPublicActivityState(assessment.activity_class),
+  };
+}
+
+auto BuildAttentionSummary(const AttentionAssessment& attention)
+    -> vibe::session::SessionAttentionSummary {
+  return vibe::session::SessionAttentionSummary{
+      .level = attention.state,
+      .cause = attention.reason,
+      .since_unix_ms = attention.since_unix_ms,
+      .summary = attention.summary,
+  };
+}
+
 auto InferActivityClass(const vibe::session::SessionStatus status,
                         const std::optional<std::int64_t> last_output_at_unix_ms,
                         const std::optional<std::int64_t> last_activity_at_unix_ms,
@@ -1151,6 +1190,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
           entry->last_file_change_at_unix_ms, entry->last_git_change_at_unix_ms,
           entry->last_controller_change_at_unix_ms, snapshot.signals.terminal_semantic_change,
           IsGitDirty(snapshot.git_summary), now_unix_ms);
+      const auto mode = BuildModeSummary(snapshot.metadata.status, assessment);
+      const auto attention = BuildAttentionSummary(assessment.attention);
       snapshot.signals = vibe::session::SessionSignals{
           .last_raw_output_at_unix_ms = entry->last_raw_output_at_unix_ms,
           .last_meaningful_output_at_unix_ms = entry->last_meaningful_output_at_unix_ms,
@@ -1174,6 +1215,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
           .git_modified_count = GitModifiedCount(snapshot.git_summary),
           .git_staged_count = GitStagedCount(snapshot.git_summary),
           .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
+          .mode = mode,
+          .attention = attention,
       };
       snapshot.node_summary = BuildNodeSummary(snapshot, snapshot.signals, assessment.attention.summary);
       return snapshot;
@@ -1186,6 +1229,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
         entry->last_file_change_at_unix_ms, entry->last_git_change_at_unix_ms,
         entry->last_controller_change_at_unix_ms, snapshot.signals.terminal_semantic_change,
         IsGitDirty(snapshot.git_summary), now_unix_ms);
+    const auto mode = BuildModeSummary(snapshot.metadata.status, assessment);
+    const auto attention = BuildAttentionSummary(assessment.attention);
     snapshot.signals = vibe::session::SessionSignals{
         .last_raw_output_at_unix_ms = entry->last_raw_output_at_unix_ms,
         .last_meaningful_output_at_unix_ms = entry->last_meaningful_output_at_unix_ms,
@@ -1209,6 +1254,8 @@ auto SessionManager::GetSnapshot(const std::string& session_id) const
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
         .git_staged_count = GitStagedCount(snapshot.git_summary),
         .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
+        .mode = mode,
+        .attention = attention,
     };
     snapshot.node_summary = BuildNodeSummary(snapshot, snapshot.signals, assessment.attention.summary);
     return snapshot;
@@ -1789,6 +1836,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         entry.last_file_change_at_unix_ms,
         entry.last_git_change_at_unix_ms, entry.last_controller_change_at_unix_ms,
         snapshot.signals.terminal_semantic_change, IsGitDirty(snapshot.git_summary), now_unix_ms);
+    const auto mode = BuildModeSummary(metadata.status, assessment);
+    const auto attention = BuildAttentionSummary(assessment.attention);
     return SessionSummary{
         .id = metadata.id,
         .provider = metadata.provider,
@@ -1834,6 +1883,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
         .git_modified_count = GitModifiedCount(snapshot.git_summary),
         .git_staged_count = GitStagedCount(snapshot.git_summary),
         .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
+        .mode = mode,
+        .attention = attention,
     };
   }
 
@@ -1845,6 +1896,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       entry.last_file_change_at_unix_ms,
       entry.last_git_change_at_unix_ms, entry.last_controller_change_at_unix_ms,
       snapshot.signals.terminal_semantic_change, IsGitDirty(snapshot.git_summary), now_unix_ms);
+  const auto mode = BuildModeSummary(metadata.status, assessment);
+  const auto attention = BuildAttentionSummary(assessment.attention);
   return SessionSummary{
       .id = metadata.id,
       .provider = metadata.provider,
@@ -1890,6 +1943,8 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
       .git_modified_count = GitModifiedCount(snapshot.git_summary),
       .git_staged_count = GitStagedCount(snapshot.git_summary),
       .git_untracked_count = GitUntrackedCount(snapshot.git_summary),
+      .mode = mode,
+      .attention = attention,
   };
 }
 
@@ -1977,6 +2032,19 @@ void SessionManager::RecordCreateFailureSession(
           .git_modified_count = 0,
           .git_staged_count = 0,
           .git_untracked_count = 0,
+          .mode =
+              vibe::session::SessionModeSummary{
+                  .lifecycle_status = failed_metadata.status,
+                  .interaction_kind = vibe::session::SessionInteractionKind::CompletedQuickly,
+                  .activity_state = vibe::session::SessionActivityState::Stopped,
+              },
+          .attention =
+              vibe::session::SessionAttentionSummary{
+                  .level = vibe::session::AttentionState::ActionRequired,
+                  .cause = vibe::session::AttentionReason::SessionError,
+                  .since_unix_ms = now_unix_ms,
+                  .summary = "",
+              },
       },
       .node_summary =
           vibe::session::SessionNodeSummary{

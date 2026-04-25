@@ -238,15 +238,40 @@ Target principle:
 - `semanticPreview` -> user-facing summary
 - `terminalSemanticChange` -> evidence only
 
+### Implemented In Core Now
+
+The following pieces are already implemented on the `terminal-screen-semantics` branch:
+
+- `TerminalMultiplexer` computes low-level terminal evidence as `TerminalSemanticChange`
+- current semantic classifications include:
+  - `none`
+  - `meaningful_output`
+  - `cosmetic_churn`
+  - `cursor_only`
+  - `alt_screen_transition`
+- `SessionRuntime` and `SessionRecord` carry that evidence into `SessionSnapshot.signals`
+- `SessionManager` now builds current legacy state through one internal assessment path instead of ad hoc duplicated inference
+- output timing is split internally into:
+  - `lastRawOutputAtUnixMs`
+  - `lastMeaningfulOutputAtUnixMs`
+  - legacy `lastOutputAtUnixMs` remains the compatibility alias for meaningful output
+- supervision now effectively tracks meaningful output rather than raw cosmetic churn
+- Phase 2 consolidated fields are now exposed alongside legacy fields:
+  - `mode`
+  - `attention`
+  in session summary and snapshot JSON
+
+Cosmetic dot/spinner updates are now treated as liveness evidence without falsely counting as meaningful progress. The next refinement is to add semantic-stasis thresholds so long-running cosmetic-only states can move from "alive" to "needs attention" and eventually "idle".
+
 ### Checklist
 
 - [x] Add low-level terminal semantic change detection in `TerminalMultiplexer`
 - [x] Thread terminal semantic change through Core snapshot signals
-- [ ] Define an internal session assessment model in Core
-- [ ] Refactor `SessionManager` to build current legacy fields from the assessment model
-- [ ] Separate raw output time from meaningful output time in Core evidence
+- [x] Define an internal session assessment model in Core
+- [x] Refactor `SessionManager` to build current legacy fields from the assessment model
+- [x] Separate raw output time from meaningful output time in Core evidence
 - [ ] Add stdin-driven interaction partitioning to Core evidence
-- [ ] Introduce consolidated API fields alongside legacy fields
+- [x] Introduce consolidated API fields alongside legacy fields
 - [ ] Move low-level evidence to debug/diagnostic payloads
 - [ ] Deprecate redundant legacy fields after client migration
 
@@ -259,6 +284,11 @@ Phase 1 should be internal-only:
 - make all current legacy state derive from the new assessment path
 - add tests for merged attention/activity behavior
 
+Phase 1 status:
+
+- complete for terminal semantic evidence and meaningful-output timing
+- remaining Phase 1 work is stdin-driven interaction partitioning
+
 ### Phase 2 Scope
 
 Phase 2 should add new client-facing fields:
@@ -268,3 +298,9 @@ Phase 2 should add new client-facing fields:
 - `summary`
 
 while keeping current legacy fields for compatibility.
+
+Phase 2 status:
+
+- `mode` and `attention` are now exposed alongside legacy fields in Core JSON
+- legacy fields remain intact for iOS/Web/CLI compatibility
+- low-level terminal evidence is still internal-plus-debug and has not been promoted to a primary client contract

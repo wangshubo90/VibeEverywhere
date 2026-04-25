@@ -685,7 +685,8 @@ TEST(SessionManagerTest, CreateSessionCanStartThenExitImmediately) {
   const auto summary = PollUntilStatus(manager, created->id.value(), vibe::session::SessionStatus::Exited);
   ASSERT_TRUE(summary.has_value());
   EXPECT_EQ(summary->status, vibe::session::SessionStatus::Exited);
-  EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
+  EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
+  EXPECT_TRUE(summary->mode.lifecycle_status == vibe::session::SessionStatus::Exited);
   EXPECT_GT(summary->current_sequence, 0U);
 
   const auto tail = manager.GetTail(created->id.value(), 64);
@@ -1100,7 +1101,7 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   for (int attempt = 0; attempt < 20; ++attempt) {
     manager.PollAll(100);
     summary = manager.GetSession(created->id.value());
-    if (summary.has_value() && summary->last_output_at_unix_ms.has_value() &&
+    if (summary.has_value() && summary->last_activity_at_unix_ms.has_value() &&
         summary->current_sequence > 0U) {
       break;
     }
@@ -1108,7 +1109,6 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   }
 
   ASSERT_TRUE(summary.has_value());
-  EXPECT_TRUE(summary->last_output_at_unix_ms.has_value());
   EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
   EXPECT_GT(summary->current_sequence, 0U);
 }

@@ -56,6 +56,25 @@ auto MakeTerminalSemanticChangeJson(const vibe::session::TerminalSemanticChange&
   return object;
 }
 
+auto MakeSessionModeJson(const vibe::session::SessionModeSummary& mode) -> json::object {
+  json::object object;
+  object["lifecycle"] = std::string(vibe::session::ToString(mode.lifecycle_status));
+  object["interaction"] = std::string(vibe::session::ToString(mode.interaction_kind));
+  object["activity"] = std::string(vibe::session::ToString(mode.activity_state));
+  return object;
+}
+
+auto MakeSessionAttentionJson(const vibe::session::SessionAttentionSummary& attention) -> json::object {
+  json::object object;
+  object["level"] = std::string(vibe::session::ToString(attention.level));
+  object["cause"] = std::string(vibe::session::ToString(attention.cause));
+  if (attention.since_unix_ms.has_value()) {
+    object["sinceUnixMs"] = *attention.since_unix_ms;
+  }
+  object["summary"] = attention.summary;
+  return object;
+}
+
 auto ToInventoryState(const vibe::service::SessionSummary& summary) -> const char* {
   if (summary.is_active) {
     return "live";
@@ -179,6 +198,8 @@ auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   object["recentFileChangeCount"] = summary.recent_file_change_count;
   object["interactionKind"] = std::string(vibe::session::ToString(summary.interaction_kind));
   object["semanticPreview"] = summary.semantic_preview;
+  object["mode"] = MakeSessionModeJson(summary.mode);
+  object["attention"] = MakeSessionAttentionJson(summary.attention);
   object["gitDirty"] = summary.git_dirty;
   object["gitBranch"] = summary.git_branch;
   object["gitModifiedCount"] = summary.git_modified_count;
@@ -230,6 +251,8 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   object["recentTerminalTail"] = snapshot.recent_terminal_tail;
   object["interactionKind"] = std::string(vibe::session::ToString(snapshot.node_summary.interaction_kind));
   object["semanticPreview"] = snapshot.node_summary.semantic_preview;
+  object["mode"] = MakeSessionModeJson(snapshot.signals.mode);
+  object["attention"] = MakeSessionAttentionJson(snapshot.signals.attention);
   object["nodeSummary"] = MakeNodeSummaryJson(snapshot.node_summary);
   if (snapshot.terminal_screen.has_value()) {
     json::object terminal_screen;
@@ -287,6 +310,8 @@ auto ToJson(const vibe::session::SessionSnapshot& snapshot) -> std::string {
   signals["gitModifiedCount"] = snapshot.signals.git_modified_count;
   signals["gitStagedCount"] = snapshot.signals.git_staged_count;
   signals["gitUntrackedCount"] = snapshot.signals.git_untracked_count;
+  signals["mode"] = MakeSessionModeJson(snapshot.signals.mode);
+  signals["attention"] = MakeSessionAttentionJson(snapshot.signals.attention);
   object["signals"] = std::move(signals);
   object["git"] = std::move(git);
   return json::serialize(object);

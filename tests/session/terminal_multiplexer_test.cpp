@@ -140,5 +140,42 @@ TEST(TerminalMultiplexerTest, ClassifiesAltScreenTransitionsSeparately) {
   EXPECT_FALSE(change.alt_screen_exited);
 }
 
+TEST(TerminalMultiplexerTest, ClassifiesCarriageReturnOverwriteAsCosmeticChurn) {
+  TerminalMultiplexer multiplexer(TerminalSize{.columns = 20, .rows = 2}, 4);
+  multiplexer.Append("waiting...");
+
+  multiplexer.Append("\r|");
+
+  const auto change = multiplexer.last_semantic_change();
+  EXPECT_EQ(change.kind, TerminalSemanticChangeKind::CosmeticChurn);
+  EXPECT_EQ(change.changed_visible_line_count, 1U);
+  EXPECT_EQ(change.scrollback_lines_added, 0U);
+  EXPECT_EQ(change.appended_visible_character_count, 0U);
+}
+
+TEST(TerminalMultiplexerTest, ClassifiesProgressBarOnBlankScreenAsCosmeticChurn) {
+  TerminalMultiplexer multiplexer(TerminalSize{.columns = 40, .rows = 2}, 4);
+
+  multiplexer.Append("\r[====>    ] 50%");
+
+  const auto change = multiplexer.last_semantic_change();
+  EXPECT_EQ(change.kind, TerminalSemanticChangeKind::CosmeticChurn);
+  EXPECT_EQ(change.changed_visible_line_count, 1U);
+  EXPECT_EQ(change.scrollback_lines_added, 0U);
+}
+
+TEST(TerminalMultiplexerTest, ClassifiesEraseLineCarriageReturnAsCursorOnly) {
+  TerminalMultiplexer multiplexer(TerminalSize{.columns = 20, .rows = 2}, 4);
+  multiplexer.Append("some content");
+
+  multiplexer.Append("\x1b[2K\r");
+
+  const auto change = multiplexer.last_semantic_change();
+  EXPECT_EQ(change.kind, TerminalSemanticChangeKind::CursorOnly);
+  EXPECT_EQ(change.changed_visible_line_count, 1U);
+  EXPECT_EQ(change.scrollback_lines_added, 0U);
+  EXPECT_EQ(change.appended_visible_character_count, 0U);
+}
+
 }  // namespace
 }  // namespace vibe::session

@@ -133,6 +133,19 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
       .git_modified_count = 0,
       .git_staged_count = 0,
       .git_untracked_count = 0,
+      .mode =
+          vibe::session::SessionModeSummary{
+              .lifecycle_status = vibe::session::SessionStatus::Running,
+              .interaction_kind = vibe::session::SessionInteractionKind::RunningNonInteractive,
+              .activity_state = vibe::session::SessionActivityState::MeaningfulOutput,
+          },
+      .attention =
+          vibe::session::SessionAttentionSummary{
+              .level = vibe::session::AttentionState::Info,
+              .cause = vibe::session::AttentionReason::WorkspaceChanged,
+              .since_unix_ms = 220,
+              .summary = "Workspace changed",
+          },
   });
 
   EXPECT_NE(json.find("\"controllerKind\":\"host\""), std::string::npos);
@@ -142,6 +155,8 @@ TEST(HttpJsonTest, SerializesSessionSummaryControllerFields) {
   EXPECT_NE(json.find("\"inventoryState\":\"live\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionReason\":\"workspace_changed\""), std::string::npos);
+  EXPECT_NE(json.find("\"mode\":{"), std::string::npos);
+  EXPECT_NE(json.find("\"attention\":{"), std::string::npos);
   EXPECT_NE(json.find("\"activityState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"createdAtUnixMs\":100"), std::string::npos);
@@ -242,6 +257,19 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
               .git_modified_count = 1,
               .git_staged_count = 1,
               .git_untracked_count = 1,
+              .mode =
+                  vibe::session::SessionModeSummary{
+                      .lifecycle_status = vibe::session::SessionStatus::Running,
+                      .interaction_kind = vibe::session::SessionInteractionKind::RunningNonInteractive,
+                      .activity_state = vibe::session::SessionActivityState::MeaningfulOutput,
+                  },
+              .attention =
+                  vibe::session::SessionAttentionSummary{
+                      .level = vibe::session::AttentionState::Info,
+                      .cause = vibe::session::AttentionReason::WorkspaceChanged,
+                      .since_unix_ms = 110,
+                      .summary = "Workspace changed",
+                  },
           },
       .node_summary =
           vibe::session::SessionNodeSummary{
@@ -278,6 +306,9 @@ TEST(HttpJsonTest, SerializesSnapshotSignals) {
   EXPECT_NE(json.find("\"recentFileChangeCount\":2"), std::string::npos);
   EXPECT_NE(json.find("\"supervisionState\":\"active\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionState\":\"info\""), std::string::npos);
+  EXPECT_NE(json.find("\"mode\":{"), std::string::npos);
+  EXPECT_NE(json.find("\"attention\":{"), std::string::npos);
+  EXPECT_NE(json.find("\"signals\""), std::string::npos);
   EXPECT_NE(json.find("\"attentionReason\":\"workspace_changed\""), std::string::npos);
   EXPECT_NE(json.find("\"terminalSemanticChange\":{\"kind\":\"cosmetic_churn\""), std::string::npos);
   EXPECT_NE(json.find("\"gitDirty\":true"), std::string::npos);
