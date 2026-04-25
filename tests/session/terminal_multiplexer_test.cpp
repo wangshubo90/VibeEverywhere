@@ -83,23 +83,24 @@ TEST(TerminalMultiplexerTest, ViewportTracksCursorAndClipsHorizontallyWithoutRes
   EXPECT_EQ(viewport->columns, 4);
   EXPECT_EQ(viewport->rows, 3);
   EXPECT_EQ(viewport->viewport_top_line, 3U);
-  EXPECT_EQ(viewport->horizontal_offset, 3U);
-  EXPECT_EQ(viewport->visible_lines, (std::vector<std::string>{"e-4", "e-5", "e-6"}));
+  EXPECT_EQ(viewport->horizontal_offset, 0U);
+  EXPECT_EQ(viewport->visible_lines, (std::vector<std::string>{"line", "line", "line"}));
   ASSERT_TRUE(viewport->cursor_viewport_row.has_value());
   EXPECT_EQ(*viewport->cursor_viewport_row, 2U);
 }
 
-TEST(TerminalMultiplexerTest, ViewportFollowsCursorColumnWhenNarrowerThanPty) {
+TEST(TerminalMultiplexerTest, ViewportUsesStableHorizontalSliceWhenNarrowerThanPty) {
   TerminalMultiplexer multiplexer(TerminalSize{.columns = 12, .rows = 2}, 10);
   multiplexer.Append("abcdefghijkl");
   multiplexer.UpdateViewport("observer-1", TerminalSize{.columns = 4, .rows = 2});
 
   const auto viewport = multiplexer.viewport_snapshot("observer-1");
   ASSERT_TRUE(viewport.has_value());
-  EXPECT_EQ(viewport->horizontal_offset, 8U);
-  EXPECT_EQ(viewport->visible_lines.front(), "ijkl");
-  ASSERT_TRUE(viewport->cursor_viewport_column.has_value());
-  EXPECT_EQ(*viewport->cursor_viewport_column, 3U);
+  EXPECT_EQ(viewport->horizontal_offset, 0U);
+  ASSERT_EQ(viewport->visible_lines.size(), 2U);
+  EXPECT_EQ(viewport->visible_lines.front(), "abcd");
+  EXPECT_EQ(viewport->visible_lines.back(), "");
+  EXPECT_FALSE(viewport->cursor_viewport_column.has_value());
 }
 
 }  // namespace

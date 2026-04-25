@@ -28,7 +28,7 @@ struct TerminalViewportState {
   std::uint16_t columns{0};
   std::uint16_t rows{0};
   std::size_t horizontal_offset{0};
-  bool follow_cursor{true};
+  bool follow_cursor{false};
 
   [[nodiscard]] auto operator==(const TerminalViewportState& other) const -> bool = default;
 };

@@ -123,6 +123,7 @@ auto BuildLocalResizePayload(const vibe::session::TerminalSize terminal_size) ->
 
 struct FilteredInput {
   bool saw_reclaim{false};
+  bool saw_detach{false};
   std::string payload;
 };
 
@@ -132,9 +133,15 @@ auto FilterLocalReclaimInput(const std::string_view input) -> FilteredInput {
       std::string_view("\x1b[93;5u", 8),    // CSI-u Ctrl-]
       std::string_view("\x1b[27;5;93~", 10) // xterm modifyOtherKeys Ctrl-]
   };
+  constexpr std::array<std::string_view, 3> kDetachSequences = {
+      std::string_view("\x1c", 1),          // classic Ctrl+backslash
+      std::string_view("\x1b[92;5u", 8),    // CSI-u Ctrl+backslash
+      std::string_view("\x1b[27;5;92~", 10) // xterm modifyOtherKeys Ctrl+backslash
+  };
 
   FilteredInput result{
       .saw_reclaim = false,
+      .saw_detach = false,
       .payload = std::string(input),
   };
 
@@ -146,27 +153,43 @@ auto FilterLocalReclaimInput(const std::string_view input) -> FilteredInput {
     }
   }
 
-  if (!result.saw_reclaim) {
+  for (const std::string_view sequence : kDetachSequences) {
+    std::size_t position = 0;
+    while ((position = result.payload.find(sequence, position)) != std::string::npos) {
+      result.saw_detach = true;
+      result.payload.erase(position, sequence.size());
+    }
+  }
+
+  if (!result.saw_reclaim && !result.saw_detach) {
     return result;
   }
 
   // Kitty/ghostty-style enhanced keyboard sequences may include an event-type suffix.
-  constexpr std::string_view kitty_prefix = "\x1b[93;5:";
-  std::size_t position = 0;
-  while ((position = result.payload.find(kitty_prefix, position)) != std::string::npos) {
-    const std::size_t digits_begin = position + kitty_prefix.size();
-    std::size_t digits_end = digits_begin;
-    while (digits_end < result.payload.size() &&
-           result.payload[digits_end] >= '0' && result.payload[digits_end] <= '9') {
-      digits_end += 1;
+  for (const auto [kitty_prefix, detach] : {
+           std::pair<std::string_view, bool>{"\x1b[93;5:", false},
+           std::pair<std::string_view, bool>{"\x1b[92;5:", true},
+       }) {
+    std::size_t position = 0;
+    while ((position = result.payload.find(kitty_prefix, position)) != std::string::npos) {
+      const std::size_t digits_begin = position + kitty_prefix.size();
+      std::size_t digits_end = digits_begin;
+      while (digits_end < result.payload.size() &&
+             result.payload[digits_end] >= '0' && result.payload[digits_end] <= '9') {
+        digits_end += 1;
+      }
+      if (digits_end > digits_begin && digits_end < result.payload.size() &&
+          result.payload[digits_end] == 'u') {
+        if (detach) {
+          result.saw_detach = true;
+        } else {
+          result.saw_reclaim = true;
+        }
+        result.payload.erase(position, digits_end - position + 1);
+        continue;
+      }
+      position = digits_begin;
     }
-    if (digits_end > digits_begin && digits_end < result.payload.size() &&
-        result.payload[digits_end] == 'u') {
-      result.saw_reclaim = true;
-      result.payload.erase(position, digits_end - position + 1);
-      continue;
-    }
-    position = digits_begin;
   }
 
   return result;
@@ -617,6 +640,11 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
         trace_logger.Log("ws.write.reclaim", static_cast<std::size_t>(bytes_read));
       }
 
+      if (filtered.saw_detach) {
+        trace_logger.Log("ws.write.detach", static_cast<std::size_t>(bytes_read));
+        stop_requested.store(true);
+      }
+
       if (!filtered.payload.empty()) {
         const auto input_frame = BuildLocalControllerFrame('I', filtered.payload);
         asio::write(socket, asio::buffer(input_frame), error_code);
@@ -625,6 +653,10 @@ auto AttachSessionLocal(const std::string& session_id) -> int {
           break;
         }
         trace_logger.Log("ws.write.input", filtered.payload.size());
+      }
+
+      if (filtered.saw_detach) {
+        break;
       }
     }
   }

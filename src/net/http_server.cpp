@@ -1994,19 +1994,23 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
                     << " currentSequence=" << summary->current_sequence;
     vibe::base::DebugTrace("core.focus", "local.handshake", handshake_trace.str());
 
-    // Send a screen clear rather than replaying raw tail bytes or a bootstrap snapshot.
+    // Bootstrap the local terminal from a canonical viewport snapshot at the
+    // client's actual size. This gives local attach an immediate, correctly-sized
+    // visible history instead of relying entirely on a later SIGWINCH redraw.
     //
-    // Raw tail bytes were written at the old PTY size and cause ghosting when replayed
-    // on a terminal that is now a different size. The bootstrap_ansi from the snapshot
-    // is designed for fresh web terminals (xterm.js starting from empty state) — sending
-    // it to a real local terminal pollutes its scrollback with the scrollback dump and
-    // shifts cursor baselines, making things worse.
-    //
-    // The right recovery is: clear the visible screen, then let the subprocess's
-    // SIGWINCH redraw (triggered by ResizeSession → TIOCSWINSZ above) repaint
-    // the correct state at the new dimensions. TIOCSWINSZ always sends SIGWINCH
-    // regardless of whether the size actually changed, so the redraw always arrives.
-    initial_tail_ = "\x1b[0m\x1b[H\x1b[2J";
+    // If viewport bootstrap is unavailable, fall back to a clear-only startup and
+    // let the subprocess repaint via the resize-triggered SIGWINCH.
+    std::string bootstrap_mode = "clear-only";
+    if (session_manager_.UpdateViewport(session_id_, client_id_, initial_terminal_size_)) {
+      if (const auto viewport = session_manager_.GetViewportSnapshot(session_id_, client_id_);
+          viewport.has_value() && !viewport->bootstrap_ansi.empty()) {
+        initial_tail_ = viewport->bootstrap_ansi;
+        bootstrap_mode = "viewport-bootstrap";
+      }
+    }
+    if (initial_tail_.empty()) {
+      initial_tail_ = "\x1b[0m\x1b[H\x1b[2J";
+    }
     const auto tail = session_manager_.GetTail(session_id_, 64U * 1024U);
     if (tail.has_value()) {
       next_output_sequence_ = tail->seq_end > 0 ? tail->seq_end + 1 : 1;
@@ -2016,7 +2020,7 @@ class LocalControllerSession final : public std::enable_shared_from_this<LocalCo
 
     std::ostringstream bootstrap_trace;
     bootstrap_trace << "session=" << session_id_ << " client=" << client_id_
-                    << " bootstrapMode=clear-only"
+                    << " bootstrapMode=" << bootstrap_mode
                     << " nextSequence=" << next_output_sequence_;
     vibe::base::DebugTrace("core.focus", "local.bootstrap", bootstrap_trace.str());
 
