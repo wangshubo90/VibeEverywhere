@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -29,6 +30,121 @@ namespace vibe::service {
 namespace {
 
 constexpr std::string_view kPrivilegedLocalControllerPrefix = "local-controller-";
+
+auto IsCosmeticTerminalOutput(const std::string_view data) -> bool {
+  bool saw_newline = false;
+  bool saw_escape = false;
+  std::size_t visible_count = 0;
+  std::size_t alnum_count = 0;
+  bool only_trivial_marks = true;
+
+  auto is_trivial_mark = [](const unsigned char ch) {
+    switch (ch) {
+      case '.':
+      case ',':
+      case ':':
+      case ';':
+      case '\'':
+      case '"':
+      case '`':
+      case '-':
+      case '_':
+      case '=':
+      case '+':
+      case '|':
+      case '/':
+      case '\\':
+      case '(':
+      case ')':
+      case '[':
+      case ']':
+      case '{':
+      case '}':
+      case '<':
+      case '>':
+      case '*':
+      case '#':
+        return true;
+      default:
+        return false;
+    }
+  };
+
+  for (std::size_t index = 0; index < data.size();) {
+    const unsigned char ch = static_cast<unsigned char>(data[index]);
+    if (ch == '\x1b') {
+      saw_escape = true;
+      index += 1;
+      if (index >= data.size()) {
+        break;
+      }
+
+      const unsigned char next = static_cast<unsigned char>(data[index]);
+      if (next == '[') {
+        index += 1;
+        while (index < data.size()) {
+          const unsigned char c = static_cast<unsigned char>(data[index++]);
+          if (c >= 0x40 && c <= 0x7e) {
+            break;
+          }
+        }
+        continue;
+      }
+
+      if (next == ']') {
+        index += 1;
+        while (index < data.size()) {
+          const unsigned char c = static_cast<unsigned char>(data[index++]);
+          if (c == '\a') {
+            break;
+          }
+          if (c == '\x1b' && index < data.size() && data[index] == '\\') {
+            index += 1;
+            break;
+          }
+        }
+        continue;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (ch == '\n') {
+      saw_newline = true;
+      index += 1;
+      continue;
+    }
+
+    if (ch < 0x20 || ch == 0x7f) {
+      index += 1;
+      continue;
+    }
+
+    visible_count += 1;
+    if (std::isalnum(ch) != 0) {
+      alnum_count += 1;
+      only_trivial_marks = false;
+    } else if (!is_trivial_mark(ch)) {
+      only_trivial_marks = false;
+    }
+    index += 1;
+  }
+
+  if (saw_newline) {
+    return false;
+  }
+  if (!saw_escape && visible_count == 0) {
+    return true;
+  }
+  if (alnum_count >= 4 || visible_count >= 16) {
+    return false;
+  }
+  if (only_trivial_marks && visible_count <= 6) {
+    return true;
+  }
+  return visible_count == 0;
+}
 
 auto ShellQuote(const std::string_view value) -> std::string {
   std::string quoted;
@@ -1455,9 +1571,13 @@ auto SessionManager::PollSession(const std::string& session_id, const int read_t
   const auto snapshot = entry->runtime->record().snapshot();
   if (snapshot.current_sequence != entry->last_observed_sequence) {
     const auto now_unix_ms = CurrentUnixTimeMs();
+    const auto output_since =
+        entry->runtime->output_buffer().SliceFromSequence(previous_sequence > 0 ? previous_sequence + 1 : 1);
     entry->last_observed_sequence = snapshot.current_sequence;
-    entry->last_output_at_unix_ms = now_unix_ms;
     entry->last_activity_at_unix_ms = now_unix_ms;
+    if (!IsCosmeticTerminalOutput(output_since.data)) {
+      entry->last_output_at_unix_ms = now_unix_ms;
+    }
     ServerTraceLogger::Instance().Log(
         "poll.output", session_id,
         static_cast<std::size_t>(snapshot.current_sequence - previous_sequence));

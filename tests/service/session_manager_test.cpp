@@ -1113,6 +1113,38 @@ TEST(SessionManagerTest, PollAllUpdatesOutputAndActivityTimestampsForLiveSession
   EXPECT_GT(summary->current_sequence, 0U);
 }
 
+TEST(SessionManagerTest, CosmeticDotOutputDoesNotKeepSessionSupervisionActive) {
+  FakeSessionStore session_store;
+  SessionManager manager(&session_store);
+
+  const auto created = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "cosmetic-output",
+      .conversation_id = std::nullopt,
+      .command_argv = std::vector<std::string>{"/bin/sh", "-c", "for i in 1 2 3 4 5; do printf .; sleep 1; done; sleep 1"},
+      .command_shell = std::nullopt,
+      .group_tags = {},
+  });
+  ASSERT_TRUE(created.has_value());
+
+  std::optional<SessionSummary> summary;
+  for (int attempt = 0; attempt < 80; ++attempt) {
+    manager.PollAll(100);
+    summary = manager.GetSession(created->id.value());
+    if (summary.has_value() && summary->current_sequence > 0U) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(25));
+  }
+
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_GT(summary->current_sequence, 0U);
+  EXPECT_FALSE(summary->last_output_at_unix_ms.has_value());
+  EXPECT_TRUE(summary->last_activity_at_unix_ms.has_value());
+  EXPECT_EQ(summary->supervision_state, vibe::session::SupervisionState::Quiet);
+}
+
 TEST(SessionManagerTest, ControlHandoffUpdatesActivityTimestamp) {
   FakeSessionStore session_store;
   SessionManager manager(&session_store);
