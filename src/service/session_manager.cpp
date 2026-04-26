@@ -1231,6 +1231,9 @@ auto SessionManager::CreateLogSession(const LogSessionCreateRequest& request)
   if (launch_spec.has_value()) {
     const std::string captured_session_id = session_id->value();
     auto log_process = std::make_unique<ManagedLogProcess>();
+    // The entry is visible before log_process is installed so output callbacks have a target
+    // without holding log_mutex_ through fork/exec. A concurrent stop in this short startup
+    // window can see a non-interactive entry with no process and fail as a no-op.
     const auto start_result = log_process->Start(
         *launch_spec,
         [this, captured_session_id](LogStream stream, std::string data,
@@ -1248,6 +1251,8 @@ auto SessionManager::CreateLogSession(const LogSessionCreateRequest& request)
       last_create_error_message_ = start_result.error_message.empty()
                                        ? "failed to start log process"
                                        : start_result.error_message;
+      // Matches the existing SessionManager assumption that sessions_ structural mutation
+      // is serialized by the owner thread; PollAll must not run concurrently with creation.
       sessions_.erase(
           std::remove_if(sessions_.begin(), sessions_.end(),
                          [&](const SessionEntry& entry) {

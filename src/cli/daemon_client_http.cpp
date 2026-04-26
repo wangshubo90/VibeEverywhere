@@ -694,7 +694,7 @@ auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSession
 auto CreateLogSessionWithDetail(const DaemonEndpoint& endpoint,
                                 const CreateSessionRequest& request) -> CreateSessionResult {
   const auto response = PerformHttpRequest(
-      endpoint, http::verb::post, "/logs", BuildCreateSessionRequestBody(request),
+      endpoint, http::verb::post, "/log-sessions", BuildCreateSessionRequestBody(request),
       "application/json");
   if (!response.has_value()) {
     return {};

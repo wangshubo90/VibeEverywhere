@@ -1773,7 +1773,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return HandleCreateSessionRequest(request, session_manager, context);
   }
 
-  if (request.method() == http::verb::post && request.target() == "/logs") {
+  if (request.method() == http::verb::post && request.target() == "/log-sessions") {
     if (const auto auth_response =
             RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
         auth_response.has_value()) {

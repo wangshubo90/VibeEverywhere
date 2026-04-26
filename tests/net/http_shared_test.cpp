@@ -829,7 +829,7 @@ TEST(HttpSharedTest, CreateLogSessionLaunchesCommandBackedManagedLog) {
 
   HttpRequest request;
   request.method(http::verb::post);
-  request.target("/logs");
+  request.target("/log-sessions");
   request.version(11);
   request.set(http::field::authorization, "Bearer good-token");
   request.body() =
