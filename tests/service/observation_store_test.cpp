@@ -71,10 +71,14 @@ TEST(ObservationStoreTest, ListLimitIsApplied) {
 TEST(ObservationStoreTest, DeduplicatesIdenticalConsecutiveTailReads) {
   ObservationStore store;
 
-  const ObservationEvent& first = store.Add(MakeEvent("agent_one", EvidenceOperation::Tail, 1, 3));
-  const ObservationEvent& second = store.Add(MakeEvent("agent_one", EvidenceOperation::Tail, 1, 3));
+  const ObservationStoreAddResult first =
+      store.AddWithStatus(MakeEvent("agent_one", EvidenceOperation::Tail, 1, 3));
+  const ObservationStoreAddResult second =
+      store.AddWithStatus(MakeEvent("agent_one", EvidenceOperation::Tail, 1, 3));
 
-  EXPECT_EQ(first.id, second.id);
+  EXPECT_TRUE(first.inserted);
+  EXPECT_FALSE(second.inserted);
+  EXPECT_EQ(first.event.id, second.event.id);
   EXPECT_EQ(store.size(), 1U);
 }
 

@@ -943,6 +943,42 @@ TEST(HttpSharedTest, EvidenceSearchEmitsObservationWithActorHeader) {
   EXPECT_EQ(pushed_observations[0].actor_session_id, "agent_1");
 }
 
+TEST(HttpSharedTest, DuplicateTailObservationDoesNotPushAgain) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::ObservationStore observation_store;
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.observation_store = &observation_store;
+  std::vector<vibe::service::ObservationEvent> pushed_observations;
+  context.observation_event_sink =
+      [&pushed_observations](const vibe::service::ObservationEvent& event) {
+        pushed_observations.push_back(event);
+      };
+
+  const auto summary = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "app.log",
+  });
+  ASSERT_TRUE(summary.has_value());
+  ASSERT_TRUE(session_manager.AppendLogStdout(summary->id.value(), "one\ntwo\n", 1000));
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/sessions/" + summary->id.value() + "/evidence/tail?lines=1");
+  request.version(11);
+  request.set(http::field::authorization, "Bearer good-token");
+  request.set("X-Sentrits-Actor-Session", "agent_1");
+
+  EXPECT_EQ(HandleRequest(request, session_manager, context).result(), http::status::ok);
+  EXPECT_EQ(HandleRequest(request, session_manager, context).result(), http::status::ok);
+
+  EXPECT_EQ(observation_store.size(), 1U);
+  ASSERT_EQ(pushed_observations.size(), 1U);
+  EXPECT_EQ(pushed_observations[0].actor_session_id, "agent_1");
+}
+
 TEST(HttpSharedTest, EvidenceRangeAndContextRoutesReturnEntries) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;

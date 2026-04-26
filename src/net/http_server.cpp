@@ -392,10 +392,17 @@ class OverviewWebSocketSession final : public WebSocketSessionBase,
     if (payload.empty()) {
       return;
     }
-    pending_frames_.push_back(PendingFrame{.payload = std::move(payload)});
-    if (!write_in_progress_) {
-      DoWrite();
-    }
+    asio::post(
+        websocket_.get_executor(),
+        [self = this->shared_from_this(), payload = std::move(payload)]() mutable {
+          if (self->closed_) {
+            return;
+          }
+          self->pending_frames_.push_back(PendingFrame{.payload = std::move(payload)});
+          if (!self->write_in_progress_) {
+            self->DoWrite();
+          }
+        });
   }
   [[nodiscard]] auto session_id() const -> const std::string& override { return empty_; }
   [[nodiscard]] auto client_id() const -> const std::string& override { return client_id_; }

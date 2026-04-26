@@ -12,8 +12,16 @@ ObservationStore::ObservationStore(ObservationStoreLimits limits) : limits_(limi
 }
 
 auto ObservationStore::Add(ObservationEvent event) -> const ObservationEvent& {
+  static_cast<void>(AddWithStatus(std::move(event)));
+  return events_.back();
+}
+
+auto ObservationStore::AddWithStatus(ObservationEvent event) -> ObservationStoreAddResult {
   if (IsDuplicateTailObservation(event)) {
-    return events_.back();
+    return ObservationStoreAddResult{
+        .event = events_.back(),
+        .inserted = false,
+    };
   }
 
   if (event.id.empty()) {
@@ -21,7 +29,10 @@ auto ObservationStore::Add(ObservationEvent event) -> const ObservationEvent& {
   }
   events_.push_back(std::move(event));
   EvictIfNeeded();
-  return events_.back();
+  return ObservationStoreAddResult{
+      .event = events_.back(),
+      .inserted = true,
+  };
 }
 
 auto ObservationStore::ListNewestFirst(const std::size_t limit) const -> std::vector<ObservationEvent> {

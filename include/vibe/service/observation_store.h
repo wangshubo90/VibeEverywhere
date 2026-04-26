@@ -13,11 +13,17 @@ struct ObservationStoreLimits {
   std::size_t max_events = 1000;
 };
 
+struct ObservationStoreAddResult {
+  ObservationEvent event;
+  bool inserted = false;
+};
+
 class ObservationStore {
  public:
   explicit ObservationStore(ObservationStoreLimits limits = {});
 
   [[nodiscard]] auto Add(ObservationEvent event) -> const ObservationEvent&;
+  [[nodiscard]] auto AddWithStatus(ObservationEvent event) -> ObservationStoreAddResult;
   [[nodiscard]] auto ListNewestFirst(std::size_t limit) const -> std::vector<ObservationEvent>;
   [[nodiscard]] auto size() const -> std::size_t;
 

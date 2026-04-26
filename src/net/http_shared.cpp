@@ -1257,11 +1257,13 @@ auto FinalizeEvidenceResponse(const HttpRequest& request,
       .actor = ActorContextFromHeader(request, session_manager),
       .timestamp_unix_ms = CurrentUnixTimeMs(),
   });
+  // Client viewer reads intentionally do not produce observations or pushes; only actor-attributed
+  // evidence reads are audit events.
   if (context.observation_store != nullptr && assembly.observation.has_value()) {
-    const vibe::service::ObservationEvent& stored_observation =
-        context.observation_store->Add(*assembly.observation);
-    if (context.observation_event_sink) {
-      context.observation_event_sink(stored_observation);
+    const vibe::service::ObservationStoreAddResult add_result =
+        context.observation_store->AddWithStatus(*assembly.observation);
+    if (add_result.inserted && context.observation_event_sink) {
+      context.observation_event_sink(add_result.event);
     }
   }
   return MakeJsonResponse(request, http::status::ok, ToJson(assembly.result));
