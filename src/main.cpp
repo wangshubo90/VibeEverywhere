@@ -754,7 +754,7 @@ void PrintUsage() {
             << "  sentrits relay observe --hub-url URL --token TOKEN --host-id HOST_ID --session-id SESSION_ID\n"
             << "  sentrits session stop [--host HOST] [--port PORT] [--json] <session-id>\n"
             << "  sentrits session clear [--host HOST] [--port PORT] [--json]\n"
-            << "  sentrits log start [--host HOST] [--port PORT] [--title TITLE]"
+            << "  sentrits capture start [--host HOST] [--port PORT] [--title TITLE]"
                " [--workspace PATH] [--json] [--shell-command CMD | -- COMMAND ...]\n"
             << "  sentrits evidence tail [--host HOST] [--port PORT] [--lines N] <session-id>\n"
             << "  sentrits evidence search [--host HOST] [--port PORT] [--limit N] <session-id> <query>\n"
@@ -1502,7 +1502,7 @@ auto main(const int argc, char** argv) -> int {
     return 0;
   }
 
-  if (command == "log" && argc >= 3) {
+  if (command == "capture" && argc >= 3) {
     const std::string subcommand = argv[2];
     if (subcommand != "start") {
       PrintUsage();
@@ -1514,11 +1514,11 @@ auto main(const int argc, char** argv) -> int {
       return 1;
     }
     if (options->shell_command.has_value() && !options->positionals.empty()) {
-      std::cerr << "log start accepts either --shell-command or command argv, not both\n";
+      std::cerr << "capture start accepts either --shell-command or command argv, not both\n";
       return 1;
     }
     if (!options->shell_command.has_value() && options->positionals.empty()) {
-      std::cerr << "log start requires a command\n";
+      std::cerr << "capture start requires a command\n";
       PrintUsage();
       return 1;
     }
@@ -1554,7 +1554,7 @@ auto main(const int argc, char** argv) -> int {
       object["title"] = title;
       std::cout << json::serialize(object) << '\n';
     } else {
-      std::cout << "log session " << *created.session_id << " created\n";
+      std::cout << "capture session " << *created.session_id << " created\n";
     }
     return 0;
   }
