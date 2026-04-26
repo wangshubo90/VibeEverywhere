@@ -819,6 +819,112 @@ TEST(HttpSharedTest, RejectsMalformedTailByteLimit) {
   EXPECT_NE(tail_response.body().find("invalid byte limit"), std::string::npos);
 }
 
+TEST(HttpSharedTest, EvidenceTailDoesNotEmitObservationWithoutActorHeader) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::ObservationStore observation_store;
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.observation_store = &observation_store;
+
+  const auto summary = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "app.log",
+  });
+  ASSERT_TRUE(summary.has_value());
+  ASSERT_TRUE(session_manager.AppendLogStdout(summary->id.value(), "one\ntwo\n", 1000));
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  const std::string target = "/sessions/" + summary->id.value() + "/evidence/tail?lines=1";
+  request.target(target);
+  request.version(11);
+  request.set(http::field::authorization, "Bearer good-token");
+
+  const HttpResponse response = HandleRequest(request, session_manager, context);
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"operation\":\"tail\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"text\":\"two\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"replayToken\""), std::string::npos);
+  EXPECT_EQ(observation_store.size(), 0U);
+}
+
+TEST(HttpSharedTest, EvidenceSearchEmitsObservationWithActorHeader) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::ObservationStore observation_store;
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.observation_store = &observation_store;
+
+  const auto summary = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "app.log",
+  });
+  ASSERT_TRUE(summary.has_value());
+  ASSERT_TRUE(session_manager.AppendLogStdout(summary->id.value(), "ok\nerror one\nerror two\n", 1000));
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  const std::string target = "/sessions/" + summary->id.value() + "/evidence/search?query=error&limit=1";
+  request.target(target);
+  request.version(11);
+  request.set(http::field::authorization, "Bearer good-token");
+  request.set("X-Sentrits-Actor-Session", "agent_1");
+
+  const HttpResponse response = HandleRequest(request, session_manager, context);
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"operation\":\"search\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"truncated\":true"), std::string::npos);
+  EXPECT_NE(response.body().find("\"highlights\""), std::string::npos);
+  ASSERT_EQ(observation_store.size(), 1U);
+  const std::vector<vibe::service::ObservationEvent> observations =
+      observation_store.ListNewestFirst(10);
+  ASSERT_EQ(observations.size(), 1U);
+  EXPECT_EQ(observations[0].actor_session_id, "agent_1");
+  EXPECT_EQ(observations[0].source.session_id, summary->id);
+  EXPECT_EQ(observations[0].operation, vibe::service::EvidenceOperation::Search);
+  EXPECT_EQ(observations[0].source_title, "app.log");
+  EXPECT_FALSE(observations[0].replay_token.empty());
+}
+
+TEST(HttpSharedTest, ListsObservationEvents) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  vibe::service::ObservationStore observation_store;
+  auto context = MakeAuthContext(authorizer, pairing_service, host_config_store);
+  context.observation_store = &observation_store;
+
+  const auto source_id = vibe::session::SessionId::TryCreate("s_99");
+  ASSERT_TRUE(source_id.has_value());
+  static_cast<void>(observation_store.Add(vibe::service::ObservationEvent{
+      .actor_session_id = "agent_1",
+      .actor_id = "agent_1",
+      .operation = vibe::service::EvidenceOperation::Tail,
+      .source =
+          vibe::service::EvidenceSourceRef{
+              .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+              .session_id = *source_id,
+          },
+      .result_count = 1,
+  }));
+
+  HttpRequest request;
+  request.method(http::verb::get);
+  request.target("/observations?limit=1");
+  request.version(11);
+  request.set(http::field::authorization, "Bearer good-token");
+
+  const HttpResponse response = HandleRequest(request, session_manager, context);
+  EXPECT_EQ(response.result(), http::status::ok);
+  EXPECT_NE(response.body().find("\"actorSessionId\":\"agent_1\""), std::string::npos);
+  EXPECT_NE(response.body().find("\"operation\":\"tail\""), std::string::npos);
+}
+
 TEST(HttpSharedTest, RejectsInvalidInputRequest) {
   auto session_manager = MakeManager();
 

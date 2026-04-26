@@ -22,6 +22,7 @@
 #include "vibe/net/local_auth.h"
 #include "vibe/net/request_parsing.h"
 #include "vibe/base/debug_trace.h"
+#include "vibe/service/evidence_response_assembler.h"
 
 namespace vibe::net {
 
@@ -38,6 +39,11 @@ auto MakeTextResponse(const HttpRequest& request, http::status status, std::stri
                       std::string body) -> HttpResponse;
 auto MakeRandomHexToken(std::size_t bytes) -> std::string;
 auto MakeServeLogResponse(const HttpRequest& request, const HttpRouteContext& context) -> HttpResponse;
+
+auto CurrentUnixTimeMs() -> std::int64_t {
+  const auto now = std::chrono::system_clock::now();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+}
 
 template <typename Collection, typename Predicate, typename Value>
 void UpsertBy(Collection& collection, Predicate predicate, Value&& value) {
@@ -173,6 +179,35 @@ auto ParseUnsignedQueryValue(const std::string& target, const std::string_view k
       return std::nullopt;
     }
     return static_cast<std::uint16_t>(parsed);
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+auto ParseSizeQueryValue(const std::string& target, const std::string_view key, const std::size_t default_value)
+    -> std::optional<std::size_t> {
+  const std::string raw_value = ParseQueryValue(target, key);
+  if (raw_value.empty()) {
+    return default_value;
+  }
+
+  try {
+    const unsigned long long parsed = std::stoull(raw_value);
+    return static_cast<std::size_t>(parsed);
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+auto ParseRequiredRevisionQueryValue(const std::string& target, const std::string_view key)
+    -> std::optional<std::uint64_t> {
+  const std::string raw_value = ParseQueryValue(target, key);
+  if (raw_value.empty()) {
+    return std::nullopt;
+  }
+
+  try {
+    return static_cast<std::uint64_t>(std::stoull(raw_value));
   } catch (...) {
     return std::nullopt;
   }
@@ -1153,6 +1188,126 @@ auto HandleCreateSessionRequest(const HttpRequest& request, vibe::service::Sessi
   return MakeJsonResponse(request, http::status::created, ToJson(*created));
 }
 
+auto ActorContextFromHeader(const HttpRequest& request,
+                            vibe::service::SessionManager& session_manager)
+    -> std::optional<vibe::service::EvidenceActorContext> {
+  const std::string actor_session_id = std::string(request["X-Sentrits-Actor-Session"]);
+  if (actor_session_id.empty()) {
+    return std::nullopt;
+  }
+
+  std::string actor_title;
+  if (const auto actor_summary = session_manager.GetSession(actor_session_id); actor_summary.has_value()) {
+    actor_title = actor_summary->title;
+  }
+  return vibe::service::EvidenceActorContext{
+      .actor_session_id = actor_session_id,
+      .actor_title = actor_title,
+  };
+}
+
+auto FinalizeEvidenceResponse(const HttpRequest& request,
+                              vibe::service::SessionManager& session_manager,
+                              const HttpRouteContext& context,
+                              vibe::service::EvidenceResult result) -> HttpResponse {
+  std::string source_title;
+  if (const auto source_summary = session_manager.GetSession(result.source.session_id.value());
+      source_summary.has_value()) {
+    source_title = source_summary->title;
+  }
+
+  const vibe::service::EvidenceResponseAssembler assembler;
+  vibe::service::EvidenceAssembly assembly = assembler.Assemble(vibe::service::EvidenceAssemblyRequest{
+      .result = std::move(result),
+      .source_title = source_title,
+      .actor = ActorContextFromHeader(request, session_manager),
+      .timestamp_unix_ms = CurrentUnixTimeMs(),
+  });
+  if (context.observation_store != nullptr && assembly.observation.has_value()) {
+    static_cast<void>(context.observation_store->Add(*assembly.observation));
+  }
+  return MakeJsonResponse(request, http::status::ok, ToJson(assembly.result));
+}
+
+auto HandleEvidenceRequest(const HttpRequest& request,
+                           vibe::service::SessionManager& session_manager,
+                           const HttpRouteContext& context,
+                           const std::string& session_id,
+                           const std::string& operation,
+                           const std::string& target) -> HttpResponse {
+  if (request.method() != http::verb::get) {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+  }
+
+  if (const auto auth_response =
+          RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+      auth_response.has_value()) {
+    return *auth_response;
+  }
+
+  std::optional<vibe::service::EvidenceResult> evidence;
+  if (operation == "tail") {
+    const auto lines = ParseSizeQueryValue(target, "lines", 200);
+    if (!lines.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid line limit\"}");
+    }
+    evidence = session_manager.TailEvidence(session_id, vibe::service::EvidenceTailOptions{.lines = *lines});
+  } else if (operation == "search") {
+    const std::string raw_query = ParseQueryValue(target, "query");
+    const auto query = UrlDecode(raw_query);
+    const auto limit = ParseSizeQueryValue(target, "limit", 200);
+    if (raw_query.empty() || !query.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"missing search query\"}");
+    }
+    if (!limit.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid result limit\"}");
+    }
+    evidence = session_manager.SearchEvidence(
+        session_id, vibe::service::EvidenceSearchOptions{.query = *query, .limit = *limit});
+  } else if (operation == "range") {
+    const auto start = ParseRequiredRevisionQueryValue(target, "start");
+    const auto end = ParseRequiredRevisionQueryValue(target, "end");
+    const auto limit = ParseSizeQueryValue(target, "limit", 200);
+    if (!start.has_value() || !end.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"missing revision range\"}");
+    }
+    if (!limit.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid result limit\"}");
+    }
+    evidence = session_manager.RangeEvidence(
+        session_id,
+        vibe::service::EvidenceRangeOptions{
+            .revision_start = *start,
+            .revision_end = *end,
+            .limit = *limit,
+        });
+  } else if (operation == "context") {
+    const auto revision = ParseRequiredRevisionQueryValue(target, "revision");
+    const auto before = ParseSizeQueryValue(target, "before", 80);
+    const auto after = ParseSizeQueryValue(target, "after", 120);
+    if (!revision.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"missing revision\"}");
+    }
+    if (!before.has_value() || !after.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid context limit\"}");
+    }
+    evidence = session_manager.ContextEvidence(
+        session_id,
+        vibe::service::EvidenceContextOptions{
+            .revision = *revision,
+            .before = *before,
+            .after = *after,
+        });
+  } else {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+  }
+
+  if (!evidence.has_value()) {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
+  }
+  return FinalizeEvidenceResponse(request, session_manager, context, std::move(*evidence));
+}
+
 auto MakeSessionGroupTagsResponse(const vibe::service::SessionSummary& summary) -> std::string {
   json::object object;
   object["sessionId"] = summary.id.value();
@@ -1404,6 +1559,25 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     return MakeServeLogResponse(request, context);
   }
 
+  if (request.method() == http::verb::get &&
+      (request.target() == "/observations" || target_string.rfind("/observations?", 0) == 0)) {
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    if (context.observation_store == nullptr) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"observation store unavailable\"}");
+    }
+    const auto limit = ParseSizeQueryValue(target_string, "limit", 200);
+    if (!limit.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid result limit\"}");
+    }
+    return MakeJsonResponse(request, http::status::ok,
+                            ToJson(context.observation_store->ListNewestFirst(*limit)));
+  }
+
   if (request.method() == http::verb::get && request.target() == "/discovery/info") {
     const auto host_identity =
         context.host_config_store != nullptr ? context.host_config_store->LoadHostIdentity() : std::nullopt;
@@ -1587,6 +1761,7 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     const auto input_suffix = std::string("/input");
     const auto stop_suffix = std::string("/stop");
     const auto tail_marker = std::string("/tail");
+    const auto evidence_marker = std::string("/evidence/");
     const auto env_suffix = std::string("/env");
 
     if (remainder.size() > snapshot_suffix.size() && remainder.ends_with(snapshot_suffix)) {
@@ -1657,6 +1832,13 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       }
 
       return MakeJsonResponse(request, http::status::ok, ToJson(file));
+    }
+
+    const std::size_t evidence_pos = remainder.find(evidence_marker);
+    if (evidence_pos != std::string::npos) {
+      const std::string session_id = remainder.substr(0, evidence_pos);
+      const std::string operation = remainder.substr(evidence_pos + evidence_marker.size());
+      return HandleEvidenceRequest(request, session_manager, context, session_id, operation, target);
     }
 
     const std::size_t tail_pos = remainder.find(tail_marker);

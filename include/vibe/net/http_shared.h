@@ -10,6 +10,7 @@
 #include "vibe/auth/authorizer.h"
 #include "vibe/net/host_admin.h"
 #include "vibe/auth/pairing.h"
+#include "vibe/service/observation_store.h"
 #include "vibe/service/session_manager.h"
 #include "vibe/store/host_config_store.h"
 #include "vibe/store/pairing_store.h"
@@ -32,6 +33,7 @@ struct HttpRouteContext {
   vibe::store::PairingStore* pairing_store{nullptr};
   vibe::store::HostConfigStore* host_config_store{nullptr};
   vibe::net::HostAdmin* host_admin{nullptr};
+  vibe::service::ObservationStore* observation_store{nullptr};
   std::filesystem::path storage_root;
   std::string client_address;
   bool is_local_request{false};
