@@ -1188,6 +1188,40 @@ auto HandleCreateSessionRequest(const HttpRequest& request, vibe::service::Sessi
   return MakeJsonResponse(request, http::status::created, ToJson(*created));
 }
 
+auto HandleCreateLogSessionRequest(const HttpRequest& request,
+                                   vibe::service::SessionManager& session_manager) -> HttpResponse {
+  const auto parsed_request = ParseCreateSessionRequest(request.body());
+  if (!parsed_request.has_value()) {
+    return MakeJsonResponse(request, http::status::bad_request,
+                            "{\"error\":\"invalid create log session request\"}");
+  }
+  if (!parsed_request->command_argv.has_value() && !parsed_request->command_shell.has_value()) {
+    return MakeJsonResponse(request, http::status::bad_request,
+                            "{\"error\":\"log session command is required\"}");
+  }
+
+  const auto created = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = parsed_request->workspace_root.value_or("."),
+      .title = parsed_request->title.value_or("log"),
+      .command_argv = parsed_request->command_argv,
+      .command_shell = parsed_request->command_shell,
+      .group_tags = parsed_request->group_tags.value_or(std::vector<std::string>{}),
+      .env_mode = parsed_request->env_mode,
+      .environment_overrides = parsed_request->environment_overrides,
+      .env_file_path = parsed_request->env_file_path,
+  });
+  if (!created.has_value()) {
+    json::object error;
+    error["error"] = "failed to create log session";
+    if (!session_manager.last_create_error_message().empty()) {
+      error["detail"] = session_manager.last_create_error_message();
+    }
+    return MakeJsonResponse(request, http::status::internal_server_error, json::serialize(error));
+  }
+
+  return MakeJsonResponse(request, http::status::created, ToJson(*created));
+}
+
 auto ActorContextFromHeader(const HttpRequest& request,
                             vibe::service::SessionManager& session_manager)
     -> std::optional<vibe::service::EvidenceActorContext> {
@@ -1737,6 +1771,15 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       return *auth_response;
     }
     return HandleCreateSessionRequest(request, session_manager, context);
+  }
+
+  if (request.method() == http::verb::post && request.target() == "/logs") {
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    return HandleCreateLogSessionRequest(request, session_manager);
   }
 
   if (request.method() == http::verb::post && request.target() == "/sessions/clear-inactive") {

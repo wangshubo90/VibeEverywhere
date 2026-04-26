@@ -15,6 +15,7 @@
 #include "vibe/service/git_inspector.h"
 #include "vibe/service/evidence.h"
 #include "vibe/service/log_buffer.h"
+#include "vibe/service/managed_log_process.h"
 #include "vibe/service/workspace_file_watcher.h"
 #include "vibe/session/bootstrapped_env_cache.h"
 #include "vibe/session/env_config.h"
@@ -61,7 +62,12 @@ struct CreateSessionRequest {
 struct LogSessionCreateRequest {
   std::string workspace_root;
   std::string title;
+  std::optional<std::vector<std::string>> command_argv;
+  std::optional<std::string> command_shell;
   std::vector<std::string> group_tags;
+  std::optional<vibe::session::EnvMode> env_mode{std::nullopt};
+  std::unordered_map<std::string, std::string> environment_overrides{};
+  std::optional<std::string> env_file_path{std::nullopt};
   LogBufferLimits limits{};
 };
 
@@ -234,6 +240,7 @@ class SessionManager {
     SessionCategory category{SessionCategory::Pty};
     std::unique_ptr<vibe::session::IPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
+    std::unique_ptr<ManagedLogProcess> log_process;
     std::unique_ptr<LogBuffer> log_buffer;
     std::unique_ptr<vibe::service::GitInspector> git_inspector;
     std::unique_ptr<vibe::service::WorkspaceFileWatcher> file_watcher;

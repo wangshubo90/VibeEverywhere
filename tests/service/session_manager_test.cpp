@@ -290,6 +290,50 @@ TEST(SessionManagerTest, CreatesLogSessionAndTailsEvidence) {
   EXPECT_EQ(evidence->entries[1].stream, LogStream::Stderr);
 }
 
+TEST(SessionManagerTest, LogSessionLaunchCapturesStdoutStderrAndExitStatus) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "runtime-log",
+      .command_shell = "printf 'out1\\n'; printf 'err1\\n' >&2",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->category, SessionCategory::ManagedLog);
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Running);
+
+  std::optional<EvidenceResult> evidence;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    manager.PollAll(10);
+    evidence = manager.TailEvidence(summary->id.value(), EvidenceTailOptions{.lines = 10});
+    if (evidence.has_value() && evidence->entries.size() >= 2) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_TRUE(evidence.has_value());
+
+  bool saw_stdout = false;
+  bool saw_stderr = false;
+  for (const EvidenceEntry& entry : evidence->entries) {
+    if (entry.stream == LogStream::Stdout && entry.text == "out1") {
+      saw_stdout = true;
+    }
+    if (entry.stream == LogStream::Stderr && entry.text == "err1") {
+      saw_stderr = true;
+    }
+  }
+  EXPECT_TRUE(saw_stdout);
+  EXPECT_TRUE(saw_stderr);
+
+  const auto exited =
+      PollUntilStatus(manager, summary->id.value(), vibe::session::SessionStatus::Exited, 50);
+  ASSERT_TRUE(exited.has_value());
+  EXPECT_EQ(exited->status, vibe::session::SessionStatus::Exited);
+  EXPECT_GE(exited->current_sequence, 2U);
+  EXPECT_TRUE(manager.StopSession(summary->id.value()));
+}
+
 TEST(SessionManagerTest, ReadsLogEvidenceRangeAndMarksTruncationAfterEviction) {
   SessionManager manager;
   const auto summary = manager.CreateLogSession(LogSessionCreateRequest{

@@ -18,6 +18,7 @@ set(VIBE_CORE_SOURCES
   src/service/evidence_response_assembler.cpp
   src/service/git_inspector.cpp
   src/service/log_buffer.cpp
+  src/service/managed_log_process.cpp
   src/service/observation_store.cpp
   src/service/session_manager.cpp
   src/service/workspace_file_watcher.cpp

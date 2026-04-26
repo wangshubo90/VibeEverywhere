@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <boost/json.hpp>
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -817,6 +819,49 @@ TEST(HttpSharedTest, RejectsMalformedTailByteLimit) {
                     MakeAuthContext(authorizer, pairing_service, host_config_store));
   EXPECT_EQ(tail_response.result(), http::status::bad_request);
   EXPECT_NE(tail_response.body().find("invalid byte limit"), std::string::npos);
+}
+
+TEST(HttpSharedTest, CreateLogSessionLaunchesCommandBackedManagedLog) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+
+  HttpRequest request;
+  request.method(http::verb::post);
+  request.target("/logs");
+  request.version(11);
+  request.set(http::field::authorization, "Bearer good-token");
+  request.body() =
+      "{\"workspaceRoot\":\".\",\"title\":\"build-log\","
+      "\"commandShell\":\"printf 'log-ready\\\\n'\"}";
+  request.prepare_payload();
+
+  const HttpResponse response =
+      HandleRequest(request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(response.result(), http::status::created);
+  EXPECT_NE(response.body().find("\"sessionCategory\":\"managed_log\""), std::string::npos);
+  boost::system::error_code parse_error;
+  const auto parsed = boost::json::parse(response.body(), parse_error);
+  ASSERT_FALSE(parse_error);
+  ASSERT_TRUE(parsed.is_object());
+  const auto* session_id_value = parsed.as_object().if_contains("sessionId");
+  ASSERT_NE(session_id_value, nullptr);
+  ASSERT_TRUE(session_id_value->is_string());
+  const std::string session_id = boost::json::value_to<std::string>(*session_id_value);
+
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    session_manager.PollAll(10);
+    const auto evidence =
+        session_manager.TailEvidence(session_id, vibe::service::EvidenceTailOptions{.lines = 10});
+    if (evidence.has_value() && !evidence->entries.empty()) {
+      EXPECT_EQ(evidence->entries.front().text, "log-ready");
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  FAIL() << "log command output was not captured";
 }
 
 TEST(HttpSharedTest, EvidenceTailDoesNotEmitObservationWithoutActorHeader) {

@@ -1100,13 +1100,16 @@ auto SessionManager::last_create_error_session_id() const -> const std::optional
 
 auto SessionManager::CreateLogSession(const LogSessionCreateRequest& request)
     -> std::optional<SessionSummary> {
-  std::lock_guard lock(log_mutex_);
-  last_create_error_message_.clear();
-  last_create_error_session_id_.reset();
-  const auto session_id = MakeSessionId();
-  if (!session_id.has_value()) {
-    last_create_error_message_ = "failed to allocate session id";
-    return std::nullopt;
+  std::optional<vibe::session::SessionId> session_id;
+  {
+    std::lock_guard lock(log_mutex_);
+    last_create_error_message_.clear();
+    last_create_error_session_id_.reset();
+    session_id = MakeSessionId();
+    if (!session_id.has_value()) {
+      last_create_error_message_ = "failed to allocate session id";
+      return std::nullopt;
+    }
   }
 
   const auto now_unix_ms = CurrentUnixTimeMs();
@@ -1119,48 +1122,155 @@ auto SessionManager::CreateLogSession(const LogSessionCreateRequest& request)
       .conversation_id = std::nullopt,
       .group_tags = vibe::session::NormalizeGroupTags(request.group_tags),
   };
+
+  std::optional<vibe::session::LaunchSpec> launch_spec;
+  std::optional<vibe::session::EffectiveEnvironment> effective_environment;
+  if (request.command_shell.has_value() || request.command_argv.has_value()) {
+    if (request.command_shell.has_value() && request.command_shell->empty()) {
+      std::lock_guard lock(log_mutex_);
+      last_create_error_message_ = "shell command must not be empty";
+      return std::nullopt;
+    }
+    if (request.command_argv.has_value() &&
+        (request.command_argv->empty() || request.command_argv->front().empty())) {
+      std::lock_guard lock(log_mutex_);
+      last_create_error_message_ = "command argv must not be empty";
+      return std::nullopt;
+    }
+
+    vibe::store::HostIdentity host_identity = vibe::store::MakeDefaultHostIdentity();
+    if (host_config_store_ != nullptr) {
+      if (const auto loaded = host_config_store_->LoadHostIdentity(); loaded.has_value()) {
+        host_identity = *loaded;
+      }
+    }
+
+    const auto effective_env_mode = request.env_mode.value_or(vibe::session::EnvMode::Shell);
+    vibe::session::EnvConfig env_config{
+        .mode = effective_env_mode,
+        .overrides = request.environment_overrides,
+        .env_file_path = request.env_file_path,
+    };
+    const vibe::session::ProviderConfig provider_config =
+        vibe::session::DefaultProviderConfig(vibe::session::ProviderType::Codex);
+    auto env_result = vibe::session::ResolveEnvironment(
+        env_config, request.workspace_root, host_identity, env_cache_,
+        provider_config.environment_overrides);
+    if (!env_result.has_value()) {
+      std::lock_guard lock(log_mutex_);
+      last_create_error_message_ = "environment resolution failed: " + env_result.error();
+      return std::nullopt;
+    }
+
+    effective_environment = std::move(env_result.value());
+    std::string executable;
+    std::vector<std::string> arguments;
+    if (request.command_shell.has_value()) {
+      executable = "/bin/sh";
+      arguments = {"-c", *request.command_shell};
+    } else {
+      executable = request.command_argv->front();
+      arguments.assign(request.command_argv->begin() + 1, request.command_argv->end());
+    }
+
+    launch_spec = vibe::session::LaunchSpec{
+        // Placeholder until managed logs get a first-class provider/category split in session metadata.
+        .provider = vibe::session::ProviderType::Codex,
+        .executable = std::move(executable),
+        .arguments = std::move(arguments),
+        .effective_environment = *effective_environment,
+        .working_directory = request.workspace_root,
+        .terminal_size = {},
+    };
+  }
+
   vibe::session::SessionSnapshot snapshot{
       .metadata = metadata,
       .current_sequence = 0,
       .recent_terminal_tail = "",
   };
 
-  sessions_.push_back(SessionEntry{
-      .id = *session_id,
-      .category = SessionCategory::ManagedLog,
-      .process = nullptr,
-      .runtime = nullptr,
-      .log_buffer =
-          std::make_unique<LogBuffer>(
-              EvidenceSourceRef{
-                  .kind = EvidenceSourceKind::ManagedLogSession,
-                  .session_id = *session_id,
-              },
-              request.limits),
-      .git_inspector = nullptr,
-      .file_watcher = nullptr,
-      .recovered_snapshot = std::move(snapshot),
-      .controller_client_id = std::nullopt,
-      .controller_kind = vibe::session::ControllerKind::Host,
-      .is_recovered = false,
-      .created_at_unix_ms = now_unix_ms,
-      .last_status_at_unix_ms = now_unix_ms,
-      .last_raw_output_at_unix_ms = std::nullopt,
-      .last_meaningful_output_at_unix_ms = std::nullopt,
-      .last_output_at_unix_ms = std::nullopt,
-      .last_activity_at_unix_ms = now_unix_ms,
-      .last_file_change_at_unix_ms = std::nullopt,
-      .last_git_change_at_unix_ms = std::nullopt,
-      .last_controller_change_at_unix_ms = std::nullopt,
-      .current_terminal_size = {},
-      .last_observed_status = vibe::session::SessionStatus::Running,
-      .last_observed_sequence = 0,
-      .last_traced_node_summary_key = std::nullopt,
-      .effective_environment = std::nullopt,
-  });
+  {
+    std::lock_guard lock(log_mutex_);
+    sessions_.push_back(SessionEntry{
+        .id = *session_id,
+        .category = SessionCategory::ManagedLog,
+        .process = nullptr,
+        .runtime = nullptr,
+        .log_process = nullptr,
+        .log_buffer =
+            std::make_unique<LogBuffer>(
+                EvidenceSourceRef{
+                    .kind = EvidenceSourceKind::ManagedLogSession,
+                    .session_id = *session_id,
+                },
+                request.limits),
+        .git_inspector = nullptr,
+        .file_watcher = nullptr,
+        .recovered_snapshot = std::move(snapshot),
+        .controller_client_id = std::nullopt,
+        .controller_kind = vibe::session::ControllerKind::Host,
+        .is_recovered = false,
+        .created_at_unix_ms = now_unix_ms,
+        .last_status_at_unix_ms = now_unix_ms,
+        .last_raw_output_at_unix_ms = std::nullopt,
+        .last_meaningful_output_at_unix_ms = std::nullopt,
+        .last_output_at_unix_ms = std::nullopt,
+        .last_activity_at_unix_ms = now_unix_ms,
+        .last_file_change_at_unix_ms = std::nullopt,
+        .last_git_change_at_unix_ms = std::nullopt,
+        .last_controller_change_at_unix_ms = std::nullopt,
+        .current_terminal_size = {},
+        .last_observed_status = vibe::session::SessionStatus::Running,
+        .last_observed_sequence = 0,
+        .last_traced_node_summary_key = std::nullopt,
+        .effective_environment = std::move(effective_environment),
+    });
+  }
 
-  MaybeTraceNodeSummaryTransition(sessions_.back(), "create_log");
-  return BuildSummary(sessions_.back());
+  if (launch_spec.has_value()) {
+    const std::string captured_session_id = session_id->value();
+    auto log_process = std::make_unique<ManagedLogProcess>();
+    const auto start_result = log_process->Start(
+        *launch_spec,
+        [this, captured_session_id](LogStream stream, std::string data,
+                                    const std::int64_t timestamp_unix_ms) {
+          if (stream == LogStream::Stderr) {
+            static_cast<void>(
+                AppendLogStderr(captured_session_id, std::move(data), timestamp_unix_ms));
+            return;
+          }
+          static_cast<void>(
+              AppendLogStdout(captured_session_id, std::move(data), timestamp_unix_ms));
+        });
+    if (!start_result.started) {
+      std::lock_guard lock(log_mutex_);
+      last_create_error_message_ = start_result.error_message.empty()
+                                       ? "failed to start log process"
+                                       : start_result.error_message;
+      sessions_.erase(
+          std::remove_if(sessions_.begin(), sessions_.end(),
+                         [&](const SessionEntry& entry) {
+                           return entry.id.value() == captured_session_id;
+                         }),
+          sessions_.end());
+      return std::nullopt;
+    }
+
+    std::lock_guard lock(log_mutex_);
+    if (SessionEntry* entry = FindEntry(captured_session_id); entry != nullptr) {
+      entry->log_process = std::move(log_process);
+    }
+  }
+
+  std::lock_guard lock(log_mutex_);
+  SessionEntry* entry = FindEntry(session_id->value());
+  if (entry == nullptr) {
+    last_create_error_message_ = "created log session disappeared before summary";
+    return std::nullopt;
+  }
+  MaybeTraceNodeSummaryTransition(*entry, "create_log");
+  return BuildSummary(*entry);
 }
 
 auto SessionManager::AppendLogStdout(const std::string& session_id,
@@ -1172,6 +1282,11 @@ auto SessionManager::AppendLogStdout(const std::string& session_id,
     return false;
   }
   entry->log_buffer->AppendStdout(std::move(data), timestamp_unix_ms);
+  if (entry->recovered_snapshot.has_value()) {
+    // Managed-log snapshots do not carry PTY output slices; use current_sequence as the latest
+    // retained log revision so summaries expose freshness without a second sequence field.
+    entry->recovered_snapshot->current_sequence = entry->log_buffer->stats().latest_revision;
+  }
   entry->last_raw_output_at_unix_ms = timestamp_unix_ms;
   entry->last_meaningful_output_at_unix_ms = timestamp_unix_ms;
   entry->last_output_at_unix_ms = timestamp_unix_ms;
@@ -1188,6 +1303,11 @@ auto SessionManager::AppendLogStderr(const std::string& session_id,
     return false;
   }
   entry->log_buffer->AppendStderr(std::move(data), timestamp_unix_ms);
+  if (entry->recovered_snapshot.has_value()) {
+    // Managed-log snapshots do not carry PTY output slices; use current_sequence as the latest
+    // retained log revision so summaries expose freshness without a second sequence field.
+    entry->recovered_snapshot->current_sequence = entry->log_buffer->stats().latest_revision;
+  }
   entry->last_raw_output_at_unix_ms = timestamp_unix_ms;
   entry->last_meaningful_output_at_unix_ms = timestamp_unix_ms;
   entry->last_output_at_unix_ms = timestamp_unix_ms;
@@ -1789,6 +1909,21 @@ auto SessionManager::StopSession(const std::string& session_id) -> bool {
       return true;
     }
 
+    if (entry->log_process != nullptr) {
+      const bool stopped = entry->log_process->Terminate();
+      if (stopped && entry->recovered_snapshot.has_value()) {
+        const auto now_unix_ms = CurrentUnixTimeMs();
+        entry->recovered_snapshot->metadata.status = vibe::session::SessionStatus::Exited;
+        entry->last_status_at_unix_ms = now_unix_ms;
+        entry->last_activity_at_unix_ms = now_unix_ms;
+        entry->last_observed_status = vibe::session::SessionStatus::Exited;
+        ResetControllerState(*entry);
+        PersistEntry(*entry);
+        MaybeTraceNodeSummaryTransition(*entry, "stop_log");
+      }
+      return stopped;
+    }
+
     if (entry->runtime == nullptr) {
       return false;
     }
@@ -1933,6 +2068,25 @@ auto SessionManager::Shutdown() -> std::size_t {
       }
     }
 
+    if (entry.log_process != nullptr && entry.recovered_snapshot.has_value()) {
+      const vibe::session::SessionStatus previous_status =
+          entry.recovered_snapshot->metadata.status;
+      const bool shutdown = entry.log_process->Terminate();
+      if (shutdown &&
+          (previous_status == vibe::session::SessionStatus::Running ||
+           previous_status == vibe::session::SessionStatus::AwaitingInput ||
+           previous_status == vibe::session::SessionStatus::Starting ||
+           previous_status == vibe::session::SessionStatus::Created)) {
+        const auto now_unix_ms = CurrentUnixTimeMs();
+        entry.recovered_snapshot->metadata.status = vibe::session::SessionStatus::Exited;
+        entry.last_status_at_unix_ms = now_unix_ms;
+        entry.last_activity_at_unix_ms = now_unix_ms;
+        entry.last_observed_status = vibe::session::SessionStatus::Exited;
+        shutdown_count += 1;
+        changed = true;
+      }
+    }
+
     if (entry.controller_client_id.has_value() ||
         entry.controller_kind != vibe::session::ControllerKind::Host) {
       ResetControllerState(entry);
@@ -1949,7 +2103,31 @@ auto SessionManager::Shutdown() -> std::size_t {
 
 auto SessionManager::PollSession(const std::string& session_id, const int read_timeout_ms) -> bool {
   SessionEntry* entry = FindEntry(session_id);
-  if (entry == nullptr || entry->runtime == nullptr) {
+  if (entry == nullptr) {
+    return false;
+  }
+
+  if (entry->log_process != nullptr) {
+    const auto exit_code = entry->log_process->PollExit();
+    if (!exit_code.has_value()) {
+      return true;
+    }
+
+    if (entry->recovered_snapshot.has_value()) {
+      const auto now_unix_ms = CurrentUnixTimeMs();
+      entry->recovered_snapshot->metadata.status =
+          *exit_code == 0 ? vibe::session::SessionStatus::Exited
+                          : vibe::session::SessionStatus::Error;
+      entry->last_status_at_unix_ms = now_unix_ms;
+      entry->last_activity_at_unix_ms = now_unix_ms;
+      entry->last_observed_status = entry->recovered_snapshot->metadata.status;
+      PersistEntry(*entry);
+      MaybeTraceNodeSummaryTransition(*entry, "poll_log");
+    }
+    return true;
+  }
+
+  if (entry->runtime == nullptr) {
     return false;
   }
 
@@ -2014,7 +2192,7 @@ void SessionManager::PollAll(const int read_timeout_ms) {
   }
 
   for (SessionEntry& entry : sessions_) {
-    if (entry.runtime == nullptr) {
+    if (entry.runtime == nullptr && entry.log_process == nullptr) {
       continue;
     }
 
@@ -2024,6 +2202,9 @@ void SessionManager::PollAll(const int read_timeout_ms) {
     }
 
     static_cast<void>(PollSession(entry.id.value(), read_timeout_ms));
+    if (entry.runtime == nullptr) {
+      continue;
+    }
     auto snapshot = entry.runtime->record().snapshot();
 
     if (should_poll_git && entry.git_inspector) {

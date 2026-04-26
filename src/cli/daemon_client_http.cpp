@@ -691,6 +691,28 @@ auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSession
   };
 }
 
+auto CreateLogSessionWithDetail(const DaemonEndpoint& endpoint,
+                                const CreateSessionRequest& request) -> CreateSessionResult {
+  const auto response = PerformHttpRequest(
+      endpoint, http::verb::post, "/logs", BuildCreateSessionRequestBody(request),
+      "application/json");
+  if (!response.has_value()) {
+    return {};
+  }
+
+  if (response->result() != http::status::created) {
+    return CreateSessionResult{
+        .session_id = std::nullopt,
+        .error_message = ExtractErrorMessage(response->body()),
+    };
+  }
+
+  return CreateSessionResult{
+      .session_id = ParseCreatedSessionId(response->body()),
+      .error_message = {},
+  };
+}
+
 auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>> {
   const auto response = PerformHttpRequest(endpoint, http::verb::get, "/sessions");
   if (!response.has_value()) {

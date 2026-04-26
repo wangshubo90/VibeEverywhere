@@ -88,6 +88,9 @@ struct EvidenceCliRequest {
     -> std::optional<std::string>;
 [[nodiscard]] auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
     -> CreateSessionResult;
+[[nodiscard]] auto CreateLogSessionWithDetail(const DaemonEndpoint& endpoint,
+                                              const CreateSessionRequest& request)
+    -> CreateSessionResult;
 [[nodiscard]] auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>>;
 [[nodiscard]] auto GetSessionSnapshot(const DaemonEndpoint& endpoint, const std::string& session_id)
     -> std::optional<std::string>;

@@ -754,6 +754,8 @@ void PrintUsage() {
             << "  sentrits relay observe --hub-url URL --token TOKEN --host-id HOST_ID --session-id SESSION_ID\n"
             << "  sentrits session stop [--host HOST] [--port PORT] [--json] <session-id>\n"
             << "  sentrits session clear [--host HOST] [--port PORT] [--json]\n"
+            << "  sentrits log start [--host HOST] [--port PORT] [--title TITLE]"
+               " [--workspace PATH] [--json] [--shell-command CMD | -- COMMAND ...]\n"
             << "  sentrits evidence tail [--host HOST] [--port PORT] [--lines N] <session-id>\n"
             << "  sentrits evidence search [--host HOST] [--port PORT] [--limit N] <session-id> <query>\n"
             << "  sentrits evidence range [--host HOST] [--port PORT] --start N --end N [--limit N] <session-id>\n"
@@ -1234,6 +1236,12 @@ auto ParseCommandOptions(const int argc, char** argv, int start_index,
       index += 2;
       continue;
     }
+    if (argument == "--") {
+      for (int positional_index = index + 1; positional_index < argc; ++positional_index) {
+        options.positionals.emplace_back(argv[positional_index]);
+      }
+      break;
+    }
     if (!argument.empty() && argument[0] == '-') {
       return std::nullopt;
     }
@@ -1491,6 +1499,63 @@ auto main(const int argc, char** argv) -> int {
       return 1;
     }
     std::cout << PrettyPrintJson(*result) << '\n';
+    return 0;
+  }
+
+  if (command == "log" && argc >= 3) {
+    const std::string subcommand = argv[2];
+    if (subcommand != "start") {
+      PrintUsage();
+      return 1;
+    }
+    auto options = ParseCommandOptions(argc, argv, 3, LoadConfiguredAdminEndpoint());
+    if (!options.has_value()) {
+      PrintUsage();
+      return 1;
+    }
+    if (options->shell_command.has_value() && !options->positionals.empty()) {
+      std::cerr << "log start accepts either --shell-command or command argv, not both\n";
+      return 1;
+    }
+    if (!options->shell_command.has_value() && options->positionals.empty()) {
+      std::cerr << "log start requires a command\n";
+      PrintUsage();
+      return 1;
+    }
+
+    const std::string title = options->title.value_or("log");
+    const auto created = vibe::cli::CreateLogSessionWithDetail(
+        options->endpoint,
+        vibe::cli::CreateSessionRequest{
+            .provider = std::nullopt,
+            .workspace_root = options->workspace_root.value_or(std::filesystem::current_path().string()),
+            .title = title,
+            .record_id = std::nullopt,
+            .command_argv = options->shell_command.has_value()
+                                ? std::nullopt
+                                : std::optional<std::vector<std::string>>(options->positionals),
+            .command_shell = options->shell_command,
+            .env_mode = options->env_mode,
+            .environment_overrides = options->environment_overrides,
+            .env_file_path = options->env_file_path,
+        });
+    if (!created.session_id.has_value()) {
+      std::cerr << "failed to create log session via daemon at " << options->endpoint.host << ":"
+                << options->endpoint.port;
+      if (!created.error_message.empty()) {
+        std::cerr << ": " << created.error_message;
+      }
+      std::cerr << '\n';
+      return 1;
+    }
+    if (options->json_output) {
+      json::object object;
+      object["sessionId"] = *created.session_id;
+      object["title"] = title;
+      std::cout << json::serialize(object) << '\n';
+    } else {
+      std::cout << "log session " << *created.session_id << " created\n";
+    }
     return 0;
   }
 
