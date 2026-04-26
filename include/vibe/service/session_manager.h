@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -26,6 +27,21 @@
 #include "vibe/store/session_store.h"
 
 namespace vibe::service {
+
+enum class SessionCategory {
+  Pty,
+  ManagedLog,
+};
+
+[[nodiscard]] constexpr auto ToString(SessionCategory category) -> std::string_view {
+  switch (category) {
+    case SessionCategory::Pty:
+      return "pty";
+    case SessionCategory::ManagedLog:
+      return "managed_log";
+  }
+  return "pty";
+}
 
 struct CreateSessionRequest {
   vibe::session::ProviderType provider;
@@ -56,6 +72,7 @@ enum class SessionGroupTagsUpdateMode {
 
 struct SessionSummary {
   vibe::session::SessionId id;
+  SessionCategory category{SessionCategory::Pty};
   vibe::session::ProviderType provider;
   std::string workspace_root;
   std::string title;
@@ -213,6 +230,7 @@ class SessionManager {
  private:
   struct SessionEntry {
     vibe::session::SessionId id;
+    SessionCategory category{SessionCategory::Pty};
     std::unique_ptr<vibe::session::IPtyProcess> process;
     std::unique_ptr<vibe::session::SessionRuntime> runtime;
     std::unique_ptr<LogBuffer> log_buffer;

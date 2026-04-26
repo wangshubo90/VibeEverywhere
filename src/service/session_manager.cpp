@@ -1044,6 +1044,7 @@ auto SessionManager::CreateSession(const CreateSessionRequest& request)
   const auto now_unix_ms = CurrentUnixTimeMs();
   sessions_.push_back(SessionEntry{
       .id = *session_id,
+      .category = SessionCategory::Pty,
       .process = std::move(process),
       .runtime = std::move(runtime),
       .git_inspector = std::move(git_inspector),
@@ -1125,6 +1126,7 @@ auto SessionManager::CreateLogSession(const LogSessionCreateRequest& request)
 
   sessions_.push_back(SessionEntry{
       .id = *session_id,
+      .category = SessionCategory::ManagedLog,
       .process = nullptr,
       .runtime = nullptr,
       .log_buffer =
@@ -1258,6 +1260,7 @@ auto SessionManager::LoadPersistedSessions() -> std::size_t {
 
     sessions_.push_back(SessionEntry{
         .id = *session_id,
+        .category = SessionCategory::Pty,
         .process = nullptr,
         .runtime = nullptr,
         .git_inspector = nullptr,
@@ -2055,6 +2058,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
     const auto attention = BuildAttentionSummary(assessment.attention);
     return SessionSummary{
         .id = metadata.id,
+        .category = entry.category,
         .provider = metadata.provider,
         .workspace_root = metadata.workspace_root,
         .title = metadata.title,
@@ -2115,6 +2119,7 @@ auto SessionManager::BuildSummary(const SessionEntry& entry) const -> SessionSum
   const auto attention = BuildAttentionSummary(assessment.attention);
   return SessionSummary{
       .id = metadata.id,
+      .category = entry.category,
       .provider = metadata.provider,
       .workspace_root = metadata.workspace_root,
       .title = metadata.title,
@@ -2278,6 +2283,7 @@ void SessionManager::RecordCreateFailureSession(
 
   sessions_.push_back(SessionEntry{
       .id = failed_metadata.id,
+      .category = SessionCategory::Pty,
       .process = nullptr,
       .runtime = nullptr,
       .git_inspector = nullptr,

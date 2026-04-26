@@ -224,6 +224,7 @@ auto Base64Encode(const std::string_view input) -> std::string {
 auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   json::object object;
   object["sessionId"] = summary.id.value();
+  object["sessionCategory"] = std::string(vibe::service::ToString(summary.category));
   object["provider"] = std::string(vibe::session::ToString(summary.provider));
   object["workspaceRoot"] = summary.workspace_root;
   object["title"] = summary.title;
