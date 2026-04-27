@@ -1,8 +1,13 @@
 #include "vibe/net/hub_control_channel.h"
 
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <thread>
+
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <gtest/gtest.h>
 
@@ -83,8 +88,38 @@ TEST(HubControlChannelTest, StopBeforeStartIsSafe) {
 }
 
 TEST(HubControlChannelTest, StartAndStopAreIdempotent) {
-  // Use an address nothing is listening on; the control loop will fail to
-  // connect and retry. Stop() must join the thread cleanly.
+  // Run a minimal non-blocking TCP server that accepts and immediately RSTs
+  // each connection. This makes connect() + WS handshake fail in <1 ms,
+  // putting the control loop into its cv_.wait_for reconnect delay where
+  // Stop() can cleanly interrupt it — without relying on Beast/WSL2
+  // socket-cancel behavior. Non-blocking accept() lets the server thread
+  // exit cleanly without requiring cross-thread fd cancellation.
+  int server_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+  ASSERT_GE(server_fd, 0);
+  int opt = 1;
+  ::setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = htons(19999);
+  ::bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+  ::listen(server_fd, 10);
+
+  std::atomic<bool> server_done{false};
+  std::thread server_thread([server_fd, &server_done]() {
+    while (!server_done.load(std::memory_order_relaxed)) {
+      int client = ::accept4(server_fd, nullptr, nullptr, SOCK_NONBLOCK);
+      if (client >= 0) {
+        // RST immediately so the WS handshake in the control channel fails fast.
+        linger sl{1, 0};
+        ::setsockopt(client, SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+        ::close(client);
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      }
+    }
+  });
+
   HubControlChannel ch("http://127.0.0.1:19999", "tok", 19998, false,
                        [](const std::string&) { return std::string{}; },
                        HubControlChannelOptions{.reconnect_delay = std::chrono::seconds(1),
@@ -92,9 +127,14 @@ TEST(HubControlChannelTest, StartAndStopAreIdempotent) {
                                                 .use_default_verify_paths = false,
                                                 .ca_certificate_file = std::nullopt});
   ch.Start();
-  // Give the loop one iteration to attempt connection and fail.
+  // Give the loop one iteration to connect, fail handshake, and enter the
+  // reconnect wait — then Stop() interrupts the wait via cv_.
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
   ch.Stop();  // must join within a reasonable time
+
+  server_done.store(true);
+  server_thread.join();
+  ::close(server_fd);
 }
 
 // ---------------------------------------------------------------------------

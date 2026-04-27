@@ -316,6 +316,7 @@ void HubControlChannel::Stop() {
   {
     std::lock_guard lock(mutex_);
     stop_ = true;
+    if (current_ioc_) current_ioc_->stop();
   }
   cv_.notify_all();
   if (control_thread_.joinable()) {
@@ -368,6 +369,11 @@ void HubControlChannel::RunControlLoop() {
 
       websocket::stream<beast::ssl_stream<beast::tcp_stream>> ws(ioc, ssl_ctx);
 
+      {
+        std::unique_lock lock(mutex_);
+        if (stop_) return;
+        current_ioc_ = &ioc;
+      }
       if (ConnectWss(ws, *parsed, hub_token_, "/api/v1/hosts/stream",
                      options_.connect_timeout)) {
         connected = true;
@@ -405,11 +411,20 @@ void HubControlChannel::RunControlLoop() {
           }
         }
       }
+      {
+        std::unique_lock lock(mutex_);
+        current_ioc_ = nullptr;
+      }
     } else {
       // Plain WS (e.g. local dev Hub without TLS).
       asio::io_context ioc;
       websocket::stream<beast::tcp_stream> ws(ioc);
 
+      {
+        std::unique_lock lock(mutex_);
+        if (stop_) return;
+        current_ioc_ = &ioc;
+      }
       if (ConnectWs(ws, *parsed, hub_token_, "/api/v1/hosts/stream",
                     options_.connect_timeout)) {
         connected = true;
@@ -445,6 +460,10 @@ void HubControlChannel::RunControlLoop() {
             std::cerr << "[hub-ctrl] malformed control message: " << e.what() << '\n';
           }
         }
+      }
+      {
+        std::unique_lock lock(mutex_);
+        current_ioc_ = nullptr;
       }
     }
 

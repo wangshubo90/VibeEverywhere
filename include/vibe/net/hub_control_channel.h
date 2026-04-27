@@ -99,6 +99,7 @@ class HubControlChannel {
   std::mutex mutex_;
   std::condition_variable cv_;
   bool stop_{false};
+  boost::asio::io_context* current_ioc_{nullptr};  // guarded by mutex_; set during connect/read
   std::thread control_thread_;
 
   // Bridge threads. Joined on Stop(); finished threads are reaped periodically.
