@@ -379,6 +379,19 @@ void HubControlChannel::RunControlLoop() {
         connected = true;
         std::cout << "[hub-ctrl] control channel connected\n";
 
+        if (options_.list_sessions_fn) {
+          const std::string sessions_json = options_.list_sessions_fn();
+          json::object msg;
+          msg["type"] = "session.inventory";
+          msg["sessions"] = json::parse(sessions_json);
+          boost::system::error_code ec;
+          ws.text(true);
+          ws.write(asio::buffer(json::serialize(msg)), ec);
+          if (ec) {
+            std::cerr << "[hub-ctrl] failed to send session inventory: " << ec.message() << '\n';
+          }
+        }
+
         // Read loop: block on each frame until disconnect or stop.
         beast::flat_buffer buf;
         boost::system::error_code ec;
@@ -429,6 +442,19 @@ void HubControlChannel::RunControlLoop() {
                     options_.connect_timeout)) {
         connected = true;
         std::cout << "[hub-ctrl] control channel connected (plain WS)\n";
+
+        if (options_.list_sessions_fn) {
+          const std::string sessions_json = options_.list_sessions_fn();
+          json::object msg;
+          msg["type"] = "session.inventory";
+          msg["sessions"] = json::parse(sessions_json);
+          boost::system::error_code ec;
+          ws.text(true);
+          ws.write(asio::buffer(json::serialize(msg)), ec);
+          if (ec) {
+            std::cerr << "[hub-ctrl] failed to send session inventory: " << ec.message() << '\n';
+          }
+        }
 
         beast::flat_buffer buf;
         boost::system::error_code ec;

@@ -2733,9 +2733,34 @@ void HttpServer::EnableHubControlChannel(std::string hub_url, std::string hub_to
     return;
   }
   const bool local_tls = remote_tls_override_.has_value();
+
+  HubControlChannelOptions opts;
+  opts.list_sessions_fn = [this]() -> std::string {
+    auto promise =
+        std::make_shared<std::promise<std::vector<vibe::service::SessionSummary>>>();
+    auto future = promise->get_future();
+    asio::post(*io_context_, [this, promise]() {
+      promise->set_value(session_manager_.ListSessions());
+    });
+    future.wait();
+    const auto sessions = future.get();
+    json::array arr;
+    for (const auto& s : sessions) {
+      json::object obj;
+      obj["session_id"] = s.id.value();
+      obj["title"] = s.title;
+      obj["lifecycle_state"] = std::string(vibe::session::ToString(s.status));
+      obj["attention_state"] = std::string(vibe::session::ToString(s.attention_state));
+      obj["attention_reason"] = std::string(vibe::session::ToString(s.attention_reason));
+      arr.push_back(std::move(obj));
+    }
+    return json::serialize(arr);
+  };
+
   hub_control_channel_ = std::make_unique<HubControlChannel>(
       hub_url, std::move(hub_token), remote_port_, local_tls,
-      [this](const std::string& session_id) { return IssueRelayToken(session_id); });
+      [this](const std::string& session_id) { return IssueRelayToken(session_id); },
+      std::move(opts));
 }
 
 auto HttpServer::IssueRelayToken(const std::string& session_id) -> std::string {

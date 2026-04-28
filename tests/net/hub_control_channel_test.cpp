@@ -135,7 +135,8 @@ TEST(HubControlChannelTest, StartAndStopAreIdempotent) {
                        HubControlChannelOptions{.reconnect_delay = std::chrono::seconds(1),
                                                 .connect_timeout = std::chrono::seconds(1),
                                                 .use_default_verify_paths = false,
-                                                .ca_certificate_file = std::nullopt});
+                                                .ca_certificate_file = std::nullopt,
+                                                .list_sessions_fn = {}});
   ch.Start();
   // Give the loop one iteration to connect, fail handshake, and enter the
   // reconnect wait — then Stop() interrupts the wait via cv_.
@@ -293,7 +294,8 @@ TEST(HubControlChannelTest, RelayBridgePipesBytes) {
       HubControlChannelOptions{.reconnect_delay = std::chrono::seconds(1),
                                .connect_timeout = std::chrono::seconds(5),
                                .use_default_verify_paths = false,
-                               .ca_certificate_file = std::nullopt});
+                               .ca_certificate_file = std::nullopt,
+                               .list_sessions_fn = {}});
   ch.Start();
 
   // ---- Wait for bridge to establish both connections (timeout 5 s) ----

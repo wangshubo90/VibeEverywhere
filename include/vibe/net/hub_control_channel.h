@@ -55,6 +55,11 @@ struct HubControlChannelOptions {
   std::chrono::seconds connect_timeout{10};
   bool use_default_verify_paths{true};
   std::optional<std::string> ca_certificate_file;
+
+  // Called once after each successful control-channel WS connect. Returns a
+  // JSON-serialized array of session objects (the value for the "sessions"
+  // field). An empty function disables the initial inventory push.
+  std::function<std::string()> list_sessions_fn;
 };
 
 // HubControlChannel maintains a persistent WSS connection to Hub's
