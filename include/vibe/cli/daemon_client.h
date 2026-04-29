@@ -60,14 +60,14 @@ struct CreateSessionResult {
 struct EvidenceCliRequest {
   std::string session_id;
   std::string operation;
-  std::optional<std::size_t> lines;
-  std::optional<std::string> query;
-  std::optional<std::uint64_t> revision_start;
-  std::optional<std::uint64_t> revision_end;
-  std::optional<std::uint64_t> revision;
-  std::optional<std::size_t> before;
-  std::optional<std::size_t> after;
-  std::optional<std::size_t> limit;
+  std::optional<std::size_t> lines{};
+  std::optional<std::string> query{};
+  std::optional<std::uint64_t> revision_start{};
+  std::optional<std::uint64_t> revision_end{};
+  std::optional<std::uint64_t> revision{};
+  std::optional<std::size_t> before{};
+  std::optional<std::size_t> after{};
+  std::optional<std::size_t> limit{};
 };
 
 [[nodiscard]] auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::string;
