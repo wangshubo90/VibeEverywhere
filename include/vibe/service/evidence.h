@@ -125,22 +125,22 @@ struct EvidenceResult {
 struct ObservationEvent {
   std::string id{};
   std::int64_t timestamp_unix_ms = 0;
-  std::string actor_session_id;
-  std::string actor_title;
-  std::string actor_id;
+  std::string actor_session_id{};
+  std::string actor_title{};
+  std::string actor_id{};
   pid_t pid = 0;
   uid_t uid = 0;
   gid_t gid = 0;
   EvidenceOperation operation = EvidenceOperation::Tail;
   EvidenceSourceRef source;
-  std::string source_title;
-  std::string query;
+  std::string source_title{};
+  std::string query{};
   std::uint64_t revision_start = 0;
   std::uint64_t revision_end = 0;
   std::size_t result_count = 0;
   bool truncated = false;
-  std::string summary;
-  std::string replay_token;
+  std::string summary{};
+  std::string replay_token{};
 };
 
 }  // namespace vibe::service
