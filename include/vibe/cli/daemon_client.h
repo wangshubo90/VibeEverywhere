@@ -59,6 +59,9 @@ struct CreateSessionResult {
 
 [[nodiscard]] auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::string;
 [[nodiscard]] auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string>;
+[[nodiscard]] auto BuildRelayRequestBody(const std::string& host_id, const std::string& session_id)
+    -> std::string;
+[[nodiscard]] auto ParseRelayChannelId(const std::string& body) -> std::optional<std::string>;
 [[nodiscard]] auto ParseSessionList(const std::string& body) -> std::vector<ListedSession>;
 [[nodiscard]] auto ParseRecordList(const std::string& body) -> std::vector<ListedRecord>;
 [[nodiscard]] auto BuildControlRequestCommand(vibe::session::ControllerKind controller_kind)
@@ -82,9 +85,15 @@ struct CreateSessionResult {
 [[nodiscard]] auto ListRecords(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedRecord>>;
 [[nodiscard]] auto PostHostConfig(const DaemonEndpoint& endpoint, const std::string& body)
     -> std::optional<std::string>;
+[[nodiscard]] auto RequestHubRelayChannel(const std::string& hub_url, const std::string& bearer_token,
+                                          const std::string& host_id, const std::string& session_id)
+    -> std::optional<std::string>;
 [[nodiscard]] auto AttachSession(const DaemonEndpoint& endpoint, const std::string& session_id,
                                  vibe::session::ControllerKind controller_kind) -> int;
 [[nodiscard]] auto ObserveSession(const DaemonEndpoint& endpoint, const std::string& session_id) -> int;
+[[nodiscard]] auto ObserveHubRelaySession(const std::string& hub_url, const std::string& bearer_token,
+                                          const std::string& host_id, const std::string& session_id)
+    -> int;
 
 }  // namespace vibe::cli
 

@@ -83,6 +83,58 @@ auto BuildWebSocketTarget(const std::string& session_id) -> std::string {
   return "/ws/sessions/" + session_id + "?stream=raw";
 }
 
+struct ParsedWebSocketBaseUrl {
+  std::string scheme;
+  std::string host;
+  std::string port;
+  std::string path_prefix;
+};
+
+auto ParseWebSocketBaseUrl(const std::string& url) -> std::optional<ParsedWebSocketBaseUrl> {
+  ParsedWebSocketBaseUrl parsed;
+  std::string remainder;
+
+  if (url.starts_with("http://")) {
+    parsed.scheme = "ws";
+    parsed.port = "80";
+    remainder = url.substr(7);
+  } else if (url.starts_with("ws://")) {
+    parsed.scheme = "ws";
+    parsed.port = "80";
+    remainder = url.substr(5);
+  } else if (url.starts_with("https://")) {
+    parsed.scheme = "wss";
+    parsed.port = "443";
+    remainder = url.substr(8);
+  } else if (url.starts_with("wss://")) {
+    parsed.scheme = "wss";
+    parsed.port = "443";
+    remainder = url.substr(6);
+  } else {
+    return std::nullopt;
+  }
+
+  const auto slash_pos = remainder.find('/');
+  const std::string authority =
+      slash_pos == std::string::npos ? remainder : remainder.substr(0, slash_pos);
+  parsed.path_prefix = slash_pos == std::string::npos ? "" : remainder.substr(slash_pos);
+
+  const auto colon_pos = authority.find(':');
+  if (colon_pos != std::string::npos) {
+    parsed.host = authority.substr(0, colon_pos);
+    parsed.port = authority.substr(colon_pos + 1);
+  } else {
+    parsed.host = authority;
+  }
+  if (parsed.host.empty()) {
+    return std::nullopt;
+  }
+  if (!parsed.path_prefix.empty() && parsed.path_prefix.back() == '/') {
+    parsed.path_prefix.pop_back();
+  }
+  return parsed;
+}
+
 auto IsLocalEndpointHost(const std::string_view host) -> bool {
   return host == "127.0.0.1" || host == "localhost" || host == "::1";
 }
@@ -974,6 +1026,118 @@ auto ObserveSession(const DaemonEndpoint& endpoint, const std::string& session_i
     }
 
     const std::string type_name = json::value_to<std::string>(*type);
+    if (type_name == "terminal.output") {
+      if (const auto* encoded = object.if_contains("dataBase64");
+          encoded != nullptr && encoded->is_string()) {
+        const auto decoded = DecodeBase64(json::value_to<std::string>(*encoded));
+        if (decoded.has_value()) {
+          WriteAllToStdout(*decoded);
+        }
+      }
+      continue;
+    }
+    if (type_name == "session.exited") {
+      return 0;
+    }
+  }
+}
+
+auto ObserveHubRelaySession(const std::string& hub_url, const std::string& bearer_token,
+                            const std::string& host_id, const std::string& session_id) -> int {
+  const auto channel_id = RequestHubRelayChannel(hub_url, bearer_token, host_id, session_id);
+  if (!channel_id.has_value()) {
+    return 1;
+  }
+
+  const auto parsed = ParseWebSocketBaseUrl(hub_url);
+  if (!parsed.has_value()) {
+    std::cerr << "invalid hub url: " << hub_url << '\n';
+    return 1;
+  }
+  if (parsed->scheme != "ws") {
+    std::cerr << "wss hub URLs are not supported by this relay proof client yet\n";
+    return 1;
+  }
+
+  AttachTraceLogger trace_logger;
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  websocket::stream<tcp::socket> ws(io_context);
+  boost::system::error_code error_code;
+
+  const auto results = resolver.resolve(parsed->host, parsed->port, error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
+  const auto endpoint_result = asio::connect(ws.next_layer(), results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return 1;
+  }
+
+  ws.next_layer().set_option(tcp::no_delay(true), error_code);
+  error_code.clear();
+  ws.set_option(websocket::stream_base::decorator(
+      [&bearer_token](websocket::request_type& request) {
+        request.set(boost::beast::http::field::authorization, "Bearer " + bearer_token);
+      }));
+
+  const std::string target = parsed->path_prefix + "/api/v1/relay/client/" + *channel_id;
+  ws.handshake(parsed->host + ":" + parsed->port, target, error_code);
+  if (error_code) {
+    std::cerr << "websocket handshake failed: " << error_code.message() << '\n';
+    return 1;
+  }
+  trace_logger.Log("ws.handshake.observe.relay");
+
+  for (;;) {
+    beast::flat_buffer buffer;
+    ws.read(buffer, error_code);
+    if (error_code == websocket::error::closed) {
+      return 0;
+    }
+    if (error_code) {
+      std::cerr << "websocket read failed: " << error_code.message() << '\n';
+      return 1;
+    }
+
+    const std::string payload = beast::buffers_to_string(buffer.data());
+    const bool got_text = ws.got_text();
+    trace_logger.Log(got_text ? "ws.read.text.observe.relay" : "ws.read.binary.observe.relay",
+                     payload.size());
+
+    if (!got_text) {
+      trace_logger.Log("stdout.write.observe.relay", payload.size());
+      WriteAllToStdout(payload);
+      continue;
+    }
+
+    boost::system::error_code parse_error;
+    const json::value parsed_message = json::parse(payload, parse_error);
+    if (parse_error || !parsed_message.is_object()) {
+      continue;
+    }
+
+    const auto& object = parsed_message.as_object();
+    const auto* type = object.if_contains("type");
+    if (type == nullptr || !type->is_string()) {
+      continue;
+    }
+
+    const std::string type_name = json::value_to<std::string>(*type);
+    if (type_name == "terminal.output") {
+      if (const auto* encoded = object.if_contains("dataBase64");
+          encoded != nullptr && encoded->is_string()) {
+        const auto decoded = DecodeBase64(json::value_to<std::string>(*encoded));
+        if (decoded.has_value()) {
+          WriteAllToStdout(*decoded);
+        }
+      }
+      continue;
+    }
     if (type_name == "session.exited") {
       return 0;
     }

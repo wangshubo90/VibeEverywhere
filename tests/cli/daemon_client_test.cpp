@@ -50,6 +50,19 @@ TEST(DaemonClientTest, ParsesCreatedSessionId) {
   EXPECT_EQ(*session_id, "s_42");
 }
 
+TEST(DaemonClientTest, BuildsRelayRequestBody) {
+  const std::string body = BuildRelayRequestBody("h_123", "s_456");
+  EXPECT_NE(body.find("\"host_id\":\"h_123\""), std::string::npos);
+  EXPECT_NE(body.find("\"session_id\":\"s_456\""), std::string::npos);
+}
+
+TEST(DaemonClientTest, ParsesRelayChannelId) {
+  const auto channel_id = ParseRelayChannelId(R"({"channel_id":"ch_42"})");
+  ASSERT_TRUE(channel_id.has_value());
+  EXPECT_EQ(*channel_id, "ch_42");
+  EXPECT_FALSE(ParseRelayChannelId("{}").has_value());
+}
+
 TEST(DaemonClientTest, ParsesSessionList) {
   const auto sessions = ParseSessionList(
       R"([{"sessionId":"s_1","title":"one","activityState":"active","status":"Running"},{"sessionId":"s_2","title":"two","activityState":"stopped","status":"Exited"}])");

@@ -32,6 +32,51 @@ constexpr auto kHttpRequestTimeout = std::chrono::seconds(2);
 
 auto ToStringPort(const std::uint16_t port) -> std::string { return std::to_string(port); }
 
+struct ParsedBaseUrl {
+  std::string scheme;
+  std::string host;
+  std::string port;
+  std::string path_prefix;
+};
+
+auto ParseBaseUrl(const std::string& url) -> std::optional<ParsedBaseUrl> {
+  ParsedBaseUrl parsed;
+  std::string remainder;
+
+  if (url.starts_with("http://")) {
+    parsed.scheme = "http";
+    parsed.port = "80";
+    remainder = url.substr(7);
+  } else if (url.starts_with("https://")) {
+    parsed.scheme = "https";
+    parsed.port = "443";
+    remainder = url.substr(8);
+  } else {
+    return std::nullopt;
+  }
+
+  const auto slash_pos = remainder.find('/');
+  const std::string authority =
+      slash_pos == std::string::npos ? remainder : remainder.substr(0, slash_pos);
+  parsed.path_prefix = slash_pos == std::string::npos ? "" : remainder.substr(slash_pos);
+
+  const auto colon_pos = authority.find(':');
+  if (colon_pos != std::string::npos) {
+    parsed.host = authority.substr(0, colon_pos);
+    parsed.port = authority.substr(colon_pos + 1);
+  } else {
+    parsed.host = authority;
+  }
+
+  if (parsed.host.empty()) {
+    return std::nullopt;
+  }
+  if (!parsed.path_prefix.empty() && parsed.path_prefix.back() == '/') {
+    parsed.path_prefix.pop_back();
+  }
+  return parsed;
+}
+
 auto ParseHttpResponse(const std::string& raw_response) -> std::optional<http::response<http::string_body>> {
   const std::size_t header_end = raw_response.find("\r\n\r\n");
   if (header_end == std::string::npos) {
@@ -171,6 +216,12 @@ auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
     const std::size_t bytes_read = socket.read_some(asio::buffer(read_buffer), error_code);
     if (bytes_read > 0) {
       response_bytes.append(read_buffer.data(), bytes_read);
+      if (const auto parsed_response = ParseHttpResponse(response_bytes);
+          parsed_response.has_value()) {
+        boost::system::error_code shutdown_error;
+        socket.shutdown(tcp::socket::shutdown_both, shutdown_error);
+        return parsed_response;
+      }
     }
 
     if (error_code) {
@@ -222,6 +273,114 @@ auto ExtractErrorMessage(const std::string& body) -> std::string {
     return message + " (session " + json::value_to<std::string>(*session_id) + ")";
   }
   return message.empty() ? body : message;
+}
+
+auto PerformHttpRequestToBaseUrl(const std::string& base_url, const http::verb method,
+                                 const std::string& target_suffix, const std::string& body,
+                                 const std::optional<std::string>& content_type,
+                                 const std::optional<std::string>& bearer_token)
+    -> std::optional<http::response<http::string_body>> {
+  const auto parsed = ParseBaseUrl(base_url);
+  if (!parsed.has_value()) {
+    std::cerr << "invalid hub url: " << base_url << '\n';
+    return std::nullopt;
+  }
+  if (parsed->scheme != "http") {
+    std::cerr << "https hub URLs are not supported by this relay proof client yet\n";
+    return std::nullopt;
+  }
+
+  asio::io_context io_context;
+  tcp::resolver resolver(io_context);
+  tcp::socket socket(io_context);
+  boost::system::error_code error_code;
+  const auto results = resolver.resolve(parsed->host, parsed->port, error_code);
+  if (error_code) {
+    std::cerr << "resolve failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  const auto endpoint_result = asio::connect(socket, results, error_code);
+  static_cast<void>(endpoint_result);
+  if (error_code) {
+    std::cerr << "connect failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  const std::string target = parsed->path_prefix + target_suffix;
+  http::request<http::string_body> request{method, target.empty() ? "/" : target, 11};
+  request.set(http::field::host, parsed->host);
+  if (content_type.has_value()) {
+    request.set(http::field::content_type, *content_type);
+  }
+  if (bearer_token.has_value()) {
+    request.set(http::field::authorization, "Bearer " + *bearer_token);
+  }
+  request.body() = body;
+  request.prepare_payload();
+
+  http::write(socket, request, error_code);
+  if (error_code) {
+    std::cerr << "http write failed: " << error_code.message() << '\n';
+    return std::nullopt;
+  }
+
+  std::string response_bytes;
+  response_bytes.reserve(8192);
+  std::array<char, 4096> read_buffer{};
+  const auto deadline = std::chrono::steady_clock::now() + kHttpRequestTimeout;
+
+  while (true) {
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= deadline) {
+      std::cerr << "http request timed out after "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(kHttpRequestTimeout).count()
+                << "ms\n";
+      return std::nullopt;
+    }
+
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+    FD_SET(socket.native_handle(), &read_fds);
+    timeval timeout{};
+    timeout.tv_sec = static_cast<decltype(timeout.tv_sec)>(remaining.count() / 1000);
+    timeout.tv_usec = static_cast<decltype(timeout.tv_usec)>((remaining.count() % 1000) * 1000);
+
+    const int select_result =
+        select(socket.native_handle() + 1, &read_fds, nullptr, nullptr, &timeout);
+    if (select_result == 0) {
+      std::cerr << "http request timed out after "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(kHttpRequestTimeout).count()
+                << "ms\n";
+      return std::nullopt;
+    }
+    if (select_result < 0) {
+      std::cerr << "http read failed: " << std::strerror(errno) << '\n';
+      return std::nullopt;
+    }
+
+    const std::size_t bytes_read = socket.read_some(asio::buffer(read_buffer), error_code);
+    if (bytes_read > 0) {
+      response_bytes.append(read_buffer.data(), bytes_read);
+      if (const auto parsed_response = ParseHttpResponse(response_bytes);
+          parsed_response.has_value()) {
+        boost::system::error_code shutdown_error;
+        socket.shutdown(tcp::socket::shutdown_both, shutdown_error);
+        return parsed_response;
+      }
+    }
+
+    if (error_code) {
+      if (error_code == asio::error::eof) {
+        break;
+      }
+      std::cerr << "http read failed: " << error_code.message() << '\n';
+      return std::nullopt;
+    }
+  }
+
+  return ParseHttpResponse(response_bytes);
 }
 
 }  // namespace
@@ -280,6 +439,29 @@ auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string
   }
 
   return json::value_to<std::string>(*session_id);
+}
+
+auto BuildRelayRequestBody(const std::string& host_id, const std::string& session_id)
+    -> std::string {
+  json::object object;
+  object["host_id"] = host_id;
+  object["session_id"] = session_id;
+  return json::serialize(object);
+}
+
+auto ParseRelayChannelId(const std::string& body) -> std::optional<std::string> {
+  boost::system::error_code error_code;
+  const json::value parsed = json::parse(body, error_code);
+  if (error_code || !parsed.is_object()) {
+    return std::nullopt;
+  }
+
+  const json::object& object = parsed.as_object();
+  const auto channel_id = object.if_contains("channel_id");
+  if (channel_id == nullptr || !channel_id->is_string()) {
+    return std::nullopt;
+  }
+  return json::value_to<std::string>(*channel_id);
 }
 
 auto ParseSessionList(const std::string& body) -> std::vector<ListedSession> {
@@ -502,6 +684,23 @@ auto PostHostConfig(const DaemonEndpoint& endpoint, const std::string& body)
     return std::nullopt;
   }
   return response->body();
+}
+
+auto RequestHubRelayChannel(const std::string& hub_url, const std::string& bearer_token,
+                            const std::string& host_id, const std::string& session_id)
+    -> std::optional<std::string> {
+  const auto response =
+      PerformHttpRequestToBaseUrl(hub_url, http::verb::post, "/api/v1/relay/request",
+                                  BuildRelayRequestBody(host_id, session_id),
+                                  "application/json", bearer_token);
+  if (!response.has_value()) {
+    return std::nullopt;
+  }
+  if (response->result() != http::status::ok) {
+    std::cerr << "relay request failed: " << ExtractErrorMessage(response->body()) << '\n';
+    return std::nullopt;
+  }
+  return ParseRelayChannelId(response->body());
 }
 
 }  // namespace vibe::cli
