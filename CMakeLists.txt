@@ -18,7 +18,7 @@ endif()
 option(SENTRITS_BUILD_TESTS "Build automated tests" ON)
 option(SENTRITS_STRICT_CI_WARNINGS
        "Enable additional warning checks to better match Linux CI clang strictness"
-       OFF)
+       ON)
 set(SENTRITS_PACKAGED_WEB_ROOT "/${CMAKE_INSTALL_LIBDIR}/sentrits/www" CACHE PATH
     "Default packaged web asset root used by the runtime")
 

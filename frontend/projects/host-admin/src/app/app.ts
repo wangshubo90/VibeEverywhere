@@ -402,10 +402,17 @@ export class App implements OnInit, OnDestroy {
     }
 
     const port = window.location.port;
-    if (port === '18085' || port === '') {
-      return '';
+    const hostname = window.location.hostname;
+    const isAngularDevServer = port === '4200' || port === '4300';
+    if (isAngularDevServer) {
+      return 'http://127.0.0.1:18085';
     }
-    return 'http://127.0.0.1:18085';
+
+    if ((hostname === 'localhost' || hostname === '127.0.0.1') && port === '') {
+      return 'http://127.0.0.1:18085';
+    }
+
+    return '';
   }
 
   private defaultWorkspaceRoot(): string {

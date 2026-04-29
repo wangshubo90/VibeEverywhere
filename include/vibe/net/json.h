@@ -9,6 +9,7 @@
 #include "vibe/auth/pairing.h"
 #include "vibe/net/discovery.h"
 #include "vibe/net/host_admin.h"
+#include "vibe/service/evidence.h"
 #include "vibe/service/session_manager.h"
 #include "vibe/session/env_config.h"
 #include "vibe/session/session_snapshot.h"
@@ -39,6 +40,10 @@ struct SessionInventoryEvent {
   std::vector<vibe::service::SessionSummary> sessions;
 };
 
+struct ObservationCreatedEvent {
+  vibe::service::ObservationEvent event;
+};
+
 struct ErrorEvent {
   std::string session_id;
   std::string code;
@@ -63,6 +68,7 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJson(const SessionExitedEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionActivityEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const SessionInventoryEvent& event) -> std::string;
+[[nodiscard]] auto ToJson(const ObservationCreatedEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const ErrorEvent& event) -> std::string;
 [[nodiscard]] auto ToJson(const DiscoveryInfo& info) -> std::string;
 [[nodiscard]] auto ToJson(const vibe::session::EffectiveEnvironment& env, bool redact) -> std::string;
@@ -71,6 +77,11 @@ struct ErrorEvent {
 [[nodiscard]] auto ToJsonHostInfo() -> std::string;
 [[nodiscard]] auto ToJsonHostInfo(const std::optional<vibe::store::HostIdentity>& host_identity,
                                   bool tls_enabled) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::service::EvidenceEntry& entry) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::service::EvidenceHighlight& highlight) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::service::EvidenceResult& result) -> std::string;
+[[nodiscard]] auto ToJson(const vibe::service::ObservationEvent& event) -> std::string;
+[[nodiscard]] auto ToJson(const std::vector<vibe::service::ObservationEvent>& events) -> std::string;
 
 }  // namespace vibe::net
 

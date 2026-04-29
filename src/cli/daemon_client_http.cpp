@@ -11,11 +11,13 @@
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace vibe::cli {
@@ -145,7 +147,8 @@ auto ParseHttpResponse(const std::string& raw_response) -> std::optional<http::r
 
 auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
                         const std::string& target, const std::string& body = {},
-                        const std::optional<std::string>& content_type = std::nullopt)
+                        const std::optional<std::string>& content_type = std::nullopt,
+                        const std::optional<std::string>& actor_session_id = std::nullopt)
     -> std::optional<http::response<http::string_body>> {
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -168,6 +171,9 @@ auto PerformHttpRequest(const DaemonEndpoint& endpoint, const http::verb method,
   request.set(http::field::host, endpoint.host);
   if (content_type.has_value()) {
     request.set(http::field::content_type, *content_type);
+  }
+  if (actor_session_id.has_value() && !actor_session_id->empty()) {
+    request.set("X-Sentrits-Actor-Session", *actor_session_id);
   }
   request.body() = body;
   request.prepare_payload();
@@ -383,6 +389,30 @@ auto PerformHttpRequestToBaseUrl(const std::string& base_url, const http::verb m
   return ParseHttpResponse(response_bytes);
 }
 
+auto UrlEncode(const std::string_view input) -> std::string {
+  std::ostringstream encoded;
+  encoded << std::uppercase << std::hex;
+  for (const char raw_ch : input) {
+    const auto ch = static_cast<unsigned char>(raw_ch);
+    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
+        (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' || ch == '~') {
+      encoded << static_cast<char>(ch);
+    } else {
+      encoded << '%' << static_cast<int>((ch >> 4U) & 0x0FU)
+              << static_cast<int>(ch & 0x0FU);
+    }
+  }
+  return encoded.str();
+}
+
+auto ActorSessionIdFromEnvironment() -> std::optional<std::string> {
+  const char* value = std::getenv("SENTRITS_SESSION_ID");
+  if (value == nullptr || *value == '\0') {
+    return std::nullopt;
+  }
+  return std::string(value);
+}
+
 }  // namespace
 
 auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::string {
@@ -423,6 +453,57 @@ auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::
     object["envFilePath"] = *request.env_file_path;
   }
   return json::serialize(object);
+}
+
+auto BuildEvidenceTarget(const EvidenceCliRequest& request) -> std::optional<std::string> {
+  if (request.session_id.empty() || request.operation.empty()) {
+    return std::nullopt;
+  }
+
+  std::ostringstream target;
+  target << "/sessions/" << UrlEncode(request.session_id) << "/evidence/" << UrlEncode(request.operation);
+  char separator = '?';
+  const auto append_query = [&](const std::string_view key, const std::string& value) {
+    target << separator << key << '=' << UrlEncode(value);
+    separator = '&';
+  };
+  const auto append_size = [&](const std::string_view key, const std::optional<std::size_t> value) {
+    if (value.has_value()) {
+      append_query(key, std::to_string(*value));
+    }
+  };
+  const auto append_revision = [&](const std::string_view key, const std::optional<std::uint64_t> value) {
+    if (value.has_value()) {
+      append_query(key, std::to_string(*value));
+    }
+  };
+
+  if (request.operation == "tail") {
+    append_size("lines", request.lines);
+  } else if (request.operation == "search") {
+    if (!request.query.has_value()) {
+      return std::nullopt;
+    }
+    append_query("query", *request.query);
+    append_size("limit", request.limit);
+  } else if (request.operation == "range") {
+    if (!request.revision_start.has_value() || !request.revision_end.has_value()) {
+      return std::nullopt;
+    }
+    append_revision("start", request.revision_start);
+    append_revision("end", request.revision_end);
+    append_size("limit", request.limit);
+  } else if (request.operation == "context") {
+    if (!request.revision.has_value()) {
+      return std::nullopt;
+    }
+    append_revision("revision", request.revision);
+    append_size("before", request.before);
+    append_size("after", request.after);
+  } else {
+    return std::nullopt;
+  }
+  return target.str();
 }
 
 auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string> {
@@ -610,6 +691,28 @@ auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSession
   };
 }
 
+auto CreateLogSessionWithDetail(const DaemonEndpoint& endpoint,
+                                const CreateSessionRequest& request) -> CreateSessionResult {
+  const auto response = PerformHttpRequest(
+      endpoint, http::verb::post, "/log-sessions", BuildCreateSessionRequestBody(request),
+      "application/json");
+  if (!response.has_value()) {
+    return {};
+  }
+
+  if (response->result() != http::status::created) {
+    return CreateSessionResult{
+        .session_id = std::nullopt,
+        .error_message = ExtractErrorMessage(response->body()),
+    };
+  }
+
+  return CreateSessionResult{
+      .session_id = ParseCreatedSessionId(response->body()),
+      .error_message = {},
+  };
+}
+
 auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>> {
   const auto response = PerformHttpRequest(endpoint, http::verb::get, "/sessions");
   if (!response.has_value()) {
@@ -662,6 +765,31 @@ auto GetSessionEnv(const DaemonEndpoint& endpoint, const std::string& session_id
     -> std::optional<std::string> {
   const auto response =
       PerformHttpRequest(endpoint, http::verb::get, "/sessions/" + session_id + "/env");
+  if (!response.has_value() || response->result() != http::status::ok) {
+    return std::nullopt;
+  }
+  return response->body();
+}
+
+auto GetEvidence(const DaemonEndpoint& endpoint, const EvidenceCliRequest& request)
+    -> std::optional<std::string> {
+  const auto target = BuildEvidenceTarget(request);
+  if (!target.has_value()) {
+    return std::nullopt;
+  }
+  const auto response =
+      PerformHttpRequest(endpoint, http::verb::get, *target, {}, std::nullopt,
+                         ActorSessionIdFromEnvironment());
+  if (!response.has_value() || response->result() != http::status::ok) {
+    return std::nullopt;
+  }
+  return response->body();
+}
+
+auto ListObservations(const DaemonEndpoint& endpoint, const std::size_t limit)
+    -> std::optional<std::string> {
+  const auto response = PerformHttpRequest(endpoint, http::verb::get,
+                                           "/observations?limit=" + std::to_string(limit));
   if (!response.has_value() || response->result() != http::status::ok) {
     return std::nullopt;
   }

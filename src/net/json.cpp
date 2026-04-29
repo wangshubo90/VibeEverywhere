@@ -100,6 +100,95 @@ auto MakeNodeSummaryJson(const vibe::session::SessionNodeSummary& summary) -> js
   return object;
 }
 
+auto MakeEvidenceSourceRefJson(const vibe::service::EvidenceSourceRef& source) -> json::object {
+  json::object object;
+  object["kind"] = std::string(vibe::service::ToString(source.kind));
+  object["sessionId"] = source.session_id.value();
+  return object;
+}
+
+auto MakeEvidenceEntryJson(const vibe::service::EvidenceEntry& entry) -> json::object {
+  json::object object;
+  object["entryId"] = entry.entry_id;
+  object["source"] = MakeEvidenceSourceRefJson(entry.source);
+  object["revision"] = entry.revision;
+  object["byteStart"] = entry.byte_start;
+  object["byteEnd"] = entry.byte_end;
+  object["timestampUnixMs"] = entry.timestamp_unix_ms;
+  object["stream"] = std::string(vibe::service::ToString(entry.stream));
+  object["text"] = entry.text;
+  object["partial"] = entry.partial;
+  return object;
+}
+
+auto MakeEvidenceHighlightJson(const vibe::service::EvidenceHighlight& highlight) -> json::object {
+  json::object object;
+  object["entryId"] = highlight.entry_id;
+  object["start"] = highlight.start;
+  object["length"] = highlight.length;
+  object["kind"] = std::string(vibe::service::ToString(highlight.kind));
+  return object;
+}
+
+auto MakeEvidenceResultJson(const vibe::service::EvidenceResult& result) -> json::object {
+  json::object object;
+  object["source"] = MakeEvidenceSourceRefJson(result.source);
+  object["operation"] = std::string(vibe::service::ToString(result.operation));
+  object["query"] = result.query;
+  object["revisionStart"] = result.revision_start;
+  object["revisionEnd"] = result.revision_end;
+  object["oldestRevision"] = result.oldest_revision;
+  object["latestRevision"] = result.latest_revision;
+  json::array entries;
+  for (const auto& entry : result.entries) {
+    entries.emplace_back(MakeEvidenceEntryJson(entry));
+  }
+  object["entries"] = std::move(entries);
+  json::array highlights;
+  for (const auto& highlight : result.highlights) {
+    highlights.emplace_back(MakeEvidenceHighlightJson(highlight));
+  }
+  object["highlights"] = std::move(highlights);
+  object["truncated"] = result.truncated;
+  object["bufferExhausted"] = result.buffer_exhausted;
+  object["droppedEntries"] = result.dropped_entries;
+  object["droppedBytes"] = result.dropped_bytes;
+  if (!result.error_code.empty()) {
+    object["errorCode"] = result.error_code;
+  }
+  object["replayToken"] = result.replay_token;
+  return object;
+}
+
+auto MakeObservationEventJson(const vibe::service::ObservationEvent& event) -> json::object {
+  json::object object;
+  object["id"] = event.id;
+  object["timestampUnixMs"] = event.timestamp_unix_ms;
+  object["actorSessionId"] = event.actor_session_id;
+  object["actorTitle"] = event.actor_title;
+  object["actorId"] = event.actor_id;
+  if (event.pid != 0) {
+    object["pid"] = event.pid;
+  }
+  if (event.uid != 0) {
+    object["uid"] = event.uid;
+  }
+  if (event.gid != 0) {
+    object["gid"] = event.gid;
+  }
+  object["operation"] = std::string(vibe::service::ToString(event.operation));
+  object["source"] = MakeEvidenceSourceRefJson(event.source);
+  object["sourceTitle"] = event.source_title;
+  object["query"] = event.query;
+  object["revisionStart"] = event.revision_start;
+  object["revisionEnd"] = event.revision_end;
+  object["resultCount"] = event.result_count;
+  object["truncated"] = event.truncated;
+  object["summary"] = event.summary;
+  object["replayToken"] = event.replay_token;
+  return object;
+}
+
 }  // namespace
 
 auto JsonEscape(const std::string_view input) -> std::string {
@@ -143,6 +232,7 @@ auto Base64Encode(const std::string_view input) -> std::string {
 auto ToJson(const vibe::service::SessionSummary& summary) -> std::string {
   json::object object;
   object["sessionId"] = summary.id.value();
+  object["sessionCategory"] = std::string(vibe::service::ToString(summary.category));
   object["provider"] = std::string(vibe::session::ToString(summary.provider));
   object["workspaceRoot"] = summary.workspace_root;
   object["title"] = summary.title;
@@ -324,6 +414,30 @@ auto ToJson(const vibe::session::OutputSlice& slice) -> std::string {
   object["dataBase64"] = Base64Encode(slice.data);
   object["dataEncoding"] = "base64";
   return json::serialize(object);
+}
+
+auto ToJson(const vibe::service::EvidenceEntry& entry) -> std::string {
+  return json::serialize(MakeEvidenceEntryJson(entry));
+}
+
+auto ToJson(const vibe::service::EvidenceHighlight& highlight) -> std::string {
+  return json::serialize(MakeEvidenceHighlightJson(highlight));
+}
+
+auto ToJson(const vibe::service::EvidenceResult& result) -> std::string {
+  return json::serialize(MakeEvidenceResultJson(result));
+}
+
+auto ToJson(const vibe::service::ObservationEvent& event) -> std::string {
+  return json::serialize(MakeObservationEventJson(event));
+}
+
+auto ToJson(const std::vector<vibe::service::ObservationEvent>& events) -> std::string {
+  json::array array;
+  for (const auto& event : events) {
+    array.emplace_back(MakeObservationEventJson(event));
+  }
+  return json::serialize(array);
 }
 
 auto ToJson(const vibe::auth::PairingRequest& request) -> std::string {
@@ -533,6 +647,13 @@ auto ToJson(const SessionInventoryEvent& event) -> std::string {
     sessions.push_back(json::parse(ToJson(summary)));
   }
   object["sessions"] = std::move(sessions);
+  return json::serialize(object);
+}
+
+auto ToJson(const ObservationCreatedEvent& event) -> std::string {
+  json::object object;
+  object["type"] = "observation.created";
+  object["event"] = MakeObservationEventJson(event.event);
   return json::serialize(object);
 }
 

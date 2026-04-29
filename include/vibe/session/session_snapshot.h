@@ -201,12 +201,12 @@ struct GitSummary {
 struct SessionSnapshot {
   SessionMetadata metadata;
   std::uint64_t current_sequence{0};
-  std::string recent_terminal_tail;
-  std::optional<TerminalScreenSnapshot> terminal_screen;
-  SessionSignals signals;
-  SessionNodeSummary node_summary;
-  std::vector<std::string> recent_file_changes;
-  GitSummary git_summary;
+  std::string recent_terminal_tail{};
+  std::optional<TerminalScreenSnapshot> terminal_screen{};
+  SessionSignals signals{};
+  SessionNodeSummary node_summary{};
+  std::vector<std::string> recent_file_changes{};
+  GitSummary git_summary{};
 };
 
 }  // namespace vibe::session

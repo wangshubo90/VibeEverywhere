@@ -15,7 +15,11 @@ set(VIBE_CORE_SOURCES
   src/net/websocket_shared.cpp
   src/store/file_stores.cpp
   src/store/host_config_store.cpp
+  src/service/evidence_response_assembler.cpp
   src/service/git_inspector.cpp
+  src/service/log_buffer.cpp
+  src/service/managed_log_process.cpp
+  src/service/observation_store.cpp
   src/service/session_manager.cpp
   src/service/workspace_file_watcher.cpp
   src/session/env_config.cpp
@@ -50,7 +54,10 @@ set(SENTRITS_TEST_SOURCES
   tests/net/http_shared_test.cpp
   tests/net/websocket_shared_test.cpp
   tests/store/file_stores_test.cpp
+  tests/service/evidence_response_assembler_test.cpp
   tests/service/git_inspector_test.cpp
+  tests/service/log_buffer_test.cpp
+  tests/service/observation_store_test.cpp
   tests/service/session_manager_test.cpp
   tests/service/workspace_file_watcher_test.cpp
   tests/session/env_resolver_test.cpp

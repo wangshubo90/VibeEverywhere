@@ -4,10 +4,14 @@
 #define SENTRITS_VERSION "0.0.0"
 #endif
 
+#include <boost/json.hpp>
+
 #include "vibe/net/json.h"
 
 namespace vibe::net {
 namespace {
+
+namespace json = boost::json;
 
 TEST(HttpJsonTest, EscapesQuotedAndControlCharacters) {
   EXPECT_EQ(JsonEscape("a\"b\\c\n"), "a\\\"b\\\\c\\n");
@@ -178,6 +182,236 @@ TEST(HttpJsonTest, SerializesOutputSlice) {
   EXPECT_NE(json.find("\"seqEnd\":4"), std::string::npos);
   EXPECT_NE(json.find("\"dataEncoding\":\"base64\""), std::string::npos);
   EXPECT_NE(json.find("\"dataBase64\":\"aGVsbG8K\""), std::string::npos);
+}
+
+TEST(HttpJsonTest, SerializesEvidenceResult) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_001");
+  ASSERT_TRUE(session_id.has_value());
+  const vibe::service::EvidenceSourceRef source{
+      .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+      .session_id = *session_id,
+  };
+
+  const std::string payload = ToJson(vibe::service::EvidenceResult{
+      .source = source,
+      .operation = vibe::service::EvidenceOperation::Search,
+      .query = "timeout",
+      .revision_start = 10,
+      .revision_end = 12,
+      .oldest_revision = 4,
+      .latest_revision = 15,
+      .entries =
+          {
+              vibe::service::EvidenceEntry{
+                  .entry_id = "log:log_001:rev:11",
+                  .source = source,
+                  .revision = 11,
+                  .byte_start = 120,
+                  .byte_end = 151,
+                  .timestamp_unix_ms = 123456,
+                  .stream = vibe::service::LogStream::Stderr,
+                  .text = "encoder timeout after 5000ms",
+                  .partial = false,
+              },
+          },
+      .highlights =
+          {
+              vibe::service::EvidenceHighlight{
+                  .entry_id = "log:log_001:rev:11",
+                  .start = 8,
+                  .length = 7,
+                  .kind = vibe::service::EvidenceHighlightKind::Match,
+              },
+          },
+      .truncated = true,
+      .buffer_exhausted = false,
+      .dropped_entries = 2,
+      .dropped_bytes = 64,
+      .error_code = "",
+      .replay_token = "token_1",
+  });
+
+  const auto parsed = json::parse(payload).as_object();
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("operation")), "search");
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("query")), "timeout");
+  EXPECT_EQ(parsed.at("revisionStart").as_int64(), 10);
+  EXPECT_EQ(parsed.at("oldestRevision").as_int64(), 4);
+  EXPECT_TRUE(parsed.at("truncated").as_bool());
+  EXPECT_FALSE(parsed.at("bufferExhausted").as_bool());
+  EXPECT_EQ(parsed.at("droppedEntries").as_int64(), 2);
+  EXPECT_FALSE(parsed.contains("errorCode"));
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("replayToken")), "token_1");
+
+  const auto& source_json = parsed.at("source").as_object();
+  EXPECT_EQ(json::value_to<std::string>(source_json.at("kind")), "managed_log_session");
+  EXPECT_EQ(json::value_to<std::string>(source_json.at("sessionId")), "log_001");
+
+  const auto& entry = parsed.at("entries").as_array().front().as_object();
+  EXPECT_EQ(json::value_to<std::string>(entry.at("entryId")), "log:log_001:rev:11");
+  EXPECT_EQ(json::value_to<std::string>(entry.at("stream")), "stderr");
+  EXPECT_EQ(json::value_to<std::string>(entry.at("text")), "encoder timeout after 5000ms");
+  EXPECT_EQ(entry.at("timestampUnixMs").as_int64(), 123456);
+  EXPECT_FALSE(entry.at("partial").as_bool());
+
+  const auto& highlight = parsed.at("highlights").as_array().front().as_object();
+  EXPECT_EQ(json::value_to<std::string>(highlight.at("entryId")), "log:log_001:rev:11");
+  EXPECT_EQ(highlight.at("start").as_int64(), 8);
+  EXPECT_EQ(highlight.at("length").as_int64(), 7);
+  EXPECT_EQ(json::value_to<std::string>(highlight.at("kind")), "match");
+}
+
+TEST(HttpJsonTest, SerializesEvidenceBufferExhaustedResult) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_002");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string payload = ToJson(vibe::service::EvidenceResult{
+      .source =
+          vibe::service::EvidenceSourceRef{
+              .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+              .session_id = *session_id,
+          },
+      .operation = vibe::service::EvidenceOperation::Context,
+      .revision_start = 0,
+      .revision_end = 0,
+      .oldest_revision = 100,
+      .latest_revision = 120,
+      .buffer_exhausted = true,
+      .error_code = "buffer_exhausted",
+      .replay_token = "token_2",
+  });
+
+  const auto parsed = json::parse(payload).as_object();
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("operation")), "context");
+  EXPECT_TRUE(parsed.at("bufferExhausted").as_bool());
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("errorCode")), "buffer_exhausted");
+}
+
+TEST(HttpJsonTest, SerializesObservationEventWithActorAttribution) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_003");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string payload = ToJson(vibe::service::ObservationEvent{
+      .id = "obs_1",
+      .timestamp_unix_ms = 456789,
+      .actor_session_id = "agent_1",
+      .actor_title = "Codex",
+      .actor_id = "agent_1",
+      .pid = 111,
+      .uid = 501,
+      .gid = 20,
+      .operation = vibe::service::EvidenceOperation::Tail,
+      .source =
+          vibe::service::EvidenceSourceRef{
+              .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+              .session_id = *session_id,
+          },
+      .source_title = "Runtime Log",
+      .query = "",
+      .revision_start = 30,
+      .revision_end = 40,
+      .result_count = 11,
+      .truncated = false,
+      .summary = "Codex tailed 11 lines from Runtime Log",
+      .replay_token = "token_3",
+  });
+
+  const auto parsed = json::parse(payload).as_object();
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("id")), "obs_1");
+  EXPECT_EQ(parsed.at("timestampUnixMs").as_int64(), 456789);
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("actorSessionId")), "agent_1");
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("actorTitle")), "Codex");
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("actorId")), "agent_1");
+  EXPECT_EQ(parsed.at("pid").as_int64(), 111);
+  EXPECT_EQ(parsed.at("uid").as_int64(), 501);
+  EXPECT_EQ(parsed.at("gid").as_int64(), 20);
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("operation")), "tail");
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("sourceTitle")), "Runtime Log");
+  EXPECT_EQ(parsed.at("resultCount").as_int64(), 11);
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("summary")),
+            "Codex tailed 11 lines from Runtime Log");
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("replayToken")), "token_3");
+}
+
+TEST(HttpJsonTest, OmitsUnknownObservationProcessIdentity) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_003");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string payload = ToJson(vibe::service::ObservationEvent{
+      .id = "obs_1",
+      .actor_session_id = "agent_1",
+      .actor_id = "agent_1",
+      .operation = vibe::service::EvidenceOperation::Tail,
+      .source =
+          vibe::service::EvidenceSourceRef{
+              .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+              .session_id = *session_id,
+          },
+  });
+
+  const auto parsed = json::parse(payload).as_object();
+  EXPECT_FALSE(parsed.contains("pid"));
+  EXPECT_FALSE(parsed.contains("uid"));
+  EXPECT_FALSE(parsed.contains("gid"));
+}
+
+TEST(HttpJsonTest, SerializesObservationCreatedEvent) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_004");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string payload = ToJson(ObservationCreatedEvent{
+      .event =
+          vibe::service::ObservationEvent{
+              .id = "obs_2",
+              .actor_session_id = "agent_2",
+              .actor_id = "agent_2",
+              .operation = vibe::service::EvidenceOperation::Search,
+              .source =
+                  vibe::service::EvidenceSourceRef{
+                      .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+                      .session_id = *session_id,
+                  },
+              .source_title = "Runtime Log",
+              .query = "error",
+              .result_count = 3,
+              .replay_token = "token_4",
+          },
+  });
+
+  const auto parsed = json::parse(payload).as_object();
+  EXPECT_EQ(json::value_to<std::string>(parsed.at("type")), "observation.created");
+  const auto& event = parsed.at("event").as_object();
+  EXPECT_EQ(json::value_to<std::string>(event.at("id")), "obs_2");
+  EXPECT_EQ(json::value_to<std::string>(event.at("operation")), "search");
+  EXPECT_EQ(json::value_to<std::string>(event.at("replayToken")), "token_4");
+}
+
+TEST(HttpJsonTest, SerializesObservationEventList) {
+  const auto session_id = vibe::session::SessionId::TryCreate("log_004");
+  ASSERT_TRUE(session_id.has_value());
+
+  const std::string payload = ToJson(std::vector<vibe::service::ObservationEvent>{
+      vibe::service::ObservationEvent{
+          .id = "obs_a",
+          .actor_session_id = "agent_a",
+          .actor_id = "agent_a",
+          .operation = vibe::service::EvidenceOperation::Search,
+          .source =
+              vibe::service::EvidenceSourceRef{
+                  .kind = vibe::service::EvidenceSourceKind::ManagedLogSession,
+                  .session_id = *session_id,
+              },
+          .query = "error",
+          .result_count = 3,
+          .replay_token = "token_a",
+      },
+  });
+
+  const auto parsed = json::parse(payload).as_array();
+  ASSERT_EQ(parsed.size(), 1U);
+  const auto& event = parsed.front().as_object();
+  EXPECT_EQ(json::value_to<std::string>(event.at("operation")), "search");
+  EXPECT_EQ(json::value_to<std::string>(event.at("actorSessionId")), "agent_a");
+  EXPECT_EQ(json::value_to<std::string>(event.at("query")), "error");
 }
 
 TEST(HttpJsonTest, SerializesSessionFileReadResult) {

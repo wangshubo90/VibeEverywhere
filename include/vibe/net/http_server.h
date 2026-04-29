@@ -16,6 +16,7 @@
 
 #include "vibe/auth/authorizer.h"
 #include "vibe/auth/pairing.h"
+#include "vibe/service/observation_store.h"
 #include "vibe/service/session_manager.h"
 #include "vibe/store/file_stores.h"
 #include "vibe/store/host_config_store.h"
@@ -66,6 +67,7 @@ class HttpServer {
   bool enable_discovery_{true};
   vibe::store::FileSessionStore session_store_;
   vibe::service::SessionManager session_manager_;
+  vibe::service::ObservationStore observation_store_;
   std::shared_ptr<vibe::auth::Authorizer> authorizer_;
   std::shared_ptr<vibe::auth::PairingService> pairing_service_;
   std::shared_ptr<vibe::store::PairingStore> pairing_store_;

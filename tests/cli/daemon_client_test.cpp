@@ -123,6 +123,35 @@ TEST(DaemonClientTest, BuildsControlAndTerminalCommands) {
   EXPECT_NE(resize.find("\"rows\":30"), std::string::npos);
 }
 
+TEST(DaemonClientTest, BuildsEvidenceTargets) {
+  const auto tail = BuildEvidenceTarget(EvidenceCliRequest{
+      .session_id = "s_1",
+      .operation = "tail",
+      .lines = 5,
+  });
+  ASSERT_TRUE(tail.has_value());
+  EXPECT_EQ(*tail, "/sessions/s_1/evidence/tail?lines=5");
+
+  const auto search = BuildEvidenceTarget(EvidenceCliRequest{
+      .session_id = "s_1",
+      .operation = "search",
+      .query = "error: one",
+      .limit = 10,
+  });
+  ASSERT_TRUE(search.has_value());
+  EXPECT_EQ(*search, "/sessions/s_1/evidence/search?query=error%3A%20one&limit=10");
+
+  const auto context = BuildEvidenceTarget(EvidenceCliRequest{
+      .session_id = "s_1",
+      .operation = "context",
+      .revision = 42,
+      .before = 2,
+      .after = 3,
+  });
+  ASSERT_TRUE(context.has_value());
+  EXPECT_EQ(*context, "/sessions/s_1/evidence/context?revision=42&before=2&after=3");
+}
+
 TEST(DaemonClientTest, RejectsMalformedCreateSessionResponse) {
   EXPECT_FALSE(ParseCreatedSessionId("{}").has_value());
   EXPECT_FALSE(ParseCreatedSessionId("not-json").has_value());

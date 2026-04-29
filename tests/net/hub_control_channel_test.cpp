@@ -9,6 +9,7 @@
 #include <thread>
 
 #include <netinet/in.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -41,6 +42,34 @@ auto CanBindLoopbackTcp() -> bool {
   const bool ok = ::bind(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
   ::close(fd);
   return ok;
+}
+
+auto SetNonBlocking(const int fd) -> bool {
+  const int flags = ::fcntl(fd, F_GETFL, 0);
+  if (flags < 0) {
+    return false;
+  }
+  return ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+}
+
+auto CreateNonBlockingSocket() -> int {
+  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    return fd;
+  }
+  if (!SetNonBlocking(fd)) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+auto AcceptNonBlocking(const int server_fd) -> int {
+  const int client = ::accept(server_fd, nullptr, nullptr);
+  if (client >= 0) {
+    static_cast<void>(SetNonBlocking(client));
+  }
+  return client;
 }
 
 }  // namespace
@@ -129,7 +158,7 @@ TEST(HubControlChannelTest, StartAndStopAreIdempotent) {
   // Stop() can cleanly interrupt it — without relying on Beast/WSL2
   // socket-cancel behavior. Non-blocking accept() lets the server thread
   // exit cleanly without requiring cross-thread fd cancellation.
-  int server_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+  int server_fd = CreateNonBlockingSocket();
   ASSERT_GE(server_fd, 0);
   int opt = 1;
   ::setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -143,7 +172,7 @@ TEST(HubControlChannelTest, StartAndStopAreIdempotent) {
   std::atomic<bool> server_done{false};
   std::thread server_thread([server_fd, &server_done]() {
     while (!server_done.load(std::memory_order_relaxed)) {
-      int client = ::accept4(server_fd, nullptr, nullptr, SOCK_NONBLOCK);
+      int client = AcceptNonBlocking(server_fd);
       if (client >= 0) {
         // RST immediately so the WS handshake in the control channel fails fast.
         linger sl{1, 0};
@@ -178,7 +207,7 @@ TEST(HubControlChannelTest, StartTwiceDoesNotSpawnDuplicateControlThreads) {
     GTEST_SKIP() << "loopback TCP bind is not available in this environment";
   }
 
-  int server_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+  int server_fd = CreateNonBlockingSocket();
   ASSERT_GE(server_fd, 0);
   int opt = 1;
   ::setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -193,7 +222,7 @@ TEST(HubControlChannelTest, StartTwiceDoesNotSpawnDuplicateControlThreads) {
   std::atomic<int> accepted_connections{0};
   std::thread server_thread([server_fd, &server_done, &accepted_connections]() {
     while (!server_done.load(std::memory_order_relaxed)) {
-      int client = ::accept4(server_fd, nullptr, nullptr, SOCK_NONBLOCK);
+      int client = AcceptNonBlocking(server_fd);
       if (client >= 0) {
         accepted_connections.fetch_add(1, std::memory_order_relaxed);
         linger sl{1, 0};

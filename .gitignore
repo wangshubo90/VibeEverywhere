@@ -8,3 +8,5 @@ build-*/
 .vscode/
 .agents/
 _CPack_Packages/
+.runtime/
+.sentrits/

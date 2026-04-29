@@ -293,6 +293,7 @@ class WebSocketSessionBase {
 
   virtual void Start(HttpRequest request) = 0;
   virtual void SendPendingOutput() = 0;
+  virtual void SendExternalEvent(std::string payload) = 0;
   virtual void ForceClose() = 0;
 
   [[nodiscard]] virtual auto session_id() const -> const std::string& = 0;
@@ -302,6 +303,22 @@ class WebSocketSessionBase {
   [[nodiscard]] virtual auto claimed_kind() const -> vibe::session::ControllerKind = 0;
   [[nodiscard]] virtual auto connected_at_unix_ms() const -> std::int64_t = 0;
 };
+
+void BroadcastObservationCreated(OverviewWebSocketRegistry& websocket_registry,
+                                 const vibe::service::ObservationEvent& event) {
+  PruneOverviewRegistry(websocket_registry);
+  const std::string payload = ToJson(ObservationCreatedEvent{.event = event});
+  for (auto it = websocket_registry.begin(); it != websocket_registry.end();) {
+    if (const auto session = it->lock()) {
+      if (!session->is_local_request()) {
+        session->SendExternalEvent(payload);
+      }
+      ++it;
+    } else {
+      it = websocket_registry.erase(it);
+    }
+  }
+}
 
 template <typename Stream>
 class OverviewWebSocketSession final : public WebSocketSessionBase,
@@ -371,6 +388,22 @@ class OverviewWebSocketSession final : public WebSocketSessionBase,
   }
 
   void SendPendingOutput() override { QueueInventorySnapshot(); }
+  void SendExternalEvent(std::string payload) override {
+    if (payload.empty()) {
+      return;
+    }
+    asio::post(
+        websocket_.get_executor(),
+        [self = this->shared_from_this(), payload = std::move(payload)]() mutable {
+          if (self->closed_) {
+            return;
+          }
+          self->pending_frames_.push_back(PendingFrame{.payload = std::move(payload)});
+          if (!self->write_in_progress_) {
+            self->DoWrite();
+          }
+        });
+  }
   [[nodiscard]] auto session_id() const -> const std::string& override { return empty_; }
   [[nodiscard]] auto client_id() const -> const std::string& override { return client_id_; }
   [[nodiscard]] auto client_address() const -> const std::string& override { return client_address_; }
@@ -586,6 +619,7 @@ class WebSocketSession final : public WebSocketSessionBase,
 
     QueueOutputFrame(*output, output->seq_end + 1);
   }
+  void SendExternalEvent(std::string /*payload*/) override {}
 
   [[nodiscard]] auto session_id() const -> const std::string& override { return session_id_; }
   [[nodiscard]] auto client_id() const -> const std::string& override { return client_id_; }
@@ -1040,6 +1074,7 @@ class RemoteControllerWebSocketSession final
       close_after_writes_ = true;
     }
   }
+  void SendExternalEvent(std::string /*payload*/) override {}
 
   [[nodiscard]] auto session_id() const -> const std::string& override { return session_id_; }
   [[nodiscard]] auto client_id() const -> const std::string& override { return client_id_; }
@@ -1555,6 +1590,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
               vibe::auth::PairingService& pairing_service,
               vibe::store::PairingStore& pairing_store,
               vibe::store::HostConfigStore& host_config_store,
+              vibe::service::ObservationStore& observation_store,
               std::shared_ptr<vibe::net::HostAdmin> host_admin,
               std::shared_ptr<WebSocketRegistry> websocket_registry,
               std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
@@ -1568,6 +1604,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
         pairing_service_(pairing_service),
         pairing_store_(pairing_store),
         host_config_store_(host_config_store),
+        observation_store_(observation_store),
         host_admin_(std::move(host_admin)),
         websocket_registry_(std::move(websocket_registry)),
         overview_websocket_registry_(std::move(overview_websocket_registry)),
@@ -1648,6 +1685,12 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
                   .pairing_store = &self->pairing_store_,
                   .host_config_store = &self->host_config_store_,
                   .host_admin = self->host_admin_.get(),
+                  .observation_store = &self->observation_store_,
+                  .observation_event_sink =
+                      [overview_registry = self->overview_websocket_registry_](
+                          const vibe::service::ObservationEvent& event) {
+                        BroadcastObservationCreated(*overview_registry, event);
+                      },
                   .storage_root = self->host_config_store_.storage_root(),
                   .client_address = endpoint.address().to_string(),
                   .is_local_request = endpoint.address().is_loopback(),
@@ -1700,6 +1743,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession<Stream>> {
   vibe::auth::PairingService& pairing_service_;
   vibe::store::PairingStore& pairing_store_;
   vibe::store::HostConfigStore& host_config_store_;
+  vibe::service::ObservationStore& observation_store_;
   std::shared_ptr<vibe::net::HostAdmin> host_admin_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
@@ -1719,6 +1763,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
                vibe::auth::PairingService& pairing_service,
                vibe::store::PairingStore& pairing_store,
                vibe::store::HostConfigStore& host_config_store,
+               vibe::service::ObservationStore& observation_store,
                std::shared_ptr<vibe::net::HostAdmin> host_admin,
                std::shared_ptr<WebSocketRegistry> websocket_registry,
                std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
@@ -1733,6 +1778,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
         pairing_service_(pairing_service),
         pairing_store_(pairing_store),
         host_config_store_(host_config_store),
+        observation_store_(observation_store),
         host_admin_(std::move(host_admin)),
         websocket_registry_(std::move(websocket_registry)),
         overview_websocket_registry_(std::move(overview_websocket_registry)),
@@ -1796,7 +1842,8 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
             std::make_shared<HttpSession<tcp::socket>>(
                 std::move(self->socket_), self->session_manager_, self->authorizer_,
                 self->pairing_service_, self->pairing_store_, self->host_config_store_,
-                self->host_admin_, self->websocket_registry_, self->overview_websocket_registry_,
+                self->observation_store_, self->host_admin_, self->websocket_registry_,
+                self->overview_websocket_registry_,
                 self->listener_role_,
                 self->remote_tls_enabled_, self->remote_listener_host_,
                 self->remote_listener_port_, self->remote_tls_certificate_path_,
@@ -1815,6 +1862,7 @@ class HttpListener : public std::enable_shared_from_this<HttpListener> {
   vibe::auth::PairingService& pairing_service_;
   vibe::store::PairingStore& pairing_store_;
   vibe::store::HostConfigStore& host_config_store_;
+  vibe::service::ObservationStore& observation_store_;
   std::shared_ptr<vibe::net::HostAdmin> host_admin_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
@@ -1835,6 +1883,7 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
                 vibe::auth::PairingService& pairing_service,
                 vibe::store::PairingStore& pairing_store,
                 vibe::store::HostConfigStore& host_config_store,
+                vibe::service::ObservationStore& observation_store,
                 std::shared_ptr<vibe::net::HostAdmin> host_admin,
                 std::shared_ptr<WebSocketRegistry> websocket_registry,
                 std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry,
@@ -1849,6 +1898,7 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
         pairing_service_(pairing_service),
         pairing_store_(pairing_store),
         host_config_store_(host_config_store),
+        observation_store_(observation_store),
         host_admin_(std::move(host_admin)),
         websocket_registry_(std::move(websocket_registry)),
         overview_websocket_registry_(std::move(overview_websocket_registry)),
@@ -1908,7 +1958,7 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
             std::make_shared<HttpSession<SslStream>>(
                 SslStream(std::move(self->socket_), self->ssl_context_), self->session_manager_,
                 self->authorizer_, self->pairing_service_, self->pairing_store_,
-                self->host_config_store_, self->host_admin_, self->websocket_registry_,
+                self->host_config_store_, self->observation_store_, self->host_admin_, self->websocket_registry_,
                 self->overview_websocket_registry_,
                 ListenerRole::RemoteClient, true, self->remote_listener_host_,
                 self->remote_listener_port_, self->remote_tls_certificate_path_,
@@ -1928,6 +1978,7 @@ class HttpsListener : public std::enable_shared_from_this<HttpsListener> {
   vibe::auth::PairingService& pairing_service_;
   vibe::store::PairingStore& pairing_store_;
   vibe::store::HostConfigStore& host_config_store_;
+  vibe::service::ObservationStore& observation_store_;
   std::shared_ptr<vibe::net::HostAdmin> host_admin_;
   std::shared_ptr<WebSocketRegistry> websocket_registry_;
   std::shared_ptr<OverviewWebSocketRegistry> overview_websocket_registry_;
@@ -2577,7 +2628,7 @@ auto HttpServer::Run() -> bool {
     auto admin_listener =
         std::make_shared<HttpListener>(*io_context_, admin_address, admin_port_, session_manager_,
                                        *authorizer_, *pairing_service_, *pairing_store_,
-                                       *host_config_store_, host_admin, websocket_registry,
+                                       *host_config_store_, observation_store_, host_admin, websocket_registry,
                                        overview_websocket_registry,
                                        ListenerRole::AdminLocal, remote_tls_config.enabled,
                                        remote_bind_address_, remote_port_,
@@ -2596,7 +2647,7 @@ auto HttpServer::Run() -> bool {
           std::make_shared<HttpsListener>(*io_context_, *remote_ssl_context, remote_address,
                                           remote_port_, session_manager_, *authorizer_,
                                           *pairing_service_, *pairing_store_, *host_config_store_,
-                                          host_admin, websocket_registry, overview_websocket_registry,
+                                          observation_store_, host_admin, websocket_registry, overview_websocket_registry,
                                           remote_bind_address_, remote_port_,
                                           remote_tls_config.certificate_pem_path,
                                           &relay_token_store_);
@@ -2605,7 +2656,7 @@ auto HttpServer::Run() -> bool {
       remote_http_listener =
           std::make_shared<HttpListener>(*io_context_, remote_address, remote_port_, session_manager_,
                                          *authorizer_, *pairing_service_, *pairing_store_,
-                                         *host_config_store_, host_admin, websocket_registry,
+                                         *host_config_store_, observation_store_, host_admin, websocket_registry,
                                          overview_websocket_registry,
                                          ListenerRole::RemoteClient, false,
                                          remote_bind_address_, remote_port_,

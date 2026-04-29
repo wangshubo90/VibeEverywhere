@@ -262,6 +262,237 @@ TEST(SessionManagerTest, LoadsPersistedSessionsAsRecoveredExitedSessions) {
   EXPECT_TRUE(manager.StopSession("s_42"));
 }
 
+TEST(SessionManagerTest, CreatesLogSessionAndTailsEvidence) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .group_tags = {"logs"},
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(summary.has_value());
+
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "boot\nready\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStderr(summary->id.value(), "warning\n", 1001));
+
+  const auto evidence = manager.TailEvidence(summary->id.value(), EvidenceTailOptions{.lines = 2});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_EQ(evidence->operation, EvidenceOperation::Tail);
+  EXPECT_EQ(evidence->source.session_id, summary->id);
+  EXPECT_EQ(evidence->oldest_revision, 1U);
+  EXPECT_EQ(evidence->latest_revision, 3U);
+  ASSERT_EQ(evidence->entries.size(), 2U);
+  EXPECT_EQ(evidence->entries[0].revision, 2U);
+  EXPECT_EQ(evidence->entries[0].text, "ready");
+  EXPECT_EQ(evidence->entries[0].stream, LogStream::Stdout);
+  EXPECT_EQ(evidence->entries[1].revision, 3U);
+  EXPECT_EQ(evidence->entries[1].text, "warning");
+  EXPECT_EQ(evidence->entries[1].stream, LogStream::Stderr);
+}
+
+TEST(SessionManagerTest, LogSessionLaunchCapturesStdoutStderrAndExitStatus) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "runtime-log",
+      .command_shell = "printf 'out1\\n'; printf 'err1\\n' >&2",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_EQ(summary->category, SessionCategory::ManagedLog);
+  EXPECT_EQ(summary->status, vibe::session::SessionStatus::Running);
+
+  std::optional<EvidenceResult> evidence;
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    manager.PollAll(10);
+    evidence = manager.TailEvidence(summary->id.value(), EvidenceTailOptions{.lines = 10});
+    if (evidence.has_value() && evidence->entries.size() >= 2) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  ASSERT_TRUE(evidence.has_value());
+
+  bool saw_stdout = false;
+  bool saw_stderr = false;
+  for (const EvidenceEntry& entry : evidence->entries) {
+    if (entry.stream == LogStream::Stdout && entry.text == "out1") {
+      saw_stdout = true;
+    }
+    if (entry.stream == LogStream::Stderr && entry.text == "err1") {
+      saw_stderr = true;
+    }
+  }
+  EXPECT_TRUE(saw_stdout);
+  EXPECT_TRUE(saw_stderr);
+
+  const auto exited =
+      PollUntilStatus(manager, summary->id.value(), vibe::session::SessionStatus::Exited, 50);
+  ASSERT_TRUE(exited.has_value());
+  EXPECT_EQ(exited->status, vibe::session::SessionStatus::Exited);
+  EXPECT_GE(exited->current_sequence, 2U);
+  EXPECT_TRUE(manager.StopSession(summary->id.value()));
+}
+
+TEST(SessionManagerTest, ReadsLogEvidenceRangeAndMarksTruncationAfterEviction) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 2},
+  });
+  ASSERT_TRUE(summary.has_value());
+
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "one\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "two\n", 1001));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "three\n", 1002));
+
+  const auto evidence = manager.RangeEvidence(
+      summary->id.value(),
+      EvidenceRangeOptions{.revision_start = 1, .revision_end = 3, .limit = 10});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_EQ(evidence->operation, EvidenceOperation::Range);
+  EXPECT_TRUE(evidence->truncated);
+  EXPECT_FALSE(evidence->buffer_exhausted);
+  EXPECT_EQ(evidence->dropped_entries, 1U);
+  ASSERT_EQ(evidence->entries.size(), 2U);
+  EXPECT_EQ(evidence->entries[0].revision, 2U);
+  EXPECT_EQ(evidence->entries[1].revision, 3U);
+}
+
+TEST(SessionManagerTest, ReadsLogEvidenceContextByRevision) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(summary.has_value());
+
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "one\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "two\n", 1001));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "three\n", 1002));
+
+  const auto evidence = manager.ContextEvidence(
+      summary->id.value(),
+      EvidenceContextOptions{.revision = 2, .before = 1, .after = 1});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_EQ(evidence->operation, EvidenceOperation::Context);
+  EXPECT_FALSE(evidence->buffer_exhausted);
+  ASSERT_EQ(evidence->entries.size(), 3U);
+  EXPECT_EQ(evidence->entries[0].text, "one");
+  EXPECT_EQ(evidence->entries[1].text, "two");
+  EXPECT_EQ(evidence->entries[2].text, "three");
+}
+
+TEST(SessionManagerTest, LogEvidenceContextReportsBufferExhaustedForEvictedAnchor) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 1},
+  });
+  ASSERT_TRUE(summary.has_value());
+
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "one\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "two\n", 1001));
+
+  const auto evidence = manager.ContextEvidence(
+      summary->id.value(),
+      EvidenceContextOptions{.revision = 1, .before = 1, .after = 1});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_TRUE(evidence->buffer_exhausted);
+  EXPECT_TRUE(evidence->truncated);
+  EXPECT_EQ(evidence->error_code, "buffer_exhausted");
+  EXPECT_TRUE(evidence->entries.empty());
+}
+
+TEST(SessionManagerTest, SearchesLogEvidenceWithHighlights) {
+  SessionManager manager;
+  const auto summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(summary.has_value());
+
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "worker started\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "worker failed: worker timed out\n", 1001));
+  ASSERT_TRUE(manager.AppendLogStdout(summary->id.value(), "cleanup\n", 1002));
+
+  const auto evidence = manager.SearchEvidence(
+      summary->id.value(),
+      EvidenceSearchOptions{.query = "worker", .limit = 10});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_EQ(evidence->operation, EvidenceOperation::Search);
+  EXPECT_EQ(evidence->query, "worker");
+  EXPECT_FALSE(evidence->truncated);
+  ASSERT_EQ(evidence->entries.size(), 2U);
+  EXPECT_EQ(evidence->entries[0].revision, 1U);
+  EXPECT_EQ(evidence->entries[1].revision, 2U);
+  ASSERT_EQ(evidence->highlights.size(), 3U);
+  EXPECT_EQ(evidence->highlights[0].entry_id, evidence->entries[0].entry_id);
+  EXPECT_EQ(evidence->highlights[0].start, 0U);
+  EXPECT_EQ(evidence->highlights[0].length, 6U);
+  EXPECT_EQ(evidence->highlights[2].entry_id, evidence->entries[1].entry_id);
+  EXPECT_EQ(evidence->highlights[2].start, 15U);
+}
+
+TEST(SessionManagerTest, SearchLogEvidenceHonorsLimitAndNulloptForNonLogSession) {
+  SessionManager manager;
+  const auto log_summary = manager.CreateLogSession(LogSessionCreateRequest{
+      .workspace_root = "/tmp/project",
+      .title = "runtime-log",
+      .limits = LogBufferLimits{.max_bytes = 1024, .max_entries = 100},
+  });
+  ASSERT_TRUE(log_summary.has_value());
+  ASSERT_TRUE(manager.AppendLogStdout(log_summary->id.value(), "match one\n", 1000));
+  ASSERT_TRUE(manager.AppendLogStdout(log_summary->id.value(), "match two\n", 1001));
+
+  const auto evidence = manager.SearchEvidence(
+      log_summary->id.value(),
+      EvidenceSearchOptions{.query = "match", .limit = 1});
+  ASSERT_TRUE(evidence.has_value());
+  EXPECT_TRUE(evidence->truncated);
+  ASSERT_EQ(evidence->entries.size(), 1U);
+
+  const auto session_summary = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "interactive",
+      .conversation_id = std::nullopt,
+      .command_argv = std::nullopt,
+      .command_shell = "printf 'hello\\n'",
+      .group_tags = {},
+      .env_mode = vibe::session::EnvMode::Clean,
+  });
+  ASSERT_TRUE(session_summary.has_value());
+  EXPECT_FALSE(manager.SearchEvidence(
+                          session_summary->id.value(),
+                          EvidenceSearchOptions{.query = "hello", .limit = 10})
+                   .has_value());
+  static_cast<void>(manager.Shutdown());
+}
+
+TEST(SessionManagerTest, LogEvidenceReturnsNulloptForMissingOrNonLogSession) {
+  SessionManager manager;
+  EXPECT_FALSE(manager.TailEvidence("missing", EvidenceTailOptions{}).has_value());
+
+  const auto summary = manager.CreateSession(CreateSessionRequest{
+      .provider = vibe::session::ProviderType::Codex,
+      .workspace_root = ".",
+      .title = "interactive",
+      .conversation_id = std::nullopt,
+      .command_argv = std::nullopt,
+      .command_shell = "printf 'hello\\n'",
+      .group_tags = {},
+      .env_mode = vibe::session::EnvMode::Clean,
+  });
+  ASSERT_TRUE(summary.has_value());
+  EXPECT_FALSE(manager.TailEvidence(summary->id.value(), EvidenceTailOptions{}).has_value());
+  static_cast<void>(manager.Shutdown());
+}
+
 TEST(SessionManagerTest, SkipsInvalidPersistedSessionIds) {
   FakeSessionStore session_store;
   session_store.sessions.push_back(vibe::store::PersistedSessionRecord{

@@ -57,7 +57,21 @@ struct CreateSessionResult {
   std::string error_message;
 };
 
+struct EvidenceCliRequest {
+  std::string session_id;
+  std::string operation;
+  std::optional<std::size_t> lines{};
+  std::optional<std::string> query{};
+  std::optional<std::uint64_t> revision_start{};
+  std::optional<std::uint64_t> revision_end{};
+  std::optional<std::uint64_t> revision{};
+  std::optional<std::size_t> before{};
+  std::optional<std::size_t> after{};
+  std::optional<std::size_t> limit{};
+};
+
 [[nodiscard]] auto BuildCreateSessionRequestBody(const CreateSessionRequest& request) -> std::string;
+[[nodiscard]] auto BuildEvidenceTarget(const EvidenceCliRequest& request) -> std::optional<std::string>;
 [[nodiscard]] auto ParseCreatedSessionId(const std::string& body) -> std::optional<std::string>;
 [[nodiscard]] auto BuildRelayRequestBody(const std::string& host_id, const std::string& session_id)
     -> std::string;
@@ -74,6 +88,9 @@ struct CreateSessionResult {
     -> std::optional<std::string>;
 [[nodiscard]] auto CreateSessionWithDetail(const DaemonEndpoint& endpoint, const CreateSessionRequest& request)
     -> CreateSessionResult;
+[[nodiscard]] auto CreateLogSessionWithDetail(const DaemonEndpoint& endpoint,
+                                              const CreateSessionRequest& request)
+    -> CreateSessionResult;
 [[nodiscard]] auto ListSessions(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedSession>>;
 [[nodiscard]] auto GetSessionSnapshot(const DaemonEndpoint& endpoint, const std::string& session_id)
     -> std::optional<std::string>;
@@ -81,6 +98,10 @@ struct CreateSessionResult {
 [[nodiscard]] auto ClearInactiveSessions(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
 [[nodiscard]] auto GetHostInfo(const DaemonEndpoint& endpoint) -> std::optional<std::string>;
 [[nodiscard]] auto GetSessionEnv(const DaemonEndpoint& endpoint, const std::string& session_id)
+    -> std::optional<std::string>;
+[[nodiscard]] auto GetEvidence(const DaemonEndpoint& endpoint, const EvidenceCliRequest& request)
+    -> std::optional<std::string>;
+[[nodiscard]] auto ListObservations(const DaemonEndpoint& endpoint, std::size_t limit)
     -> std::optional<std::string>;
 [[nodiscard]] auto ListRecords(const DaemonEndpoint& endpoint) -> std::optional<std::vector<ListedRecord>>;
 [[nodiscard]] auto PostHostConfig(const DaemonEndpoint& endpoint, const std::string& body)
