@@ -153,7 +153,7 @@ struct EvidenceRangeOptions {
 };
 
 struct EvidenceSearchOptions {
-  std::string query;
+  std::string query{};
   std::size_t limit{200};
 };
 
@@ -238,31 +238,31 @@ class SessionManager {
   struct SessionEntry {
     vibe::session::SessionId id;
     SessionCategory category{SessionCategory::Pty};
-    std::unique_ptr<vibe::session::IPtyProcess> process;
-    std::unique_ptr<vibe::session::SessionRuntime> runtime;
-    std::unique_ptr<ManagedLogProcess> log_process;
-    std::unique_ptr<LogBuffer> log_buffer;
-    std::unique_ptr<vibe::service::GitInspector> git_inspector;
-    std::unique_ptr<vibe::service::WorkspaceFileWatcher> file_watcher;
-    std::optional<vibe::session::SessionSnapshot> recovered_snapshot;
-    std::optional<std::string> controller_client_id;
+    std::unique_ptr<vibe::session::IPtyProcess> process{};
+    std::unique_ptr<vibe::session::SessionRuntime> runtime{};
+    std::unique_ptr<ManagedLogProcess> log_process{};
+    std::unique_ptr<LogBuffer> log_buffer{};
+    std::unique_ptr<vibe::service::GitInspector> git_inspector{};
+    std::unique_ptr<vibe::service::WorkspaceFileWatcher> file_watcher{};
+    std::optional<vibe::session::SessionSnapshot> recovered_snapshot{};
+    std::optional<std::string> controller_client_id{};
     vibe::session::ControllerKind controller_kind{vibe::session::ControllerKind::None};
     bool is_recovered{false};
-    std::optional<std::int64_t> created_at_unix_ms;
-    std::optional<std::int64_t> last_status_at_unix_ms;
-    std::optional<std::int64_t> last_raw_output_at_unix_ms;
-    std::optional<std::int64_t> last_meaningful_output_at_unix_ms;
-    std::optional<std::int64_t> last_output_at_unix_ms;
-    std::optional<std::int64_t> last_activity_at_unix_ms;
-    std::optional<std::int64_t> last_file_change_at_unix_ms;
-    std::optional<std::int64_t> last_git_change_at_unix_ms;
-    std::optional<std::int64_t> last_controller_change_at_unix_ms;
+    std::optional<std::int64_t> created_at_unix_ms{};
+    std::optional<std::int64_t> last_status_at_unix_ms{};
+    std::optional<std::int64_t> last_raw_output_at_unix_ms{};
+    std::optional<std::int64_t> last_meaningful_output_at_unix_ms{};
+    std::optional<std::int64_t> last_output_at_unix_ms{};
+    std::optional<std::int64_t> last_activity_at_unix_ms{};
+    std::optional<std::int64_t> last_file_change_at_unix_ms{};
+    std::optional<std::int64_t> last_git_change_at_unix_ms{};
+    std::optional<std::int64_t> last_controller_change_at_unix_ms{};
     vibe::session::TerminalSize current_terminal_size{};
     vibe::session::SessionStatus last_observed_status{vibe::session::SessionStatus::Created};
     std::uint64_t last_observed_sequence{0};
-    std::optional<std::string> last_traced_node_summary_key;
+    std::optional<std::string> last_traced_node_summary_key{};
     // Stored effective environment for GET /sessions/{id}/env.
-    std::optional<vibe::session::EffectiveEnvironment> effective_environment;
+    std::optional<vibe::session::EffectiveEnvironment> effective_environment{};
   };
 
   [[nodiscard]] auto BuildSummary(const SessionEntry& entry) const -> SessionSummary;

@@ -107,19 +107,19 @@ struct EvidenceHighlight {
 struct EvidenceResult {
   EvidenceSourceRef source;
   EvidenceOperation operation = EvidenceOperation::Tail;
-  std::string query;
+  std::string query{};
   std::uint64_t revision_start = 0;
   std::uint64_t revision_end = 0;
   std::uint64_t oldest_revision = 0;
   std::uint64_t latest_revision = 0;
-  std::vector<EvidenceEntry> entries;
-  std::vector<EvidenceHighlight> highlights;
+  std::vector<EvidenceEntry> entries{};
+  std::vector<EvidenceHighlight> highlights{};
   bool truncated = false;
   bool buffer_exhausted = false;
   std::uint64_t dropped_entries = 0;
   std::uint64_t dropped_bytes = 0;
-  std::string error_code;
-  std::string replay_token;
+  std::string error_code{};
+  std::string replay_token{};
 };
 
 struct ObservationEvent {
