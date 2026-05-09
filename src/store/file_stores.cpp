@@ -1,11 +1,14 @@
 #include "vibe/store/file_stores.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include <limits>
 #include <fstream>
+#include <limits>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -34,6 +37,48 @@ auto PairingsPath(const std::filesystem::path& storage_root) -> std::filesystem:
 
 auto SessionsPath(const std::filesystem::path& storage_root) -> std::filesystem::path {
   return storage_root / "sessions.json";
+}
+
+auto TemplatesRoot(const std::filesystem::path& storage_root) -> std::filesystem::path {
+  return storage_root / "template_prompt";
+}
+
+auto EvidenceRoot(const std::filesystem::path& storage_root) -> std::filesystem::path {
+  return storage_root / "evidence" / "sessions";
+}
+
+auto MetadataPath(const std::filesystem::path& directory) -> std::filesystem::path {
+  return directory / "metadata.json";
+}
+
+auto IsSafeIdentifier(const std::string& value) -> bool {
+  if (value.empty() || value == "." || value == "..") {
+    return false;
+  }
+  return std::all_of(value.begin(), value.end(), [](const unsigned char ch) {
+    return std::isalnum(ch) != 0 || ch == '_' || ch == '-' || ch == '.';
+  });
+}
+
+auto IsSafeTemplateId(const std::string& value) -> bool {
+  return IsSafeIdentifier(value) && value.ends_with(".md");
+}
+
+auto TemplatePath(const std::filesystem::path& storage_root,
+                  const std::string& template_id) -> std::optional<std::filesystem::path> {
+  if (!IsSafeTemplateId(template_id)) {
+    return std::nullopt;
+  }
+  return TemplatesRoot(storage_root) / template_id;
+}
+
+auto EvidenceDirectory(const std::filesystem::path& storage_root,
+                       const std::string& session_id,
+                       const std::string& evidence_id) -> std::optional<std::filesystem::path> {
+  if (!IsSafeIdentifier(session_id) || !IsSafeIdentifier(evidence_id)) {
+    return std::nullopt;
+  }
+  return EvidenceRoot(storage_root) / session_id / evidence_id;
 }
 
 auto Base64Encode(std::string_view input) -> std::string {
@@ -180,6 +225,100 @@ auto WriteFileAtomically(const std::filesystem::path& path, const std::string& d
   return true;
 }
 
+auto FileUpdatedTimeUnixMs(const std::filesystem::path& path) -> std::int64_t {
+  std::error_code error;
+  const auto file_time = std::filesystem::last_write_time(path, error);
+  if (error) {
+    return 0;
+  }
+  const auto system_time = std::chrono::time_point_cast<std::chrono::milliseconds>(
+      file_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+  return system_time.time_since_epoch().count();
+}
+
+auto FileSize(const std::filesystem::path& path) -> std::size_t {
+  std::error_code error;
+  const auto size = std::filesystem::file_size(path, error);
+  if (error) {
+    return 0;
+  }
+  return static_cast<std::size_t>(size);
+}
+
+auto TemplateTitleFromId(const std::string& template_id) -> std::string {
+  std::string base = template_id;
+  if (base.ends_with(".md")) {
+    base.resize(base.size() - 3U);
+  }
+  std::replace(base.begin(), base.end(), '_', ' ');
+  std::replace(base.begin(), base.end(), '-', ' ');
+  if (!base.empty()) {
+    base.front() = static_cast<char>(std::toupper(static_cast<unsigned char>(base.front())));
+  }
+  return base;
+}
+
+auto TemplateTitleFromContent(const std::string& template_id, const std::string& content) -> std::string {
+  std::istringstream lines(content);
+  std::string line;
+  while (std::getline(lines, line)) {
+    if (line.rfind("# ", 0) == 0 && line.size() > 2U) {
+      return line.substr(2U);
+    }
+  }
+  return TemplateTitleFromId(template_id);
+}
+
+void SeedDefaultTemplatesIfEmpty(const std::filesystem::path& storage_root) {
+  const std::filesystem::path root = TemplatesRoot(storage_root);
+  std::error_code error;
+  if (std::filesystem::exists(root, error)) {
+    for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
+      if (!error && entry.is_regular_file(error) && entry.path().extension() == ".md") {
+        return;
+      }
+    }
+  }
+  static_cast<void>(WriteFileAtomically(
+      root / "code_review.md",
+      "# Code Review\n\n"
+      "## Task\n"
+      "{{TASK}}\n\n"
+      "## Evidence\n"
+      "{{EVIDENCE}}\n\n"
+      "## Constraints\n"
+      "- Prioritize correctness, regressions, and missing tests.\n"
+      "- Keep the review concise and grounded in file references.\n\n"
+      "## Verification\n"
+      "{{VERIFICATION}}\n"));
+  static_cast<void>(WriteFileAtomically(
+      root / "debugging.md",
+      "# Debugging\n\n"
+      "## Symptom\n"
+      "{{SYMPTOM}}\n\n"
+      "## Evidence\n"
+      "{{EVIDENCE}}\n\n"
+      "## Request\n"
+      "Find the root cause, make the smallest fix, and summarize verification.\n"));
+}
+
+auto TemplateSummaryFromFile(const std::filesystem::path& path) -> std::optional<PromptTemplateSummary> {
+  const std::string template_id = path.filename().string();
+  if (!IsSafeTemplateId(template_id)) {
+    return std::nullopt;
+  }
+  const auto content = ReadFile(path);
+  if (!content.has_value()) {
+    return std::nullopt;
+  }
+  return PromptTemplateSummary{
+      .id = template_id,
+      .title = TemplateTitleFromContent(template_id, *content),
+      .updated_at_unix_ms = FileUpdatedTimeUnixMs(path),
+      .size_bytes = FileSize(path),
+  };
+}
+
 template <typename T, typename Loader>
 auto LoadFromJsonFile(const std::filesystem::path& path, T fallback, Loader loader) -> T {
   const auto content = ReadFile(path);
@@ -210,6 +349,66 @@ auto LoadOptionalFromJsonFile(const std::filesystem::path& path, Loader loader) 
   }
 
   return loader(value);
+}
+
+auto StoredEvidenceSummaryFromJson(const json::value& value) -> std::optional<StoredEvidenceSummary> {
+  if (!value.is_object()) {
+    return std::nullopt;
+  }
+  const json::object& object = value.as_object();
+  const auto* evidence_id = object.if_contains("evidenceId");
+  const auto* session_id = object.if_contains("sessionId");
+  const auto* kind = object.if_contains("kind");
+  const auto* title = object.if_contains("title");
+  const auto* content_type = object.if_contains("contentType");
+  const auto* created_at = object.if_contains("createdAtUnixMs");
+  const auto* size_bytes = object.if_contains("sizeBytes");
+  if (evidence_id == nullptr || session_id == nullptr || kind == nullptr || title == nullptr ||
+      content_type == nullptr || created_at == nullptr || size_bytes == nullptr ||
+      !evidence_id->is_string() || !session_id->is_string() || !kind->is_string() ||
+      !title->is_string() || !content_type->is_string() ||
+      (!created_at->is_int64() && !created_at->is_uint64()) ||
+      (!size_bytes->is_int64() && !size_bytes->is_uint64())) {
+    return std::nullopt;
+  }
+  if ((created_at->is_int64() && created_at->as_int64() < 0) ||
+      (size_bytes->is_int64() && size_bytes->as_int64() < 0)) {
+    return std::nullopt;
+  }
+  return StoredEvidenceSummary{
+      .evidence_id = std::string(evidence_id->as_string()),
+      .session_id = std::string(session_id->as_string()),
+      .kind = std::string(kind->as_string()),
+      .title = std::string(title->as_string()),
+      .content_type = std::string(content_type->as_string()),
+      .created_at_unix_ms = created_at->is_int64()
+                                 ? created_at->as_int64()
+                                 : static_cast<std::int64_t>(created_at->as_uint64()),
+      .size_bytes = static_cast<std::size_t>(
+          size_bytes->is_uint64() ? size_bytes->as_uint64()
+                                  : static_cast<std::uint64_t>(size_bytes->as_int64())),
+  };
+}
+
+auto StoredEvidenceSummaryToJsonValue(const StoredEvidenceSummary& summary) -> json::value {
+  json::object object;
+  object["evidenceId"] = summary.evidence_id;
+  object["sessionId"] = summary.session_id;
+  object["kind"] = summary.kind;
+  object["title"] = summary.title;
+  object["contentType"] = summary.content_type;
+  object["createdAtUnixMs"] = summary.created_at_unix_ms;
+  object["sizeBytes"] = static_cast<std::uint64_t>(summary.size_bytes);
+  return object;
+}
+
+auto LoadStoredEvidenceMetadata(const std::filesystem::path& directory) -> std::optional<StoredEvidenceSummary> {
+  return LoadOptionalFromJsonFile<StoredEvidenceSummary>(MetadataPath(directory), StoredEvidenceSummaryFromJson);
+}
+
+auto WriteStoredEvidenceMetadata(const std::filesystem::path& directory, const StoredEvidenceSummary& summary)
+    -> bool {
+  return WriteFileAtomically(MetadataPath(directory), json::serialize(StoredEvidenceSummaryToJsonValue(summary)));
 }
 
 auto ParseDeviceType(const std::string& value) -> std::optional<vibe::auth::DeviceType> {
@@ -1018,6 +1217,207 @@ auto FileSessionStore::RemoveSessionRecord(const std::string& session_id) -> boo
     return false;
   }
   return WriteFileAtomically(SessionsPath(storage_root_), json::serialize(ToJsonValue(records)));
+}
+
+FilePromptTemplateStore::FilePromptTemplateStore(std::filesystem::path storage_root)
+    : storage_root_(std::move(storage_root)) {}
+
+auto FilePromptTemplateStore::ListTemplates() const -> std::vector<PromptTemplateSummary> {
+  SeedDefaultTemplatesIfEmpty(storage_root_);
+  std::vector<PromptTemplateSummary> templates;
+  const std::filesystem::path root = TemplatesRoot(storage_root_);
+  std::error_code error;
+  if (!std::filesystem::exists(root, error) || error) {
+    return templates;
+  }
+  for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
+    if (error) {
+      break;
+    }
+    std::error_code item_error;
+    if (!entry.is_regular_file(item_error) || item_error) {
+      continue;
+    }
+    auto summary = TemplateSummaryFromFile(entry.path());
+    if (summary.has_value()) {
+      templates.push_back(std::move(*summary));
+    }
+  }
+  std::sort(templates.begin(), templates.end(), [](const auto& lhs, const auto& rhs) {
+    return lhs.id < rhs.id;
+  });
+  return templates;
+}
+
+auto FilePromptTemplateStore::LoadTemplate(const std::string& template_id) const
+    -> std::optional<PromptTemplateRecord> {
+  SeedDefaultTemplatesIfEmpty(storage_root_);
+  const auto path = TemplatePath(storage_root_, template_id);
+  if (!path.has_value()) {
+    return std::nullopt;
+  }
+  const auto content = ReadFile(*path);
+  if (!content.has_value()) {
+    return std::nullopt;
+  }
+  auto summary = TemplateSummaryFromFile(*path);
+  if (!summary.has_value()) {
+    return std::nullopt;
+  }
+  return PromptTemplateRecord{
+      .summary = std::move(*summary),
+      .content = std::move(*content),
+  };
+}
+
+auto FilePromptTemplateStore::UpsertTemplate(const std::string& template_id,
+                                             const std::string& /*title*/,
+                                             const std::string& content,
+                                             const std::int64_t /*updated_at_unix_ms*/) const -> bool {
+  const auto path = TemplatePath(storage_root_, template_id);
+  if (!path.has_value() || content.empty()) {
+    return false;
+  }
+  return WriteFileAtomically(*path, content);
+}
+
+auto FilePromptTemplateStore::RemoveTemplate(const std::string& template_id) const -> bool {
+  const auto path = TemplatePath(storage_root_, template_id);
+  if (!path.has_value()) {
+    return false;
+  }
+  std::error_code error;
+  return std::filesystem::remove(*path, error) && !error;
+}
+
+FileStoredEvidenceStore::FileStoredEvidenceStore(std::filesystem::path storage_root)
+    : storage_root_(std::move(storage_root)) {}
+
+auto FileStoredEvidenceStore::ListEvidence(const std::string& session_id) const
+    -> std::vector<StoredEvidenceSummary> {
+  std::vector<StoredEvidenceSummary> evidence;
+  if (!IsSafeIdentifier(session_id)) {
+    return evidence;
+  }
+  const std::filesystem::path root = EvidenceRoot(storage_root_) / session_id;
+  std::error_code error;
+  if (!std::filesystem::exists(root, error) || error) {
+    return evidence;
+  }
+  for (const auto& entry : std::filesystem::directory_iterator(root, error)) {
+    if (error) {
+      break;
+    }
+    std::error_code item_error;
+    if (!entry.is_directory(item_error) || item_error) {
+      continue;
+    }
+    auto summary = LoadStoredEvidenceMetadata(entry.path());
+    if (summary.has_value()) {
+      evidence.push_back(std::move(*summary));
+    }
+  }
+  std::sort(evidence.begin(), evidence.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.created_at_unix_ms != rhs.created_at_unix_ms) {
+      return lhs.created_at_unix_ms > rhs.created_at_unix_ms;
+    }
+    return lhs.evidence_id < rhs.evidence_id;
+  });
+  return evidence;
+}
+
+auto FileStoredEvidenceStore::LoadEvidence(const std::string& session_id,
+                                           const std::string& evidence_id) const
+    -> std::optional<StoredEvidenceRecord> {
+  const auto directory = EvidenceDirectory(storage_root_, session_id, evidence_id);
+  if (!directory.has_value()) {
+    return std::nullopt;
+  }
+  auto summary = LoadStoredEvidenceMetadata(*directory);
+  if (!summary.has_value()) {
+    return std::nullopt;
+  }
+
+  StoredEvidenceRecord record{.summary = std::move(*summary)};
+  if (record.summary.kind == "user_markdown") {
+    record.markdown_content = ReadFile(*directory / "content.md");
+    if (!record.markdown_content.has_value()) {
+      return std::nullopt;
+    }
+  } else if (record.summary.kind == "log_snapshot") {
+    record.evidence_json = ReadFile(*directory / "evidence.json");
+    if (!record.evidence_json.has_value()) {
+      return std::nullopt;
+    }
+  }
+  return record;
+}
+
+auto FileStoredEvidenceStore::CreateMarkdownEvidence(const std::string& session_id,
+                                                     const std::string& evidence_id,
+                                                     const std::string& title,
+                                                     const std::string& content,
+                                                     const std::int64_t created_at_unix_ms) const
+    -> std::optional<StoredEvidenceSummary> {
+  const auto directory = EvidenceDirectory(storage_root_, session_id, evidence_id);
+  if (!directory.has_value() || title.empty() || content.empty()) {
+    return std::nullopt;
+  }
+  StoredEvidenceSummary summary{
+      .evidence_id = evidence_id,
+      .session_id = session_id,
+      .kind = "user_markdown",
+      .title = title,
+      .content_type = "text/markdown",
+      .created_at_unix_ms = created_at_unix_ms,
+      .size_bytes = content.size(),
+  };
+  if (!WriteFileAtomically(*directory / "content.md", content) ||
+      !WriteStoredEvidenceMetadata(*directory, summary)) {
+    std::error_code error;
+    std::filesystem::remove_all(*directory, error);
+    return std::nullopt;
+  }
+  return summary;
+}
+
+auto FileStoredEvidenceStore::CreateLogSnapshotEvidence(const std::string& session_id,
+                                                        const std::string& evidence_id,
+                                                        const std::string& title,
+                                                        const std::string& evidence_json,
+                                                        const std::int64_t created_at_unix_ms) const
+    -> std::optional<StoredEvidenceSummary> {
+  const auto directory = EvidenceDirectory(storage_root_, session_id, evidence_id);
+  if (!directory.has_value() || title.empty() || evidence_json.empty()) {
+    return std::nullopt;
+  }
+  StoredEvidenceSummary summary{
+      .evidence_id = evidence_id,
+      .session_id = session_id,
+      .kind = "log_snapshot",
+      .title = title,
+      .content_type = "application/json",
+      .created_at_unix_ms = created_at_unix_ms,
+      .size_bytes = evidence_json.size(),
+  };
+  if (!WriteFileAtomically(*directory / "evidence.json", evidence_json) ||
+      !WriteStoredEvidenceMetadata(*directory, summary)) {
+    std::error_code error;
+    std::filesystem::remove_all(*directory, error);
+    return std::nullopt;
+  }
+  return summary;
+}
+
+auto FileStoredEvidenceStore::RemoveEvidence(const std::string& session_id,
+                                             const std::string& evidence_id) const -> bool {
+  const auto directory = EvidenceDirectory(storage_root_, session_id, evidence_id);
+  if (!directory.has_value()) {
+    return false;
+  }
+  std::error_code error;
+  const auto removed_count = std::filesystem::remove_all(*directory, error);
+  return !error && removed_count > 0;
 }
 
 }  // namespace vibe::store

@@ -1,8 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string>
 
 #include "vibe/store/file_stores.h"
 
@@ -339,6 +342,64 @@ TEST_F(FileStoresTest, MissingFilesLoadAsEmptyState) {
   EXPECT_TRUE(pairing_store.LoadPendingPairings().empty());
   EXPECT_TRUE(pairing_store.LoadApprovedPairings().empty());
   EXPECT_TRUE(session_store.LoadSessions().empty());
+}
+
+TEST_F(FileStoresTest, PromptTemplatesSeedAndRoundTripMarkdownFiles) {
+  FilePromptTemplateStore store(storage_root());
+
+  const auto seeded = store.ListTemplates();
+  EXPECT_FALSE(seeded.empty());
+  EXPECT_NE(std::find_if(seeded.begin(), seeded.end(),
+                         [](const PromptTemplateSummary& summary) {
+                           return summary.id == "code_review.md";
+                         }),
+            seeded.end());
+
+  ASSERT_TRUE(store.UpsertTemplate("custom.md", "Custom", "# Custom\n\n{{TASK}}\n", 123));
+  const auto loaded = store.LoadTemplate("custom.md");
+  ASSERT_TRUE(loaded.has_value());
+  EXPECT_EQ(loaded->summary.id, "custom.md");
+  EXPECT_EQ(loaded->summary.title, "Custom");
+  EXPECT_EQ(loaded->content, "# Custom\n\n{{TASK}}\n");
+
+  EXPECT_FALSE(store.UpsertTemplate("../bad.md", "Bad", "# Bad\n", 124));
+  EXPECT_TRUE(store.RemoveTemplate("custom.md"));
+  EXPECT_FALSE(store.LoadTemplate("custom.md").has_value());
+}
+
+TEST_F(FileStoresTest, StoredEvidencePersistsMarkdownAndLogJsonPerSession) {
+  FileStoredEvidenceStore store(storage_root());
+
+  const auto markdown = store.CreateMarkdownEvidence("s_1", "ev_markdown", "Design Notes",
+                                                     "# Notes\nhello\n", 100);
+  ASSERT_TRUE(markdown.has_value());
+  EXPECT_EQ(markdown->kind, "user_markdown");
+  EXPECT_EQ(markdown->title, "Design Notes");
+  EXPECT_EQ(markdown->content_type, "text/markdown");
+
+  const auto log = store.CreateLogSnapshotEvidence("s_1", "ev_log", "Recent Logs",
+                                                  R"({"entries":[{"text":"ready"}]})", 101);
+  ASSERT_TRUE(log.has_value());
+  EXPECT_EQ(log->kind, "log_snapshot");
+  EXPECT_EQ(log->content_type, "application/json");
+
+  const auto summaries = store.ListEvidence("s_1");
+  ASSERT_EQ(summaries.size(), 2U);
+  EXPECT_EQ(summaries[0].evidence_id, "ev_log");
+  EXPECT_EQ(summaries[1].evidence_id, "ev_markdown");
+
+  const auto loaded_markdown = store.LoadEvidence("s_1", "ev_markdown");
+  ASSERT_TRUE(loaded_markdown.has_value());
+  EXPECT_EQ(loaded_markdown->markdown_content, std::optional<std::string>("# Notes\nhello\n"));
+  EXPECT_FALSE(loaded_markdown->evidence_json.has_value());
+
+  const auto loaded_log = store.LoadEvidence("s_1", "ev_log");
+  ASSERT_TRUE(loaded_log.has_value());
+  EXPECT_EQ(loaded_log->evidence_json, std::optional<std::string>(R"({"entries":[{"text":"ready"}]})"));
+  EXPECT_FALSE(loaded_log->markdown_content.has_value());
+
+  EXPECT_TRUE(store.RemoveEvidence("s_1", "ev_markdown"));
+  EXPECT_FALSE(store.LoadEvidence("s_1", "ev_markdown").has_value());
 }
 
 }  // namespace

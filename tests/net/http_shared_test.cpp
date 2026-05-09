@@ -912,6 +912,249 @@ TEST(HttpSharedTest, EvidenceTailDoesNotEmitObservationWithoutActorHeader) {
   EXPECT_EQ(observation_store.size(), 0U);
 }
 
+TEST(HttpSharedTest, TemplatesListReadWriteAndDeleteFromStorageRoot) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  host_config_store.storage_root_path =
+      std::filesystem::temp_directory_path() / "sentrits-http-templates-test";
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+
+  HttpRequest list_request;
+  list_request.method(http::verb::get);
+  list_request.target("/templates");
+  list_request.version(11);
+  list_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse list_response =
+      HandleRequest(list_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(list_response.result(), http::status::ok);
+  EXPECT_NE(list_response.body().find("code_review.md"), std::string::npos);
+
+  HttpRequest put_request;
+  put_request.method(http::verb::put);
+  put_request.target("/templates/custom.md");
+  put_request.version(11);
+  put_request.set(http::field::authorization, "Bearer good-token");
+  put_request.body() = R"({"content":"# Custom\n\n{{TASK}}\n"})";
+  put_request.prepare_payload();
+  const HttpResponse put_response =
+      HandleRequest(put_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(put_response.result(), http::status::ok);
+  EXPECT_NE(put_response.body().find("\"id\":\"custom.md\""), std::string::npos);
+  EXPECT_NE(put_response.body().find("{{TASK}}"), std::string::npos);
+
+  HttpRequest get_request;
+  get_request.method(http::verb::get);
+  get_request.target("/templates/custom.md");
+  get_request.version(11);
+  get_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse get_response =
+      HandleRequest(get_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(get_response.result(), http::status::ok);
+  EXPECT_NE(get_response.body().find("\"title\":\"Custom\""), std::string::npos);
+
+  HttpRequest delete_request;
+  delete_request.method(http::verb::delete_);
+  delete_request.target("/templates/custom.md");
+  delete_request.version(11);
+  delete_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse delete_response =
+      HandleRequest(delete_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(delete_response.result(), http::status::ok);
+
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+}
+
+TEST(HttpSharedTest, StoredEvidenceUploadsMarkdownAndCapturesLogSnapshot) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  host_config_store.storage_root_path =
+      std::filesystem::temp_directory_path() / "sentrits-http-stored-evidence-test";
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+
+  const auto summary = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "app.log",
+  });
+  ASSERT_TRUE(summary.has_value());
+  ASSERT_TRUE(session_manager.AppendLogStdout(summary->id.value(), "one\ntwo\n", 1000));
+
+  HttpRequest upload_request;
+  upload_request.method(http::verb::post);
+  upload_request.target("/sessions/" + summary->id.value() + "/stored-evidence");
+  upload_request.version(11);
+  upload_request.set(http::field::authorization, "Bearer good-token");
+  upload_request.body() = R"({"kind":"user_markdown","title":"Design Notes","content":"# Notes\nhello\n"})";
+  upload_request.prepare_payload();
+  const HttpResponse upload_response =
+      HandleRequest(upload_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(upload_response.result(), http::status::created);
+  EXPECT_NE(upload_response.body().find("\"kind\":\"user_markdown\""), std::string::npos);
+  boost::system::error_code upload_parse_error;
+  const auto upload_json = boost::json::parse(upload_response.body(), upload_parse_error);
+  ASSERT_FALSE(upload_parse_error);
+  const std::string markdown_id =
+      boost::json::value_to<std::string>(upload_json.as_object().at("evidenceId"));
+
+  HttpRequest capture_request;
+  capture_request.method(http::verb::post);
+  capture_request.target("/sessions/" + summary->id.value() + "/stored-evidence");
+  capture_request.version(11);
+  capture_request.set(http::field::authorization, "Bearer good-token");
+  capture_request.body() = R"({"kind":"log_snapshot","title":"Recent Logs","operation":"tail","lines":2})";
+  capture_request.prepare_payload();
+  const HttpResponse capture_response =
+      HandleRequest(capture_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(capture_response.result(), http::status::created);
+  EXPECT_NE(capture_response.body().find("\"kind\":\"log_snapshot\""), std::string::npos);
+  boost::system::error_code capture_parse_error;
+  const auto capture_json = boost::json::parse(capture_response.body(), capture_parse_error);
+  ASSERT_FALSE(capture_parse_error);
+  const std::string log_id =
+      boost::json::value_to<std::string>(capture_json.as_object().at("evidenceId"));
+
+  HttpRequest read_markdown_request;
+  read_markdown_request.method(http::verb::get);
+  read_markdown_request.target("/sessions/" + summary->id.value() + "/stored-evidence/" + markdown_id);
+  read_markdown_request.version(11);
+  read_markdown_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse read_markdown_response =
+      HandleRequest(read_markdown_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(read_markdown_response.result(), http::status::ok);
+  EXPECT_NE(read_markdown_response.body().find("\"content\":\"# Notes\\nhello\\n\""), std::string::npos);
+
+  HttpRequest read_log_request;
+  read_log_request.method(http::verb::get);
+  read_log_request.target("/sessions/" + summary->id.value() + "/stored-evidence/" + log_id);
+  read_log_request.version(11);
+  read_log_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse read_log_response =
+      HandleRequest(read_log_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(read_log_response.result(), http::status::ok);
+  EXPECT_NE(read_log_response.body().find("\"evidence\":{\"source\""), std::string::npos);
+  EXPECT_NE(read_log_response.body().find("\"text\":\"two\""), std::string::npos);
+
+  HttpRequest list_request;
+  list_request.method(http::verb::get);
+  list_request.target("/sessions/" + summary->id.value() + "/stored-evidence");
+  list_request.version(11);
+  list_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse list_response =
+      HandleRequest(list_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(list_response.result(), http::status::ok);
+  EXPECT_NE(list_response.body().find(markdown_id), std::string::npos);
+  EXPECT_NE(list_response.body().find(log_id), std::string::npos);
+
+  HttpRequest delete_request;
+  delete_request.method(http::verb::delete_);
+  delete_request.target("/sessions/" + summary->id.value() + "/stored-evidence/" + markdown_id);
+  delete_request.version(11);
+  delete_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse delete_response =
+      HandleRequest(delete_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(delete_response.result(), http::status::ok);
+
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+}
+
+TEST(HttpSharedTest, EvidenceTailPersistsOnlyWhenRequested) {
+  auto session_manager = MakeManager();
+  FakeAuthorizer authorizer;
+  FakePairingService pairing_service;
+  FakeHostConfigStore host_config_store;
+  host_config_store.storage_root_path =
+      std::filesystem::temp_directory_path() / "sentrits-http-evidence-persist-test";
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+
+  const auto summary = session_manager.CreateLogSession(vibe::service::LogSessionCreateRequest{
+      .workspace_root = ".",
+      .title = "app.log",
+  });
+  ASSERT_TRUE(summary.has_value());
+  ASSERT_TRUE(session_manager.AppendLogStdout(summary->id.value(), "one\ntwo\n", 1000));
+
+  HttpRequest default_request;
+  default_request.method(http::verb::get);
+  default_request.target("/sessions/" + summary->id.value() + "/evidence/tail?lines=2");
+  default_request.version(11);
+  default_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse default_response =
+      HandleRequest(default_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(default_response.result(), http::status::ok);
+  EXPECT_EQ(default_response.body().find("storedEvidenceId"), std::string::npos);
+
+  HttpRequest list_before_request;
+  list_before_request.method(http::verb::get);
+  list_before_request.target("/sessions/" + summary->id.value() + "/stored-evidence");
+  list_before_request.version(11);
+  list_before_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse list_before_response =
+      HandleRequest(list_before_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(list_before_response.result(), http::status::ok);
+  EXPECT_NE(list_before_response.body().find("\"evidence\":[]"), std::string::npos);
+
+  HttpRequest persist_request;
+  persist_request.method(http::verb::get);
+  persist_request.target("/sessions/" + summary->id.value() +
+                         "/evidence/tail?lines=2&persist=true&title=Saved%20Tail");
+  persist_request.version(11);
+  persist_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse persist_response =
+      HandleRequest(persist_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(persist_response.result(), http::status::ok);
+  EXPECT_NE(persist_response.body().find("\"text\":\"two\""), std::string::npos);
+  boost::system::error_code parse_error;
+  const auto parsed = boost::json::parse(persist_response.body(), parse_error);
+  ASSERT_FALSE(parse_error);
+  ASSERT_TRUE(parsed.is_object());
+  const auto* stored_id_value = parsed.as_object().if_contains("storedEvidenceId");
+  ASSERT_NE(stored_id_value, nullptr);
+  ASSERT_TRUE(stored_id_value->is_string());
+  const std::string stored_id = boost::json::value_to<std::string>(*stored_id_value);
+
+  HttpRequest read_request;
+  read_request.method(http::verb::get);
+  read_request.target("/sessions/" + summary->id.value() + "/stored-evidence/" + stored_id);
+  read_request.version(11);
+  read_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse read_response =
+      HandleRequest(read_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  ASSERT_EQ(read_response.result(), http::status::ok);
+  EXPECT_NE(read_response.body().find("\"kind\":\"log_snapshot\""), std::string::npos);
+  EXPECT_NE(read_response.body().find("\"title\":\"Saved Tail\""), std::string::npos);
+  EXPECT_NE(read_response.body().find("\"text\":\"two\""), std::string::npos);
+
+  HttpRequest invalid_request;
+  invalid_request.method(http::verb::get);
+  invalid_request.target("/sessions/" + summary->id.value() + "/evidence/tail?persist=maybe");
+  invalid_request.version(11);
+  invalid_request.set(http::field::authorization, "Bearer good-token");
+  const HttpResponse invalid_response =
+      HandleRequest(invalid_request, session_manager,
+                    MakeAuthContext(authorizer, pairing_service, host_config_store));
+  EXPECT_EQ(invalid_response.result(), http::status::bad_request);
+  EXPECT_NE(invalid_response.body().find("invalid persist flag"), std::string::npos);
+
+  std::filesystem::remove_all(host_config_store.storage_root_path);
+}
+
 TEST(HttpSharedTest, EvidenceSearchEmitsObservationWithActorHeader) {
   auto session_manager = MakeManager();
   FakeAuthorizer authorizer;

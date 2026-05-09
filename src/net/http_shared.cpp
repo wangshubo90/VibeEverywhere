@@ -4,6 +4,7 @@
 #include <boost/json.hpp>
 
 #include <chrono>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <cstdlib>
@@ -23,6 +24,7 @@
 #include "vibe/net/request_parsing.h"
 #include "vibe/base/debug_trace.h"
 #include "vibe/service/evidence_response_assembler.h"
+#include "vibe/store/file_stores.h"
 
 namespace vibe::net {
 
@@ -211,6 +213,24 @@ auto ParseRequiredRevisionQueryValue(const std::string& target, const std::strin
   } catch (...) {
     return std::nullopt;
   }
+}
+
+auto ParseBoolQueryValue(const std::string& target, const std::string_view key,
+                         const bool default_value) -> std::optional<bool> {
+  std::string raw_value = ParseQueryValue(target, key);
+  if (raw_value.empty()) {
+    return default_value;
+  }
+  std::ranges::transform(raw_value, raw_value.begin(), [](const unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  if (raw_value == "true" || raw_value == "1") {
+    return true;
+  }
+  if (raw_value == "false" || raw_value == "0") {
+    return false;
+  }
+  return std::nullopt;
 }
 
 auto MakeSnapshotResponse(const HttpRequest& request, const vibe::session::SessionSnapshot& snapshot,
@@ -1265,10 +1285,20 @@ auto ActorContextFromHeader(const HttpRequest& request,
   };
 }
 
+auto DefaultStoredEvidenceTitle(const vibe::service::EvidenceResult& result) -> std::string {
+  const std::string operation(vibe::service::ToString(result.operation));
+  if (result.operation == vibe::service::EvidenceOperation::Search && !result.query.empty()) {
+    return operation + " evidence: " + result.query;
+  }
+  return operation + " evidence";
+}
+
 auto FinalizeEvidenceResponse(const HttpRequest& request,
                               vibe::service::SessionManager& session_manager,
                               const HttpRouteContext& context,
-                              vibe::service::EvidenceResult result) -> HttpResponse {
+                              vibe::service::EvidenceResult result,
+                              const bool persist,
+                              const std::string& persisted_title) -> HttpResponse {
   std::string source_title;
   if (const auto source_summary = session_manager.GetSession(result.source.session_id.value());
       source_summary.has_value()) {
@@ -1291,7 +1321,398 @@ auto FinalizeEvidenceResponse(const HttpRequest& request,
       context.observation_event_sink(add_result.event);
     }
   }
-  return MakeJsonResponse(request, http::status::ok, ToJson(assembly.result));
+  std::string body = ToJson(assembly.result);
+  if (persist) {
+    if (context.storage_root.empty()) {
+      return MakeJsonResponse(request, http::status::service_unavailable,
+                              "{\"error\":\"storage root unavailable\"}");
+    }
+    const std::string title = !persisted_title.empty() ? persisted_title : "stored evidence";
+    const std::string evidence_id = "ev_" + MakeRandomHexToken(8);
+    const vibe::store::FileStoredEvidenceStore store(context.storage_root);
+    const auto stored = store.CreateLogSnapshotEvidence(assembly.result.source.session_id.value(), evidence_id,
+                                                        title, body, CurrentUnixTimeMs());
+    if (!stored.has_value()) {
+      return MakeJsonResponse(request, http::status::internal_server_error,
+                              "{\"error\":\"unable to persist evidence\"}");
+    }
+
+    boost::system::error_code error;
+    json::value parsed = json::parse(body, error);
+    if (error || !parsed.is_object()) {
+      return MakeJsonResponse(request, http::status::internal_server_error,
+                              "{\"error\":\"unable to annotate persisted evidence\"}");
+    }
+    parsed.as_object()["storedEvidenceId"] = evidence_id;
+    body = json::serialize(parsed);
+  }
+  return MakeJsonResponse(request, http::status::ok, body);
+}
+
+auto MakeTemplateSummaryJson(const vibe::store::PromptTemplateSummary& summary) -> json::object {
+  json::object object;
+  object["id"] = summary.id;
+  object["title"] = summary.title;
+  object["updatedAtUnixMs"] = summary.updated_at_unix_ms;
+  object["sizeBytes"] = static_cast<std::uint64_t>(summary.size_bytes);
+  return object;
+}
+
+auto MakeTemplateRecordJson(const vibe::store::PromptTemplateRecord& record) -> json::object {
+  json::object object = MakeTemplateSummaryJson(record.summary);
+  object["content"] = record.content;
+  return object;
+}
+
+auto MakeStoredEvidenceSummaryJson(const vibe::store::StoredEvidenceSummary& summary) -> json::object {
+  json::object object;
+  object["evidenceId"] = summary.evidence_id;
+  object["sessionId"] = summary.session_id;
+  object["kind"] = summary.kind;
+  object["title"] = summary.title;
+  object["contentType"] = summary.content_type;
+  object["createdAtUnixMs"] = summary.created_at_unix_ms;
+  object["sizeBytes"] = static_cast<std::uint64_t>(summary.size_bytes);
+  return object;
+}
+
+auto MakeStoredEvidenceRecordJson(const vibe::store::StoredEvidenceRecord& record) -> std::optional<std::string> {
+  json::object object = MakeStoredEvidenceSummaryJson(record.summary);
+  if (record.markdown_content.has_value()) {
+    object["content"] = *record.markdown_content;
+  }
+  if (record.evidence_json.has_value()) {
+    boost::system::error_code error;
+    json::value evidence = json::parse(*record.evidence_json, error);
+    if (error) {
+      return std::nullopt;
+    }
+    object["evidence"] = std::move(evidence);
+  }
+  return json::serialize(object);
+}
+
+auto ParseJsonObjectBody(const std::string& body) -> std::optional<json::object> {
+  boost::system::error_code error;
+  json::value parsed = json::parse(body, error);
+  if (error || !parsed.is_object()) {
+    return std::nullopt;
+  }
+  return parsed.as_object();
+}
+
+auto JsonStringField(const json::object& object, const std::string_view field) -> std::optional<std::string> {
+  const auto* value = object.if_contains(field);
+  if (value == nullptr || !value->is_string()) {
+    return std::nullopt;
+  }
+  const std::string parsed(value->as_string());
+  if (parsed.empty()) {
+    return std::nullopt;
+  }
+  return parsed;
+}
+
+auto OptionalJsonStringField(const json::object& object, const std::string_view field) -> std::optional<std::string> {
+  const auto* value = object.if_contains(field);
+  if (value == nullptr) {
+    return std::nullopt;
+  }
+  if (!value->is_string()) {
+    return std::string{};
+  }
+  return std::string(value->as_string());
+}
+
+auto JsonSizeField(const json::object& object, const std::string_view field, const std::size_t default_value)
+    -> std::optional<std::size_t> {
+  const auto* value = object.if_contains(field);
+  if (value == nullptr) {
+    return default_value;
+  }
+  if (!value->is_int64() && !value->is_uint64()) {
+    return std::nullopt;
+  }
+  if (value->is_int64() && value->as_int64() < 0) {
+    return std::nullopt;
+  }
+  const std::uint64_t parsed = value->is_uint64()
+      ? value->as_uint64()
+      : static_cast<std::uint64_t>(value->as_int64());
+  if (parsed == 0 || parsed > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<std::size_t>(parsed);
+}
+
+auto JsonRevisionField(const json::object& object, const std::string_view field) -> std::optional<std::uint64_t> {
+  const auto* value = object.if_contains(field);
+  if (value == nullptr || (!value->is_int64() && !value->is_uint64())) {
+    return std::nullopt;
+  }
+  if (value->is_int64() && value->as_int64() < 0) {
+    return std::nullopt;
+  }
+  return value->is_uint64() ? value->as_uint64() : static_cast<std::uint64_t>(value->as_int64());
+}
+
+auto CaptureEvidenceFromRequest(const json::object& object,
+                                vibe::service::SessionManager& session_manager,
+                                const std::string& session_id)
+    -> std::optional<vibe::service::EvidenceResult> {
+  const auto operation = JsonStringField(object, "operation");
+  if (!operation.has_value()) {
+    return std::nullopt;
+  }
+  if (*operation == "tail") {
+    const auto lines = JsonSizeField(object, "lines", 200);
+    if (!lines.has_value()) {
+      return std::nullopt;
+    }
+    return session_manager.TailEvidence(session_id, vibe::service::EvidenceTailOptions{.lines = *lines});
+  }
+  if (*operation == "search") {
+    const auto query = JsonStringField(object, "query");
+    const auto limit = JsonSizeField(object, "limit", 200);
+    if (!query.has_value() || !limit.has_value()) {
+      return std::nullopt;
+    }
+    return session_manager.SearchEvidence(
+        session_id, vibe::service::EvidenceSearchOptions{.query = *query, .limit = *limit});
+  }
+  if (*operation == "range") {
+    const auto start = JsonRevisionField(object, "start");
+    const auto end = JsonRevisionField(object, "end");
+    const auto limit = JsonSizeField(object, "limit", 200);
+    if (!start.has_value() || !end.has_value() || !limit.has_value()) {
+      return std::nullopt;
+    }
+    return session_manager.RangeEvidence(
+        session_id,
+        vibe::service::EvidenceRangeOptions{
+            .revision_start = *start,
+            .revision_end = *end,
+            .limit = *limit,
+        });
+  }
+  if (*operation == "context") {
+    const auto revision = JsonRevisionField(object, "revision");
+    const auto before = JsonSizeField(object, "before", 80);
+    const auto after = JsonSizeField(object, "after", 120);
+    if (!revision.has_value() || !before.has_value() || !after.has_value()) {
+      return std::nullopt;
+    }
+    return session_manager.ContextEvidence(
+        session_id,
+        vibe::service::EvidenceContextOptions{
+            .revision = *revision,
+            .before = *before,
+            .after = *after,
+        });
+  }
+  return std::nullopt;
+}
+
+auto HandleTemplatesRequest(const HttpRequest& request, const HttpRouteContext& context,
+                            const std::string& request_path) -> HttpResponse {
+  if (context.storage_root.empty()) {
+    return MakeJsonResponse(request, http::status::service_unavailable,
+                            "{\"error\":\"storage root unavailable\"}");
+  }
+
+  const std::string prefix = "/templates";
+  const vibe::store::FilePromptTemplateStore store(context.storage_root);
+  if (request_path == prefix) {
+    if (request.method() != http::verb::get) {
+      return MakeJsonResponse(request, http::status::method_not_allowed,
+                              "{\"error\":\"method not allowed\"}");
+    }
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    json::array templates;
+    for (const auto& summary : store.ListTemplates()) {
+      templates.emplace_back(MakeTemplateSummaryJson(summary));
+    }
+    json::object body;
+    body["templates"] = std::move(templates);
+    return MakeJsonResponse(request, http::status::ok, json::serialize(body));
+  }
+
+  if (request_path.rfind(prefix + "/", 0) != 0) {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+  }
+  const std::string template_id = request_path.substr(prefix.size() + 1U);
+  if (template_id.empty()) {
+    return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+  }
+
+  if (request.method() == http::verb::get) {
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    const auto record = store.LoadTemplate(template_id);
+    if (!record.has_value()) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"template not found\"}");
+    }
+    return MakeJsonResponse(request, http::status::ok, json::serialize(MakeTemplateRecordJson(*record)));
+  }
+
+  if (request.method() == http::verb::put) {
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    const auto body = ParseJsonObjectBody(request.body());
+    if (!body.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid template request\"}");
+    }
+    const auto content = JsonStringField(*body, "content");
+    const auto title = OptionalJsonStringField(*body, "title").value_or("");
+    if (!content.has_value()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid template request\"}");
+    }
+    if (!store.UpsertTemplate(template_id, title, *content, CurrentUnixTimeMs())) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"unable to save template\"}");
+    }
+    const auto record = store.LoadTemplate(template_id);
+    if (!record.has_value()) {
+      return MakeJsonResponse(request, http::status::internal_server_error,
+                              "{\"error\":\"unable to load saved template\"}");
+    }
+    return MakeJsonResponse(request, http::status::ok, json::serialize(MakeTemplateRecordJson(*record)));
+  }
+
+  if (request.method() == http::verb::delete_) {
+    if (const auto auth_response =
+            RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+        auth_response.has_value()) {
+      return *auth_response;
+    }
+    if (!store.RemoveTemplate(template_id)) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"template not found\"}");
+    }
+    return MakeJsonResponse(request, http::status::ok, "{\"status\":\"ok\"}");
+  }
+
+  return MakeJsonResponse(request, http::status::method_not_allowed, "{\"error\":\"method not allowed\"}");
+}
+
+auto HandleStoredEvidenceRequest(const HttpRequest& request,
+                                 vibe::service::SessionManager& session_manager,
+                                 const HttpRouteContext& context,
+                                 const std::string& session_id,
+                                 const std::string& suffix) -> HttpResponse {
+  if (context.storage_root.empty()) {
+    return MakeJsonResponse(request, http::status::service_unavailable,
+                            "{\"error\":\"storage root unavailable\"}");
+  }
+
+  vibe::store::FileStoredEvidenceStore store(context.storage_root);
+  if (suffix.empty()) {
+    if (request.method() == http::verb::get) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+      json::array evidence;
+      for (const auto& summary : store.ListEvidence(session_id)) {
+        evidence.emplace_back(MakeStoredEvidenceSummaryJson(summary));
+      }
+      json::object body;
+      body["evidence"] = std::move(evidence);
+      return MakeJsonResponse(request, http::status::ok, json::serialize(body));
+    }
+
+    if (request.method() == http::verb::post) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+      const auto body = ParseJsonObjectBody(request.body());
+      if (!body.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request,
+                                "{\"error\":\"invalid evidence request\"}");
+      }
+      const auto kind = JsonStringField(*body, "kind");
+      const auto title = JsonStringField(*body, "title");
+      if (!kind.has_value() || !title.has_value()) {
+        return MakeJsonResponse(request, http::status::bad_request,
+                                "{\"error\":\"invalid evidence request\"}");
+      }
+      const std::string evidence_id = "ev_" + MakeRandomHexToken(8);
+      const std::int64_t now = CurrentUnixTimeMs();
+      std::optional<vibe::store::StoredEvidenceSummary> created;
+      if (*kind == "user_markdown") {
+        const auto content = JsonStringField(*body, "content");
+        if (!content.has_value()) {
+          return MakeJsonResponse(request, http::status::bad_request,
+                                  "{\"error\":\"invalid markdown evidence request\"}");
+        }
+        created = store.CreateMarkdownEvidence(session_id, evidence_id, *title, *content, now);
+      } else if (*kind == "log_snapshot") {
+        const auto evidence = CaptureEvidenceFromRequest(*body, session_manager, session_id);
+        if (!evidence.has_value()) {
+          return MakeJsonResponse(request, http::status::bad_request,
+                                  "{\"error\":\"unable to capture log evidence\"}");
+        }
+        created = store.CreateLogSnapshotEvidence(session_id, evidence_id, *title, ToJson(*evidence), now);
+      } else {
+        return MakeJsonResponse(request, http::status::bad_request,
+                                "{\"error\":\"unsupported evidence kind\"}");
+      }
+      if (!created.has_value()) {
+        return MakeJsonResponse(request, http::status::internal_server_error,
+                                "{\"error\":\"unable to save evidence\"}");
+      }
+      return MakeJsonResponse(request, http::status::created,
+                              json::serialize(MakeStoredEvidenceSummaryJson(*created)));
+    }
+  } else {
+    const std::string evidence_id = suffix.substr(1U);
+    if (evidence_id.empty() || evidence_id.find('/') != std::string::npos) {
+      return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"not found\"}");
+    }
+
+    if (request.method() == http::verb::get) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+      const auto record = store.LoadEvidence(session_id, evidence_id);
+      if (!record.has_value()) {
+        return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"evidence not found\"}");
+      }
+      const auto response = MakeStoredEvidenceRecordJson(*record);
+      if (!response.has_value()) {
+        return MakeJsonResponse(request, http::status::internal_server_error,
+                                "{\"error\":\"invalid stored evidence\"}");
+      }
+      return MakeJsonResponse(request, http::status::ok, *response);
+    }
+
+    if (request.method() == http::verb::delete_) {
+      if (const auto auth_response =
+              RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ControlSession);
+          auth_response.has_value()) {
+        return *auth_response;
+      }
+      if (!store.RemoveEvidence(session_id, evidence_id)) {
+        return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"evidence not found\"}");
+      }
+      return MakeJsonResponse(request, http::status::ok, "{\"status\":\"ok\"}");
+    }
+  }
+
+  return MakeJsonResponse(request, http::status::method_not_allowed, "{\"error\":\"method not allowed\"}");
 }
 
 auto HandleEvidenceRequest(const HttpRequest& request,
@@ -1309,6 +1730,18 @@ auto HandleEvidenceRequest(const HttpRequest& request,
           RequireAuthorization(request, context, vibe::auth::AuthorizationAction::ObserveSessions);
       auth_response.has_value()) {
     return *auth_response;
+  }
+
+  const auto persist = ParseBoolQueryValue(target, "persist", false);
+  if (!persist.has_value()) {
+    return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid persist flag\"}");
+  }
+  std::optional<std::string> title;
+  if (const std::string raw_title = ParseQueryValue(target, "title"); !raw_title.empty()) {
+    title = UrlDecode(raw_title);
+    if (!title.has_value() || title->empty()) {
+      return MakeJsonResponse(request, http::status::bad_request, "{\"error\":\"invalid evidence title\"}");
+    }
   }
 
   std::optional<vibe::service::EvidenceResult> evidence;
@@ -1371,7 +1804,9 @@ auto HandleEvidenceRequest(const HttpRequest& request,
   if (!evidence.has_value()) {
     return MakeJsonResponse(request, http::status::not_found, "{\"error\":\"session not found\"}");
   }
-  return FinalizeEvidenceResponse(request, session_manager, context, std::move(*evidence));
+  const std::string persisted_title = title.value_or(DefaultStoredEvidenceTitle(*evidence));
+  return FinalizeEvidenceResponse(request, session_manager, context, std::move(*evidence), *persist,
+                                  persisted_title);
 }
 
 auto MakeSessionGroupTagsResponse(const vibe::service::SessionSummary& summary) -> std::string {
@@ -1394,6 +1829,10 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
 
   if (request.method() == http::verb::get && request.target() == "/health") {
     return MakeTextResponse(request, http::status::ok, "text/plain; charset=utf-8", "ok\n");
+  }
+
+  if (target_path == "/templates" || target_string.rfind("/templates/", 0) == 0) {
+    return HandleTemplatesRequest(request, context, std::string(target_path));
   }
 
   if (request.method() == http::verb::get && target_path == "/") {
@@ -1835,6 +2274,8 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
     const auto groups_suffix = std::string("/groups");
     const auto input_suffix = std::string("/input");
     const auto messages_suffix = std::string("/messages");
+    const auto stored_evidence_suffix = std::string("/stored-evidence");
+    const auto stored_evidence_marker = std::string("/stored-evidence/");
     const auto stop_suffix = std::string("/stop");
     const auto tail_marker = std::string("/tail");
     const auto evidence_marker = std::string("/evidence/");
@@ -1915,6 +2356,19 @@ auto HandleRequest(const HttpRequest& request, vibe::service::SessionManager& se
       const std::string session_id = remainder.substr(0, evidence_pos);
       const std::string operation = remainder.substr(evidence_pos + evidence_marker.size());
       return HandleEvidenceRequest(request, session_manager, context, session_id, operation, target);
+    }
+
+    const std::size_t stored_evidence_pos = remainder.find(stored_evidence_marker);
+    if (stored_evidence_pos != std::string::npos) {
+      const std::string session_id = remainder.substr(0, stored_evidence_pos);
+      const std::string suffix = "/" + remainder.substr(stored_evidence_pos + stored_evidence_marker.size());
+      return HandleStoredEvidenceRequest(request, session_manager, context, session_id, suffix);
+    }
+
+    if (remainder.size() > stored_evidence_suffix.size() &&
+        remainder.ends_with(stored_evidence_suffix)) {
+      const std::string session_id = remainder.substr(0, remainder.size() - stored_evidence_suffix.size());
+      return HandleStoredEvidenceRequest(request, session_manager, context, session_id, "");
     }
 
     const std::size_t tail_pos = remainder.find(tail_marker);
