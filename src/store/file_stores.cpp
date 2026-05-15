@@ -1338,7 +1338,11 @@ auto FileStoredEvidenceStore::LoadEvidence(const std::string& session_id,
     return std::nullopt;
   }
 
-  StoredEvidenceRecord record{.summary = std::move(*summary)};
+  StoredEvidenceRecord record{
+      .summary = std::move(*summary),
+      .markdown_content = std::nullopt,
+      .evidence_json = std::nullopt,
+  };
   if (record.summary.kind == "user_markdown") {
     record.markdown_content = ReadFile(*directory / "content.md");
     if (!record.markdown_content.has_value()) {
