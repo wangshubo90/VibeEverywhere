@@ -1028,7 +1028,8 @@ TEST_F(HttpServerFixture, RemoteListenerSupportsHttpsAndWssWhenTlsConfigured) {
 
   const std::string token = EnsureApprovedSecureToken();
   const std::string create_response = CreateSecureSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   ssl::context ssl_context(ssl::context::tls_client);
@@ -1044,13 +1045,13 @@ TEST_F(HttpServerFixture, RemoteListenerSupportsHttpsAndWssWhenTlsConfigured) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   websocket.read(buffer);
   const std::string payload = beast::buffers_to_string(buffer.data());
   EXPECT_NE(payload.find("\"type\":\"session.updated\""), std::string::npos);
-  EXPECT_NE(payload.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(payload.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
 }
 
 TEST_F(HttpServerFixture, HubHeartbeatPostsInitialSessionInventoryAfterStartup) {
@@ -1258,7 +1259,8 @@ TEST_F(HttpServerFixture, RemoteControlReturnsToHostAfterControllerDisconnects) 
 TEST_F(HttpServerFixture, StopPersistsLiveSessionsAsExited) {
   const std::string token = EnsureApprovedToken();
   const std::string create_response = CreateSession(token);
-  ASSERT_NE(create_response.find("\"sessionId\":\"s_1\""), std::string::npos);
+  const std::string session_id = ExtractSessionId(create_response);
+  ASSERT_FALSE(session_id.empty());
 
   asio::io_context io_context;
   tcp::resolver resolver(io_context);
@@ -1271,7 +1273,7 @@ TEST_F(HttpServerFixture, StopPersistsLiveSessionsAsExited) {
       [&token](websocket::request_type& request) {
         request.set(http::field::authorization, "Bearer " + token);
       }));
-  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/s_1");
+  websocket.handshake("127.0.0.1:" + std::to_string(kRemotePort), "/ws/sessions/" + session_id);
 
   beast::flat_buffer buffer;
   static_cast<void>(ReadUntilFrameContains(websocket, buffer, "\"type\":\"session.updated\""));
@@ -1284,7 +1286,7 @@ TEST_F(HttpServerFixture, StopPersistsLiveSessionsAsExited) {
   std::ifstream input(storage_root_ / "sessions.json");
   ASSERT_TRUE(input.is_open());
   const std::string body((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-  EXPECT_NE(body.find("\"sessionId\":\"s_1\""), std::string::npos);
+  EXPECT_NE(body.find("\"sessionId\":\"" + session_id + "\""), std::string::npos);
   EXPECT_NE(body.find("\"status\":\"Exited\""), std::string::npos);
 }
 
